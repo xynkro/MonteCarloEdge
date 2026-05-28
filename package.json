@@ -1,0 +1,17 @@
+{
+  "name": "monte-carlo-edge",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "validate": "tsx src/engine/scripts/validate.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "tsx": "^4.20.0",
+    "typescript": "~5.6.0",
+    "vitest": "^2.1.0"
+  }
+}
