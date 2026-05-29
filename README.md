@@ -19,18 +19,39 @@ inherent variance of the cards remains.
 | Exhaustive enumeration | 1,712,304 boards per spot → exact ground-truth equity, derived from a verified evaluator | computed in ~15s |
 | Monte Carlo convergence | 200k-iteration sampler must agree with exhaustive within 4× its 95% CI | 7/7 passing |
 
+**Phase 2: ranges + range-aware equity — complete and validated.**
+
+| Layer | What it proves | Status |
+|---|---|---|
+| Range round-trip | Parse → encode → re-parse produces identical combo sets | 9/9 passing |
+| Sampler bias | Single-hand range vs direct HU equity agree within statistical tolerance | 3/3 passing |
+| Canonical equity spots | Range-vs-range equity for known positions falls within expected bounds | 3/3 passing |
+
+**Phase 3: decision engine + self-play — complete and validated.**
+
+| Layer | What it proves | Status |
+|---|---|---|
+| Preflop sanity | Premium hands raise, trash folds, BB defends/folds correctly | 9/9 passing |
+| EV sign checks | Equity estimates match board texture, positive EV → call/raise | 5/5 passing |
+| Sizing bounds | Opens 2-3bb, postflop ⅓–1× pot, 3-bets > open | 5/5 passing |
+| Self-play vs Station | Hero is +EV against calling station (100k hands HU) | bb/100 > 5 |
+| Self-play vs Nit | Hero is +EV against nit | bb/100 > 3 |
+| Self-play vs TAG | Hero holds vs tight-aggressive opponent | bb/100 > −2 |
+| Self-play vs LAG | Hero is +EV against loose-aggressive opponent | bb/100 > 0 |
+
 Remaining phases:
 
-- Phase 2 — preflop range tables (HU through 10-max) + range-aware equity
-- Phase 3 — decision engine + self-play backtest against opponent archetypes
 - Phase 4 — UI (setup, seat ring, action flow, elimination, card picker)
 - Phase 5 — PWA shell, hand history, GitHub Pages deploy
 
 ## Scripts
 
 ```bash
-npm test         # vitest, unit suite
-npm run validate # exhaustive + Monte Carlo Layer 1 validation report
+npm test                  # vitest, unit suite (173 tests)
+npm run validate          # exhaustive + Monte Carlo Layer 1 validation report
+npm run validate-ranges   # Layer 2: range parsing, sampler bias, canonical spots
+npm run validate-decisions # Layer 3: decision sanity, EV checks, sizing bounds
+npm run self-play         # HU self-play backtest vs 4 opponent archetypes (100k hands)
 ```
 
 ## Engine layout
@@ -39,4 +60,15 @@ npm run validate # exhaustive + Monte Carlo Layer 1 validation report
 - `src/engine/evaluator.ts` — 7-card hand evaluator, packed-integer ranking
 - `src/engine/equity.ts` — Monte Carlo and exhaustive equity calculators
 - `src/engine/rng.ts` — seedable PRNG (mulberry32) for reproducible runs
+- `src/engine/range.ts` — Range class (parse, filter, sample, encode)
+- `src/engine/charts/` — preflop RFI + BB defense charts (HU, 6-max, 9-max)
+- `src/engine/hand-strength.ts` — Chen formula hand ranking, range slicing
+- `src/engine/game-state.ts` — hand state tracker (streets, actions, pot math)
+- `src/engine/sizing.ts` — geometric + SPR-based bet sizing
+- `src/engine/opponent.ts` — 4 opponent archetypes (TAG, LAG, Station, Nit)
+- `src/engine/decision.ts` — decision engine: recommend fold/call/raise + sizing
+- `src/engine/simulator.ts` — HU self-play backtest harness
 - `src/engine/scripts/validate.ts` — Layer 1 validation harness
+- `src/engine/scripts/validate-ranges.ts` — Layer 2 validation
+- `src/engine/scripts/validate-decisions.ts` — Layer 3 validation
+- `src/engine/scripts/self-play.ts` — self-play backtest runner
