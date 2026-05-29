@@ -1,11 +1,11 @@
-import { type Card, rankOf, suitOf, makeCard, NUM_CARDS, cardToString } from "../engine/cards.js";
+import { type Card, rankOf, suitOf, makeCard, NUM_CARDS } from "../engine/cards.js";
 import { type Combo } from "../engine/range.js";
 import { mulberry32 } from "../engine/rng.js";
-import { GameState, type ActionType, type ActionInput } from "../engine/game-state.js";
+import { GameState, type ActionType } from "../engine/game-state.js";
 import { getPositions } from "../engine/charts/index.js";
 import { recommend, type Recommendation } from "../engine/decision.js";
 import { TAG, LAG, STATION, NIT, type OpponentProfile } from "../engine/opponent.js";
-import { openRaiseSize, threeBetSize, minRaise } from "../engine/sizing.js";
+import { openRaiseSize, minRaise } from "../engine/sizing.js";
 
 const RANKS = "23456789TJQKA";
 const SUITS = ["♣", "♦", "♥", "♠"];
@@ -16,6 +16,7 @@ interface AppState {
   screen: "setup" | "game";
   tableSize: number;
   stackBB: number;
+  blindValue: number;
   heroSeat: number;
   archetype: string;
   gs: GameState | null;
@@ -35,8 +36,9 @@ const S: AppState = {
   screen: "setup",
   tableSize: 6,
   stackBB: 100,
+  blindValue: 1,
   heroSeat: 3,
-  archetype: "TAG",
+  archetype: "Station",
   gs: null,
   heroCards: null,
   boardCards: [],
@@ -56,9 +58,13 @@ const app = document.getElementById("app")!;
 function cardDisplay(c: Card): string {
   return RANKS[rankOf(c)] + SUITS[suitOf(c)];
 }
-
 function isRed(c: Card): boolean {
   return SUIT_RED[suitOf(c)]!;
+}
+function chips(bb: number): string {
+  const v = bb * S.blindValue;
+  if (v === 0) return "$0";
+  return v % 1 === 0 ? `$${v}` : `$${v.toFixed(2)}`;
 }
 
 function render(): void {
@@ -70,19 +76,18 @@ function render(): void {
 /* ═══════════════════ SETUP ═══════════════════ */
 
 function positionTip(pos: string): string {
-  const tips: Record<string, string> = {
+  const t: Record<string, string> = {
     BTN: "Dealer — best position, acts last after the flop",
     SB: "Small Blind — forced half-bet, left of dealer",
     BB: "Big Blind — forced full bet, left of SB",
-    UTG: "Under the Gun — first to act, tightest spot",
-    "UTG1": "Early position — second to act",
-    "UTG2": "Early position — third to act",
-    MP: "Middle Position",
-    "MP1": "Middle Position",
-    HJ: "Hijack — two seats before dealer",
-    CO: "Cutoff — one seat before dealer, wide range",
+    UTG: "Under the Gun — first to act preflop",
+    UTG1: "Early position — second to act",
+    UTG2: "Early position — third to act",
+    MP: "Middle Position", MP1: "Middle Position",
+    HJ: "Hijack — two before dealer",
+    CO: "Cutoff — one before dealer",
   };
-  return tips[pos] ?? pos;
+  return t[pos] ?? pos;
 }
 
 const ARCH_DESC: Record<string, string> = {
@@ -110,7 +115,6 @@ function renderSetup(): void {
           <li>When it's <strong>your turn</strong>, the app shows the recommended play with the math behind it</li>
           <li>After each betting round, tap the board to enter community cards</li>
         </ol>
-        <p>The engine runs real-time equity simulations to find your best move.</p>
       </div>
 
       <div class="field">
@@ -123,14 +127,24 @@ function renderSetup(): void {
       </div>
 
       <div class="field">
-        <label>Starting chips</label>
-        <span class="hint">In big blinds. If the big blind is $1 and everyone has $100, enter 100.</span>
+        <label>Big blind amount</label>
+        <span class="hint">What's the big blind at your table? All bets will show in this currency.</span>
+        <div class="blind-input-row">
+          <span class="currency-sign">$</span>
+          <input type="number" id="blind" value="${S.blindValue}" min="0.01" step="0.25" />
+        </div>
+      </div>
+
+      <div class="field">
+        <label>Starting chips per player</label>
+        <span class="hint">In big blinds. If BB is $1 and everyone buys in for $100, enter 100.</span>
         <input type="number" id="stack" value="${S.stackBB}" min="10" max="500" />
+        <span class="hint">= ${chips(S.stackBB)} buy-in</span>
       </div>
 
       <div class="field">
         <label>Where are you sitting?</label>
-        <span class="hint">Tap your seat. The dealer button (BTN) is the best spot — you act last after the flop.</span>
+        <span class="hint">Tap your seat. BTN (Dealer) is the best — you act last after the flop.</span>
         <div class="seat-ring">
           ${positions.map((p, i) =>
             `<button class="seat-btn ${i === S.heroSeat ? "selected" : ""}" data-seat="${i}" title="${positionTip(p)}">${p}</button>`
@@ -141,7 +155,7 @@ function renderSetup(): void {
 
       <div class="field">
         <label>What type of opponents?</label>
-        <span class="hint">Pick the style that best matches the people you're playing against.</span>
+        <span class="hint">Pick the style that best matches the players at your table.</span>
         <select id="arch">
           ${Object.keys(PROFILES).map(k =>
             `<option value="${k}" ${k === S.archetype ? "selected" : ""}>${k}</option>`
@@ -156,29 +170,28 @@ function renderSetup(): void {
   $("#help-toggle").addEventListener("click", () => {
     document.getElementById("help-body")?.classList.toggle("hidden");
   });
-
   $("#tsize").addEventListener("change", (e) => {
     S.tableSize = +(e.target as HTMLSelectElement).value;
-    const maxSeat = getPositions(S.tableSize).length - 1;
-    if (S.heroSeat > maxSeat) S.heroSeat = maxSeat;
+    const max = getPositions(S.tableSize).length - 1;
+    if (S.heroSeat > max) S.heroSeat = max;
+    render();
+  });
+  $("#blind").addEventListener("input", (e) => {
+    S.blindValue = Math.max(0.01, +(e.target as HTMLInputElement).value || 1);
     render();
   });
   $("#stack").addEventListener("change", (e) => {
     S.stackBB = Math.max(10, +(e.target as HTMLInputElement).value);
+    render();
   });
   $("#arch").addEventListener("change", (e) => {
     S.archetype = (e.target as HTMLSelectElement).value;
-    const desc = document.querySelector(".arch-desc");
-    if (desc) desc.textContent = ARCH_DESC[S.archetype] ?? "";
+    const d = document.querySelector(".arch-desc");
+    if (d) d.textContent = ARCH_DESC[S.archetype] ?? "";
   });
-
-  app.querySelectorAll(".seat-btn").forEach(btn => {
-    btn.addEventListener("click", () => {
-      S.heroSeat = +(btn as HTMLElement).dataset.seat!;
-      render();
-    });
-  });
-
+  app.querySelectorAll(".seat-btn").forEach(btn =>
+    btn.addEventListener("click", () => { S.heroSeat = +(btn as HTMLElement).dataset.seat!; render(); }),
+  );
   $("#start").addEventListener("click", startHand);
 }
 
@@ -203,11 +216,10 @@ function startHand(): void {
 function initGameState(): void {
   if (!S.heroCards) return;
   const positions = getPositions(S.tableSize);
-  const stacks = positions.map(() => S.stackBB);
   S.gs = new GameState({
     tableSize: S.tableSize,
     bb: 1,
-    stacks,
+    stacks: positions.map(() => S.stackBB),
     positions: [...positions],
     heroSeat: S.heroSeat,
     heroCards: S.heroCards,
@@ -219,12 +231,11 @@ function initGameState(): void {
 
 function updateRec(): void {
   if (!S.gs || S.handOver) { S.rec = null; return; }
-  const next = S.gs.nextToAct();
-  if (next === S.heroSeat) {
+  if (S.gs.nextToAct() === S.heroSeat) {
     S.rec = recommend(S.gs, PROFILES[S.archetype], mulberry32(0xface));
     S.raiseAmount = Math.max(
       S.gs.currentBet > 0 ? minRaise(S.gs.currentBet, S.gs.bb) : openRaiseSize(S.gs.bb),
-      S.gs.toCall(S.heroSeat) + 1
+      S.gs.toCall(S.heroSeat) + 1,
     );
   } else {
     S.rec = null;
@@ -233,23 +244,23 @@ function updateRec(): void {
 
 function updateMessage(): void {
   if (!S.gs) return;
-  if (S.handOver) {
-    S.message = "Hand complete — tap New Hand";
-    return;
-  }
+  if (S.handOver) { S.message = "Hand complete"; return; }
   if (S.gs.roundComplete() && !S.gs.isComplete()) {
-    const streetNames: Record<string, string> = { preflop: "flop (3 cards)", flop: "turn card", turn: "river card" };
-    S.message = `Tap board to deal ${streetNames[S.gs.street] ?? "next street"}`;
+    const nm: Record<string, string> = { preflop: "flop (3 cards)", flop: "turn card", turn: "river card" };
+    S.message = `Tap the board to deal the ${nm[S.gs.street] ?? "next"}`;
     return;
   }
-  const next = S.gs.nextToAct();
-  if (next === null) { S.message = ""; return; }
-  const pos = S.gs.positions[next];
-  if (next === S.heroSeat) {
-    S.message = `Your turn (${pos})`;
-  } else {
-    S.message = `${pos} to act — tap their action`;
-  }
+  const n = S.gs.nextToAct();
+  if (n === null) { S.message = ""; return; }
+  const pos = S.gs.positions[n];
+  S.message = n === S.heroSeat ? `Your turn (${pos})` : `${pos} to act — tap their action below`;
+}
+
+function seatCoord(seatIdx: number): { left: number; top: number } {
+  const n = getPositions(S.tableSize).length;
+  const vis = (seatIdx - S.heroSeat + n) % n;
+  const a = (vis * 2 * Math.PI) / n;
+  return { left: 50 - 40 * Math.sin(a), top: 50 + 35 * Math.cos(a) };
 }
 
 function renderGame(): void {
@@ -261,46 +272,59 @@ function renderGame(): void {
   const positions = getPositions(S.tableSize);
   const next = gs?.nextToAct() ?? null;
   const needsBoard = gs && gs.roundComplete() && !gs.isComplete() && !S.handOver;
+  const isHeroTurn = next === S.heroSeat;
 
-  const opps = positions.map((pos, i) => {
-    if (i === S.heroSeat) return "";
+  // ── Table seats ──
+  const seats = positions.map((pos, i) => {
+    const { left, top } = seatCoord(i);
+    const isHero = i === S.heroSeat;
     const folded = gs?.folded[i] ?? false;
-    const isActive = next === i;
-    const acted = gs ? gs.actions.some(a => a.seat === i && a.street === gs.street) : false;
+    const active = next === i;
     const lastAct = gs?.actions.filter(a => a.seat === i && a.street === gs.street).at(-1);
-    const stack = gs ? (gs.stacks[i]! + gs.streetInvested[i]!).toFixed(1) : S.stackBB.toString();
-    const cls = folded ? "folded" : isActive ? "active" : acted ? "acted" : "";
-    const actLabel = lastAct
-      ? lastAct.type === "raise" || lastAct.type === "bet"
-        ? `${lastAct.type} ${lastAct.amount.toFixed(1)}`
-        : lastAct.type
-      : "";
+    const stack = gs ? gs.stacks[i]! + gs.streetInvested[i]! : S.stackBB;
+    const cls = [
+      "table-seat",
+      isHero ? "hero-seat" : "",
+      folded ? "folded" : "",
+      active ? "active" : "",
+    ].filter(Boolean).join(" ");
 
-    return `<div class="opp-seat ${cls}" data-seat="${i}">
-      <div class="pos">${pos}</div>
-      <div class="stack">${stack}bb</div>
-      ${actLabel ? `<div class="action-label">${actLabel}</div>` : ""}
+    let actText = "";
+    if (lastAct) {
+      if (lastAct.type === "raise" || lastAct.type === "bet")
+        actText = `${lastAct.type} ${chips(lastAct.amount)}`;
+      else actText = lastAct.type;
+    }
+
+    return `<div class="${cls}" style="left:${left.toFixed(1)}%;top:${top.toFixed(1)}%">
+      <div class="seat-chip">
+        <div class="seat-pos">${isHero ? "YOU" : pos}</div>
+        <div class="seat-stack">${chips(stack)}</div>
+        ${actText ? `<div class="seat-act">${actText}</div>` : ""}
+      </div>
     </div>`;
   }).join("");
 
-  const boardSlots = [0, 1, 2, 3, 4].map(i => {
+  // ── Board ──
+  const boardHtml = [0, 1, 2, 3, 4].map(i => {
     if (i < S.boardCards.length) {
       const c = S.boardCards[i]!;
-      return `<div class="board-slot dealt ${isRed(c) ? "red" : ""}">${cardDisplay(c)}</div>`;
+      return `<div class="board-card dealt ${isRed(c) ? "red" : ""}">${cardDisplay(c)}</div>`;
     }
-    const clickable = needsBoard ? "" : "";
-    return `<div class="board-slot" id="board-tap">${i < 3 ? "+" : "+"}</div>`;
+    return `<div class="board-card empty"></div>`;
   }).join("");
 
-  const heroCardHtml = S.heroCards
+  // ── Hero cards ──
+  const heroHtml = S.heroCards
     ? S.heroCards.map(c =>
         `<div class="hero-card dealt ${isRed(c) ? "red" : ""}">${cardDisplay(c)}</div>`
       ).join("")
-    : `<div class="hero-card empty" id="pick-hero">?</div><div class="hero-card empty" id="pick-hero2">?</div>`;
+    : `<div class="hero-card empty">?</div><div class="hero-card empty">?</div>`;
 
+  // ── Recommendation ──
   const recHtml = S.rec ? `
     <div class="rec-panel">
-      <div class="rec-action">${S.rec.action}${S.rec.amount > 0 ? ` ${S.rec.amount.toFixed(1)}bb` : ""}</div>
+      <div class="rec-action">${S.rec.action}${S.rec.amount > 0 ? ` ${chips(S.rec.amount)}` : ""}</div>
       <div class="rec-details">
         <span>Equity: <strong>${(S.rec.equity * 100).toFixed(0)}%</strong></span>
         ${S.rec.potOdds > 0 ? `<span>Odds: <strong>${(S.rec.potOdds * 100).toFixed(0)}%</strong></span>` : ""}
@@ -308,26 +332,25 @@ function renderGame(): void {
       <div class="rec-reason">${S.rec.reasoning}</div>
     </div>` : "";
 
+  // ── Actions ──
   const legal = gs && next !== null ? gs.legalActionsFor(next) : [];
-  const isHeroTurn = next === S.heroSeat;
   const showActions = gs && !S.handOver && next !== null && !needsBoard;
-
-  const maxRaise = gs ? gs.stacks[next ?? 0]! + gs.streetInvested[next ?? 0]! : 0;
+  const maxR = gs && next !== null ? gs.stacks[next]! + gs.streetInvested[next]! : 0;
   const minR = gs ? Math.max(
     gs.currentBet > 0 ? minRaise(gs.currentBet, gs.bb) : openRaiseSize(gs.bb),
-    (gs.toCall(next ?? 0) || 0) + 1
+    (gs.toCall(next ?? 0) || 0) + 1,
   ) : 2;
 
-  const actionHtml = showActions ? `
+  const actionsHtml = showActions ? `
     ${legal.includes("raise") || legal.includes("bet") ? `
-      <div class="raise-row">
-        <input type="range" id="raise-slider" min="${minR}" max="${maxRaise}" step="0.5" value="${S.raiseAmount}" />
-        <span class="raise-val" id="raise-val">${S.raiseAmount.toFixed(1)}</span>
-      </div>` : ""}
+    <div class="raise-row">
+      <input type="range" id="raise-slider" min="${minR}" max="${maxR}" step="0.5" value="${S.raiseAmount}" />
+      <span class="raise-val" id="raise-val">${chips(S.raiseAmount)}</span>
+    </div>` : ""}
     <div class="action-bar">
       ${legal.includes("fold") ? `<button class="action-btn fold" data-act="fold">Fold</button>` : ""}
       ${legal.includes("check") ? `<button class="action-btn check" data-act="check">Check</button>` : ""}
-      ${legal.includes("call") ? `<button class="action-btn call" data-act="call">Call${gs ? " " + gs.toCall(next!).toFixed(1) : ""}</button>` : ""}
+      ${legal.includes("call") ? `<button class="action-btn call" data-act="call">Call ${chips(gs!.toCall(next!))}</button>` : ""}
       ${legal.includes("bet") ? `<button class="action-btn bet" data-act="bet">Bet</button>` : ""}
       ${legal.includes("raise") ? `<button class="action-btn raise" data-act="raise">Raise</button>` : ""}
     </div>` : "";
@@ -335,96 +358,66 @@ function renderGame(): void {
   app.innerHTML = `
     <div class="game">
       <div class="game-header">
-        <span class="pot">Pot: ${gs ? gs.pot.toFixed(1) : "0"}bb</span>
+        <span class="pot">Pot: ${gs ? chips(gs.pot) : "$0"}</span>
         <span class="street-badge">${gs?.street ?? "setup"}</span>
-        <button class="new-hand-btn" style="padding:6px 12px;margin:0;width:auto;font-size:12px" id="new-hand">New Hand</button>
+        <button class="hdr-btn" id="new-hand">New Hand</button>
       </div>
 
-      <div class="table-area">
-        <div class="opponents">${opps}</div>
-        <div class="board-area" id="board-area">${boardSlots}</div>
+      <div class="poker-table" id="poker-table">
+        <div class="felt"></div>
+        ${seats}
+        <div class="board-center" id="board-area">${boardHtml}</div>
       </div>
 
       <div class="hero-area">
-        <div class="hero-cards">${heroCardHtml}</div>
+        <div class="hero-cards">${heroHtml}</div>
         ${recHtml}
       </div>
 
-      ${actionHtml}
+      ${actionsHtml}
 
       <div class="status-bar">${S.message}${isHeroTurn ? " — <strong>YOUR TURN</strong>" : ""}</div>
     </div>`;
 
-  // Event listeners
+  // ── Events ──
   $("#new-hand")?.addEventListener("click", () => { S.screen = "setup"; render(); });
 
-  app.querySelectorAll("[data-act]").forEach(btn => {
-    btn.addEventListener("click", () => {
-      const act = (btn as HTMLElement).dataset.act as ActionType;
-      doAction(next!, act);
-    });
-  });
+  app.querySelectorAll("[data-act]").forEach(btn =>
+    btn.addEventListener("click", () => doAction(next!, (btn as HTMLElement).dataset.act as ActionType)),
+  );
 
   const slider = document.getElementById("raise-slider") as HTMLInputElement | null;
   if (slider) {
     slider.addEventListener("input", () => {
       S.raiseAmount = +slider.value;
-      const valEl = document.getElementById("raise-val");
-      if (valEl) valEl.textContent = S.raiseAmount.toFixed(1);
+      const el = document.getElementById("raise-val");
+      if (el) el.textContent = chips(S.raiseAmount);
     });
   }
 
   if (needsBoard) {
-    document.getElementById("board-area")?.addEventListener("click", () => {
-      openBoardPicker();
-    });
+    document.getElementById("board-area")?.addEventListener("click", openBoardPicker);
   }
-
-  app.querySelectorAll(".opp-seat").forEach(el => {
-    el.addEventListener("click", () => {
-      const seat = +(el as HTMLElement).dataset.seat!;
-      if (seat === next && !isHeroTurn) {
-        // tapping active opponent — could show quick action menu
-      }
-    });
-  });
 }
 
 function doAction(seat: number, type: ActionType): void {
   if (!S.gs) return;
-  let amount = 0;
-  if (type === "bet" || type === "raise") {
-    amount = S.raiseAmount;
-  }
+  const amount = type === "bet" || type === "raise" ? S.raiseAmount : 0;
   S.gs.applyAction({ seat, type, amount });
 
   if (S.gs.activeSeatCount <= 1) {
-    S.handOver = true;
-    S.rec = null;
-    updateMessage();
-    render();
-    return;
+    S.handOver = true; S.rec = null; updateMessage(); render(); return;
   }
-
-  if (S.gs.roundComplete()) {
-    if (S.gs.street === "river") {
-      S.handOver = true;
-      S.rec = null;
-    }
+  if (S.gs.roundComplete() && S.gs.street === "river") {
+    S.handOver = true; S.rec = null;
   }
-
-  updateRec();
-  updateMessage();
-  render();
+  updateRec(); updateMessage(); render();
 }
 
 function openBoardPicker(): void {
   if (!S.gs) return;
-  const street = S.gs.street;
-  const nextStreet: Record<string, "flop" | "turn" | "river"> = {
-    preflop: "flop", flop: "turn", turn: "river",
-  };
-  S.pickerTarget = nextStreet[street] ?? "flop";
+  const nm: Record<string, "flop" | "turn" | "river"> = { preflop: "flop", flop: "turn", turn: "river" };
+  S.pickerTarget = nm[S.gs.street] ?? "flop";
   S.pickerPicked = [];
   S.pickerOpen = true;
   render();
@@ -434,34 +427,29 @@ function openBoardPicker(): void {
 
 function renderPicker(): void {
   const needed = S.pickerTarget === "hero" ? 2 : S.pickerTarget === "flop" ? 3 : 1;
-  const title = S.pickerTarget === "hero"
-    ? "Pick your 2 hole cards"
-    : S.pickerTarget === "flop"
-      ? "Deal the flop (3 cards)"
-      : S.pickerTarget === "turn"
-        ? "Deal the turn"
-        : "Deal the river";
+  const title = S.pickerTarget === "hero" ? "Pick your 2 hole cards"
+    : S.pickerTarget === "flop" ? "Deal the flop (3 cards)"
+    : S.pickerTarget === "turn" ? "Deal the turn" : "Deal the river";
 
-  const grid = [0, 1, 2, 3].map(suit => {
-    return Array.from({ length: 13 }, (_, rank) => {
+  const grid = [0, 1, 2, 3].map(suit =>
+    Array.from({ length: 13 }, (_, rank) => {
       const card = makeCard(rank, suit);
       const used = S.allDealt.has(card);
       const picked = S.pickerPicked.includes(card);
       const cls = used ? "used" : picked ? "picked" : "";
       const red = SUIT_RED[suit] ? "red" : "";
       return `<div class="card-cell ${cls} ${red}" data-card="${card}">${RANKS[rank]}${SUITS[suit]}</div>`;
-    }).join("");
-  }).join("");
+    }).join(""),
+  ).join("");
 
-  const pickedCount = S.pickerPicked.length;
-  const canConfirm = pickedCount === needed;
+  const canConfirm = S.pickerPicked.length === needed;
 
   const overlay = document.createElement("div");
   overlay.className = "modal-backdrop";
   overlay.id = "picker-modal";
   overlay.innerHTML = `
     <div class="modal-content">
-      <h3>${title} (${pickedCount}/${needed})</h3>
+      <h3>${title} (${S.pickerPicked.length}/${needed})</h3>
       <div class="card-grid">${grid}</div>
       <div class="modal-actions">
         <button class="cancel-btn" id="picker-cancel">Cancel</button>
@@ -471,24 +459,19 @@ function renderPicker(): void {
 
   app.appendChild(overlay);
 
-  overlay.querySelectorAll(".card-cell:not(.used)").forEach(cell => {
+  overlay.querySelectorAll(".card-cell:not(.used)").forEach(cell =>
     cell.addEventListener("click", () => {
       const card = +(cell as HTMLElement).dataset.card!;
       const idx = S.pickerPicked.indexOf(card);
-      if (idx >= 0) {
-        S.pickerPicked.splice(idx, 1);
-      } else if (S.pickerPicked.length < needed) {
-        S.pickerPicked.push(card);
-      }
-      // Re-render picker
+      if (idx >= 0) S.pickerPicked.splice(idx, 1);
+      else if (S.pickerPicked.length < needed) S.pickerPicked.push(card);
       document.getElementById("picker-modal")?.remove();
       renderPicker();
-    });
-  });
+    }),
+  );
 
   document.getElementById("picker-cancel")?.addEventListener("click", () => {
-    S.pickerOpen = false;
-    S.pickerPicked = [];
+    S.pickerOpen = false; S.pickerPicked = [];
     document.getElementById("picker-modal")?.remove();
     if (!S.heroCards) { S.screen = "setup"; render(); }
   });
@@ -497,22 +480,13 @@ function renderPicker(): void {
     if (S.pickerTarget === "hero") {
       const [a, b] = S.pickerPicked;
       S.heroCards = a! <= b! ? [a!, b!] : [b!, a!];
-      S.allDealt.add(a!);
-      S.allDealt.add(b!);
+      S.allDealt.add(a!); S.allDealt.add(b!);
       initGameState();
     } else {
-      for (const c of S.pickerPicked) {
-        S.boardCards.push(c);
-        S.allDealt.add(c);
-      }
-      if (S.gs) {
-        S.gs.advanceStreet(S.pickerPicked);
-        updateRec();
-        updateMessage();
-      }
+      for (const c of S.pickerPicked) { S.boardCards.push(c); S.allDealt.add(c); }
+      if (S.gs) { S.gs.advanceStreet(S.pickerPicked); updateRec(); updateMessage(); }
     }
-    S.pickerOpen = false;
-    S.pickerPicked = [];
+    S.pickerOpen = false; S.pickerPicked = [];
     document.getElementById("picker-modal")?.remove();
     render();
   });
