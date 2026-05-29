@@ -190,13 +190,13 @@ function renderSetup(): void {
     if (S.heroSeat > max) S.heroSeat = max;
     render();
   });
-  $("#sb-input").addEventListener("input", (e) => {
-    S.sbValue = Math.max(0.01, +(e.target as HTMLInputElement).value || 0.5);
-    render();
+  $("#sb-input").addEventListener("change", (e) => {
+    const v = +(e.target as HTMLInputElement).value;
+    if (v > 0) { S.sbValue = v; render(); }
   });
-  $("#bb-input").addEventListener("input", (e) => {
-    S.bbValue = Math.max(0.01, +(e.target as HTMLInputElement).value || 1);
-    render();
+  $("#bb-input").addEventListener("change", (e) => {
+    const v = +(e.target as HTMLInputElement).value;
+    if (v > 0) { S.bbValue = v; render(); }
   });
   $("#stack").addEventListener("change", (e) => {
     S.stackBB = Math.max(10, +(e.target as HTMLInputElement).value);
