@@ -1,0 +1,440 @@
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg: #0f172a;
+  --surface: #1e293b;
+  --surface2: #334155;
+  --border: #475569;
+  --text: #f1f5f9;
+  --text2: #94a3b8;
+  --green: #10b981;
+  --red: #ef4444;
+  --gold: #f59e0b;
+  --blue: #3b82f6;
+  --felt: #065f46;
+  --card-red: #dc2626;
+  --card-black: #1e293b;
+  --radius: 10px;
+}
+
+html, body { height: 100%; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  -webkit-tap-highlight-color: transparent;
+  overflow: hidden;
+}
+
+#app {
+  max-width: 480px;
+  margin: 0 auto;
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── Setup Screen ─────────────────────────────── */
+
+.setup {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 24px 20px;
+  gap: 20px;
+  overflow-y: auto;
+}
+
+.setup h1 {
+  font-size: 22px;
+  font-weight: 700;
+  text-align: center;
+  color: var(--green);
+}
+
+.setup h1 small {
+  display: block;
+  font-size: 12px;
+  color: var(--text2);
+  font-weight: 400;
+  margin-top: 2px;
+}
+
+.field { display: flex; flex-direction: column; gap: 6px; }
+.field label { font-size: 13px; color: var(--text2); font-weight: 600; text-transform: uppercase; letter-spacing: .5px; }
+
+.field select, .field input {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  padding: 12px 14px;
+  font-size: 16px;
+  outline: none;
+}
+
+.seat-ring {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+}
+
+.seat-btn {
+  width: 56px; height: 56px;
+  border-radius: 50%;
+  border: 2px solid var(--border);
+  background: var(--surface);
+  color: var(--text2);
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all .15s;
+}
+
+.seat-btn.selected {
+  border-color: var(--green);
+  background: var(--felt);
+  color: var(--green);
+  box-shadow: 0 0 12px rgba(16,185,129,.3);
+}
+
+.start-btn {
+  background: var(--green);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius);
+  padding: 16px;
+  font-size: 17px;
+  font-weight: 700;
+  cursor: pointer;
+  margin-top: auto;
+  letter-spacing: .5px;
+}
+
+.start-btn:active { transform: scale(.97); }
+
+/* ── Game Screen ──────────────────────────────── */
+
+.game {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.game-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 16px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+
+.game-header .pot { font-weight: 700; color: var(--gold); font-size: 15px; }
+.game-header .street-badge {
+  background: var(--surface2);
+  padding: 4px 10px;
+  border-radius: 20px;
+  font-weight: 600;
+  text-transform: uppercase;
+  font-size: 11px;
+  letter-spacing: .5px;
+}
+
+.table-area {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 8px 12px;
+  gap: 8px;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.opponents {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: center;
+}
+
+.opp-seat {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px 12px;
+  min-width: 80px;
+  text-align: center;
+  font-size: 12px;
+  transition: all .15s;
+}
+
+.opp-seat.folded { opacity: .4; }
+.opp-seat.active { border-color: var(--gold); box-shadow: 0 0 8px rgba(245,158,11,.25); }
+.opp-seat.acted { border-color: var(--green); }
+
+.opp-seat .pos { font-weight: 700; font-size: 13px; }
+.opp-seat .stack { color: var(--text2); font-size: 11px; margin-top: 2px; }
+.opp-seat .action-label { color: var(--gold); font-size: 11px; font-weight: 600; margin-top: 3px; }
+
+.board-area {
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+  padding: 10px 0;
+  min-height: 60px;
+}
+
+.board-slot {
+  width: 44px; height: 60px;
+  border: 2px dashed var(--border);
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 11px;
+  color: var(--text2);
+}
+
+.board-slot.dealt {
+  border: 2px solid var(--border);
+  border-style: solid;
+  background: #fff;
+  color: var(--card-black);
+  font-size: 16px;
+  font-weight: 700;
+  cursor: default;
+}
+
+.board-slot.dealt.red { color: var(--card-red); }
+
+.hero-area {
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  padding: 12px 16px;
+}
+
+.hero-cards {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  margin-bottom: 8px;
+}
+
+.hero-card {
+  width: 54px; height: 74px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.hero-card.empty {
+  border: 2px dashed var(--green);
+  background: transparent;
+  color: var(--green);
+  font-size: 24px;
+}
+
+.hero-card.dealt {
+  border: 2px solid var(--border);
+  background: #fff;
+  color: var(--card-black);
+}
+
+.hero-card.dealt.red { color: var(--card-red); }
+
+.rec-panel {
+  background: linear-gradient(135deg, #1a2e1a, #0f2f1f);
+  border: 1px solid var(--green);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  margin: 8px 0;
+}
+
+.rec-panel .rec-action {
+  font-size: 20px;
+  font-weight: 800;
+  color: var(--green);
+  text-transform: uppercase;
+}
+
+.rec-panel .rec-details {
+  display: flex;
+  gap: 16px;
+  margin-top: 6px;
+  font-size: 13px;
+  color: var(--text2);
+}
+
+.rec-panel .rec-details strong { color: var(--text); }
+
+.rec-panel .rec-reason {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--text2);
+  font-style: italic;
+}
+
+.action-bar {
+  display: flex;
+  gap: 8px;
+  padding: 12px 16px;
+  background: var(--bg);
+  border-top: 1px solid var(--border);
+}
+
+.action-btn {
+  flex: 1;
+  padding: 14px 8px;
+  border: none;
+  border-radius: var(--radius);
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  color: #fff;
+  transition: all .1s;
+}
+
+.action-btn:active { transform: scale(.95); }
+.action-btn.fold { background: var(--red); }
+.action-btn.check, .action-btn.call { background: var(--blue); }
+.action-btn.bet, .action-btn.raise { background: var(--green); }
+.action-btn:disabled { opacity: .3; pointer-events: none; }
+
+.raise-row {
+  display: flex;
+  gap: 8px;
+  padding: 0 16px 8px;
+  align-items: center;
+}
+
+.raise-row input[type=range] {
+  flex: 1;
+  accent-color: var(--green);
+}
+
+.raise-row .raise-val {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--green);
+  min-width: 50px;
+  text-align: right;
+}
+
+.status-bar {
+  text-align: center;
+  padding: 8px;
+  font-size: 13px;
+  color: var(--text2);
+  background: var(--surface);
+}
+
+.status-bar strong { color: var(--gold); }
+
+.new-hand-btn {
+  display: block;
+  width: calc(100% - 32px);
+  margin: 8px 16px;
+  padding: 12px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+/* ── Card Picker Modal ────────────────────────── */
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,.7);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  z-index: 100;
+}
+
+.modal-content {
+  background: var(--surface);
+  border-radius: 16px 16px 0 0;
+  padding: 16px;
+  width: 100%;
+  max-width: 480px;
+  max-height: 70dvh;
+  overflow-y: auto;
+}
+
+.modal-content h3 {
+  text-align: center;
+  margin-bottom: 12px;
+  font-size: 15px;
+  color: var(--text2);
+}
+
+.card-grid {
+  display: grid;
+  grid-template-columns: repeat(13, 1fr);
+  gap: 4px;
+}
+
+.card-cell {
+  aspect-ratio: 2/3;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: #fff;
+  color: var(--card-black);
+  font-size: 11px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  line-height: 1;
+  padding: 2px;
+}
+
+.card-cell.red { color: var(--card-red); }
+.card-cell.used { opacity: .15; pointer-events: none; }
+
+.card-cell.picked {
+  border-color: var(--green);
+  box-shadow: 0 0 6px rgba(16,185,129,.5);
+  background: #d1fae5;
+}
+
+.modal-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.modal-actions button {
+  flex: 1;
+  padding: 12px;
+  border: none;
+  border-radius: var(--radius);
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  color: #fff;
+}
+
+.modal-actions .confirm-btn { background: var(--green); }
+.modal-actions .cancel-btn { background: var(--surface2); color: var(--text2); }
+
+.hidden { display: none !important; }
