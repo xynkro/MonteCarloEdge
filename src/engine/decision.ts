@@ -145,8 +145,13 @@ function preflopRecommend(state: GameState): Recommendation {
     };
   }
 
+  // Scale 3-bet and calling thresholds by table size
+  // HU: much wider ranges → 3-bet more, call more
+  const threeBetCut = state.tableSize <= 2 ? 0.12 : state.tableSize <= 4 ? 0.08 : 0.06;
+  const callCut = state.tableSize <= 2 ? 0.45 : state.tableSize <= 4 ? 0.30 : 0.25;
+
   const pct = comboPercentile([hero[0], hero[1]]);
-  if (pct < 0.06) {
+  if (pct < threeBetCut) {
     const amt = Math.min(
       threeBetSize(state.currentBet, true),
       state.stacks[seat]! + state.streetInvested[seat]!,
@@ -160,7 +165,7 @@ function preflopRecommend(state: GameState): Recommendation {
       reasoning: `3-bet — ${label} premium hand`,
     };
   }
-  if (pct < 0.25) {
+  if (pct < callCut) {
     return {
       action: "call",
       amount: 0,
@@ -187,6 +192,14 @@ function postflopRecommend(
 ): Recommendation {
   const hero = state.heroCards;
   const seat = state.heroSeat;
+
+  // Scale thresholds by table size — HU ranges are much wider so
+  // weaker absolute hands (like Ace-high) are relatively strong
+  const hu = state.tableSize <= 2;
+  const small = state.tableSize <= 4;
+  const VALUE_BET = hu ? 0.48 : small ? 0.53 : 0.60;
+  const THIN_VALUE = hu ? 0.33 : small ? 0.36 : 0.40;
+  const RAISE_EDGE = hu ? 0.07 : 0.10;
 
   let villainSeat = -1;
   for (let i = 0; i < state.folded.length; i++) {
@@ -231,7 +244,7 @@ function postflopRecommend(
   const pct = (n: number) => `${(n * 100).toFixed(0)}%`;
 
   if (tc > 0) {
-    if (equity > odds + 0.1 && state.stacks[seat]! > tc) {
+    if (equity > odds + RAISE_EDGE && state.stacks[seat]! > tc) {
       const amt = Math.min(
         state.currentBet * 2.5,
         state.stacks[seat]! + state.streetInvested[seat]!,
@@ -280,7 +293,7 @@ function postflopRecommend(
     };
   }
 
-  if (equity > 0.6) {
+  if (equity > VALUE_BET) {
     const size = Math.min(
       recommendSize(state.pot, state.effectiveStack(), state.street),
       state.stacks[seat]!,
@@ -291,11 +304,11 @@ function postflopRecommend(
       equity,
       potOdds: 0,
       ev: { fold: 0, call: 0, raise: 1 },
-      reasoning: `Bet ${size.toFixed(1)} — ${pct(equity)} equity, value`,
+      reasoning: `Bet — ${pct(equity)} equity, value`,
     };
   }
 
-  if (equity > 0.4) {
+  if (equity > THIN_VALUE) {
     const size = Math.min(state.pot / 3, state.stacks[seat]!);
     if (size > 0) {
       return {
@@ -304,7 +317,7 @@ function postflopRecommend(
         equity,
         potOdds: 0,
         ev: { fold: 0, call: 0, raise: 0.3 },
-        reasoning: `Small bet ${size.toFixed(1)} — ${pct(equity)} equity, thin value`,
+        reasoning: `Small bet — ${pct(equity)} equity, thin value`,
       };
     }
   }
@@ -315,6 +328,6 @@ function postflopRecommend(
     equity,
     potOdds: 0,
     ev: { fold: 0, call: 0, raise: -0.5 },
-    reasoning: `Check — ${pct(equity)} equity, not enough to bet`,
+    reasoning: `Check — ${pct(equity)} equity`,
   };
 }

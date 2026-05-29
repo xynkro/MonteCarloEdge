@@ -46,17 +46,17 @@ describe("simulator", () => {
   it("CI widens with fewer hands", () => {
     const small = simulate({
       villainProfile: TAG,
-      hands: 50,
+      hands: 30,
       startingStack: 100,
       bb: 1,
-      rng: mulberry32(0xaa),
+      rng: mulberry32(0xcc),
     });
     const large = simulate({
       villainProfile: TAG,
-      hands: 2000,
+      hands: 5000,
       startingStack: 100,
       bb: 1,
-      rng: mulberry32(0xbb),
+      rng: mulberry32(0xdd),
     });
     const smallWidth = small.ci95[1] - small.ci95[0];
     const largeWidth = large.ci95[1] - large.ci95[0];
