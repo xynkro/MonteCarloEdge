@@ -75,10 +75,19 @@ function cardDisplay(c: Card): string {
 function isRed(c: Card): boolean {
   return SUIT_RED[suitOf(c)]!;
 }
+function roundBet(bb: number): number {
+  const unit = S.sbValue / S.bbValue;
+  return Math.round(bb / unit) * unit;
+}
+
 function chips(bb: number): string {
   const v = bb * S.bbValue;
   if (v === 0) return "$0";
   return v % 1 === 0 ? `$${v}` : `$${v.toFixed(2)}`;
+}
+
+function chipsBet(bb: number): string {
+  return chips(roundBet(bb));
 }
 
 function render(): void {
@@ -273,6 +282,7 @@ function updateRec(): void {
   if (!S.gs || S.handOver) { S.rec = null; return; }
   if (S.gs.nextToAct() === S.heroSeat) {
     S.rec = recommend(S.gs, PROFILES[S.archetype], mulberry32(0xface));
+    if (S.rec.amount > 0) S.rec.amount = roundBet(S.rec.amount);
     S.raiseAmount = Math.max(
       S.gs.currentBet > 0 ? minRaise(S.gs.currentBet, S.gs.bb) : openRaiseSize(S.gs.bb),
       S.gs.toCall(S.heroSeat) + 1,
@@ -333,7 +343,7 @@ function renderGame(): void {
     let actText = "";
     if (lastAct) {
       if (lastAct.type === "raise" || lastAct.type === "bet")
-        actText = `${lastAct.type} ${chips(lastAct.amount)}`;
+        actText = `${lastAct.type} ${chipsBet(lastAct.amount)}`;
       else actText = lastAct.type;
     }
 
@@ -366,7 +376,7 @@ function renderGame(): void {
   // ── Recommendation ──
   const recHtml = S.rec ? `
     <div class="rec-panel">
-      <div class="rec-action">${S.rec.action}${S.rec.amount > 0 ? ` ${chips(S.rec.amount)}` : ""}</div>
+      <div class="rec-action">${S.rec.action}${S.rec.amount > 0 ? ` ${chipsBet(S.rec.amount)}` : ""}</div>
       <div class="rec-details">
         <span>Equity: <strong>${(S.rec.equity * 100).toFixed(0)}%</strong></span>
         ${S.rec.potOdds > 0 ? `<span>Odds: <strong>${(S.rec.potOdds * 100).toFixed(0)}%</strong></span>` : ""}
@@ -593,20 +603,21 @@ function renderBetPad(): void {
 
   const gs = S.gs!;
   const seat = S.betPadSeat;
-  const maxBB = gs.stacks[seat]! + gs.streetInvested[seat]!;
-  const minBB = Math.max(
+  const maxBB = roundBet(gs.stacks[seat]! + gs.streetInvested[seat]!);
+  const minBB = roundBet(Math.max(
     gs.currentBet > 0 ? minRaise(gs.currentBet, gs.bb) : openRaiseSize(gs.bb),
     (gs.toCall(seat) || 0) + 1,
-  );
+  ));
   const potBB = gs.pot;
 
-  const display = S.raiseAmount > 0 ? chips(S.raiseAmount) : "$0";
+  const display = S.raiseAmount > 0 ? chipsBet(S.raiseAmount) : "$0";
   const label = S.betPadAction === "raise" ? "Raise to" : "Bet";
+  const needsDecimals = S.sbValue % 1 !== 0;
 
   const presets = [
     { label: "Min", bb: minBB },
-    { label: "½ Pot", bb: Math.max(minBB, Math.round(potBB * 0.5 * 2) / 2) },
-    { label: "Pot", bb: Math.max(minBB, potBB) },
+    { label: "½ Pot", bb: roundBet(Math.max(minBB, potBB * 0.5)) },
+    { label: "Pot", bb: roundBet(Math.max(minBB, potBB)) },
     { label: "All-in", bb: maxBB },
   ];
 
@@ -618,11 +629,11 @@ function renderBetPad(): void {
       <h3>${label}</h3>
       <div class="betpad-display" id="bp-display">${display}</div>
       <div class="betpad-presets">
-        ${presets.map(p => `<button class="preset-btn" data-bb="${p.bb}">${p.label}<br><span>${chips(p.bb)}</span></button>`).join("")}
+        ${presets.map(p => `<button class="preset-btn" data-bb="${p.bb}">${p.label}<br><span>${chipsBet(p.bb)}</span></button>`).join("")}
       </div>
       <div class="betpad-grid">
-        ${["1","2","3","4","5","6","7","8","9",".","0","⌫"].map(k =>
-          `<button class="numpad-btn" data-key="${k}">${k}</button>`
+        ${["1","2","3","4","5","6","7","8","9", needsDecimals ? "." : "","0","⌫"].map(k =>
+          k ? `<button class="numpad-btn" data-key="${k}">${k}</button>` : `<div></div>`
         ).join("")}
       </div>
       <div class="modal-actions">
@@ -633,11 +644,11 @@ function renderBetPad(): void {
 
   app.appendChild(overlay);
 
-  let raw = S.raiseAmount > 0 ? String(S.raiseAmount * S.bbValue) : "";
+  let raw = S.raiseAmount > 0 ? String(roundBet(S.raiseAmount) * S.bbValue) : "";
 
   function updateDisplay() {
     const dollars = parseFloat(raw) || 0;
-    S.raiseAmount = dollars / S.bbValue;
+    S.raiseAmount = roundBet(dollars / S.bbValue);
     const el = document.getElementById("bp-display");
     if (el) el.textContent = raw ? `$${raw}` : "$0";
   }
@@ -654,9 +665,10 @@ function renderBetPad(): void {
 
   overlay.querySelectorAll(".preset-btn").forEach(btn =>
     btn.addEventListener("click", () => {
-      const bb = +(btn as HTMLElement).dataset.bb!;
+      const bb = roundBet(+(btn as HTMLElement).dataset.bb!);
       S.raiseAmount = bb;
-      raw = String(bb * S.bbValue);
+      const dollars = bb * S.bbValue;
+      raw = dollars % 1 === 0 ? String(dollars) : dollars.toFixed(2);
       updateDisplay();
     }),
   );
@@ -667,9 +679,10 @@ function renderBetPad(): void {
   });
 
   document.getElementById("bp-confirm")?.addEventListener("click", () => {
-    const bb = S.raiseAmount;
-    if (bb < minBB) S.raiseAmount = minBB;
-    if (bb > maxBB) S.raiseAmount = maxBB;
+    let bb = roundBet(S.raiseAmount);
+    if (bb < minBB) bb = minBB;
+    if (bb > maxBB) bb = maxBB;
+    S.raiseAmount = bb;
     S.betPadOpen = false;
     document.getElementById("betpad-modal")?.remove();
     doAction(seat, S.betPadAction);
