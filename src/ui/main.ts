@@ -19,6 +19,8 @@ interface AppState {
   bbValue: number;
   sbValue: number;
   heroSeat: number;
+  dealerSeat: number;
+  handNumber: number;
   archetype: string;
   gs: GameState | null;
   heroCards: [Card, Card] | null;
@@ -40,6 +42,8 @@ const S: AppState = {
   bbValue: 1,
   sbValue: 0.5,
   heroSeat: 3,
+  dealerSeat: -1,
+  handNumber: 0,
   archetype: "Station",
   gs: null,
   heroCards: null,
@@ -210,6 +214,12 @@ function renderSetup(): void {
 }
 
 function startHand(): void {
+  const n = getPositions(S.tableSize).length;
+  if (S.dealerSeat < 0) {
+    // First hand — set dealer based on table size
+    S.dealerSeat = S.tableSize === 2 ? 0 : n - 3;
+  }
+  S.handNumber++;
   S.heroCards = null;
   S.boardCards = [];
   S.allDealt = new Set();
@@ -225,6 +235,12 @@ function startHand(): void {
   render();
 }
 
+function nextHand(): void {
+  const n = getPositions(S.tableSize).length;
+  S.dealerSeat = (S.dealerSeat + 1) % n;
+  startHand();
+}
+
 /* ═══════════════════ GAME ═══════════════════ */
 
 function initGameState(): void {
@@ -238,7 +254,7 @@ function initGameState(): void {
     positions: [...positions],
     heroSeat: S.heroSeat,
     heroCards: S.heroCards,
-    dealerSeat: S.tableSize === 2 ? 0 : positions.length - 3,
+    dealerSeat: S.dealerSeat,
   });
   updateRec();
   updateMessage();
@@ -259,7 +275,7 @@ function updateRec(): void {
 
 function updateMessage(): void {
   if (!S.gs) return;
-  if (S.handOver) { S.message = "Hand complete"; return; }
+  if (S.handOver) { S.message = "Hand complete — tap Next Hand"; return; }
   if (S.gs.roundComplete() && !S.gs.isComplete()) {
     const nm: Record<string, string> = { preflop: "flop (3 cards)", flop: "turn card", turn: "river card" };
     S.message = `Tap the board to deal the ${nm[S.gs.street] ?? "next"}`;
@@ -293,6 +309,7 @@ function renderGame(): void {
   const seats = positions.map((pos, i) => {
     const { left, top } = seatCoord(i);
     const isHero = i === S.heroSeat;
+    const isDealer = i === S.dealerSeat;
     const folded = gs?.folded[i] ?? false;
     const active = next === i;
     const lastAct = gs?.actions.filter(a => a.seat === i && a.street === gs.street).at(-1);
@@ -312,6 +329,7 @@ function renderGame(): void {
     }
 
     return `<div class="${cls}" style="left:${left.toFixed(1)}%;top:${top.toFixed(1)}%">
+      ${isDealer ? '<div class="dealer-btn">D</div>' : ""}
       <div class="seat-chip">
         <div class="seat-pos">${isHero ? "YOU" : pos}</div>
         <div class="seat-stack">${chips(stack)}</div>
@@ -389,13 +407,21 @@ function renderGame(): void {
         ${recHtml}
       </div>
 
-      ${actionsHtml}
+      ${S.handOver ? `
+      <div class="action-bar">
+        <button class="action-btn raise" id="next-hand" style="font-size:16px;padding:16px">NEXT HAND</button>
+      </div>` : actionsHtml}
 
-      <div class="status-bar">${S.message}${isHeroTurn ? " — <strong>YOUR TURN</strong>" : ""}</div>
+      <div class="status-bar">
+        Hand #${S.handNumber} &middot; Dealer: ${positions[S.dealerSeat]}
+        ${isHeroTurn && !S.handOver ? " — <strong>YOUR TURN</strong>" : ""}
+        ${S.handOver ? " — <strong>Hand complete</strong>" : ""}
+      </div>
     </div>`;
 
   // ── Events ──
-  $("#new-hand")?.addEventListener("click", () => { S.screen = "setup"; render(); });
+  $("#new-hand")?.addEventListener("click", () => { S.screen = "setup"; S.dealerSeat = -1; S.handNumber = 0; render(); });
+  document.getElementById("next-hand")?.addEventListener("click", nextHand);
 
   app.querySelectorAll("[data-act]").forEach(btn =>
     btn.addEventListener("click", () => doAction(next!, (btn as HTMLElement).dataset.act as ActionType)),
