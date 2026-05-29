@@ -6,7 +6,8 @@
   "scripts": {
     "test": "vitest run",
     "test:watch": "vitest",
-    "validate": "tsx src/engine/scripts/validate.ts"
+    "validate": "tsx src/engine/scripts/validate.ts",
+    "validate-ranges": "tsx src/engine/scripts/validate-ranges.ts"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

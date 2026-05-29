@@ -1,6 +1,7 @@
 import { type Card, NUM_CARDS } from "./cards.js";
 import { evaluate } from "./evaluator.js";
 import { type Rng, mulberry32 } from "./rng.js";
+import { type Range } from "./range.js";
 
 export interface EquityInput {
   hero: readonly [Card, Card];
@@ -109,6 +110,113 @@ export function monteCarloEquity(input: EquityInput): EquityResult {
   const variance = Math.max(0, equitySqSum / iterations - equity * equity);
   const stderr = Math.sqrt(variance / iterations);
   // 1.96 ≈ 95% z-score
+  const stderr95 = 1.96 * stderr;
+
+  return { equity, wins, ties, losses, iterations, stderr95 };
+}
+
+export interface RangeEquityInput {
+  hero: readonly [Card, Card];
+  villainRange: Range;
+  board?: readonly Card[];
+  iterations?: number;
+  rng?: Rng;
+}
+
+export function monteCarloEquityVsRange(input: RangeEquityInput): EquityResult {
+  const {
+    hero,
+    villainRange,
+    board = [],
+    iterations = 50_000,
+    rng = mulberry32(0xC0FFEE),
+  } = input;
+
+  if (
+    board.length !== 0 &&
+    board.length !== 3 &&
+    board.length !== 4 &&
+    board.length !== 5
+  ) {
+    throw new Error(`board must have 0, 3, 4, or 5 cards (got ${board.length})`);
+  }
+
+  const dead: Card[] = [hero[0], hero[1], ...board];
+  const filtered = villainRange.filter(dead);
+  if (filtered.size === 0)
+    throw new Error("No valid villain combos after dead-card removal");
+
+  const baseDead = new Uint8Array(NUM_CARDS);
+  baseDead[hero[0]] = 1;
+  baseDead[hero[1]] = 1;
+  for (const c of board) baseDead[c] = 1;
+
+  const baseDeck: Card[] = [];
+  for (let c = 0; c < NUM_CARDS; c++) if (!baseDead[c]) baseDeck.push(c);
+
+  const need = 5 - board.length;
+
+  let wins = 0,
+    ties = 0,
+    losses = 0;
+  let eqSum = 0,
+    eqSqSum = 0;
+
+  const deck: Card[] = new Array(baseDeck.length);
+  const finalBoard: Card[] = new Array(5);
+  for (let i = 0; i < board.length; i++) finalBoard[i] = board[i]!;
+
+  const hBuf: Card[] = [hero[0], hero[1], 0, 0, 0, 0, 0];
+  const vBuf: Card[] = [0, 0, 0, 0, 0, 0, 0];
+
+  for (let it = 0; it < iterations; it++) {
+    const vill = filtered.sample(rng)!;
+
+    let dLen = 0;
+    for (let i = 0; i < baseDeck.length; i++) {
+      const c = baseDeck[i]!;
+      if (c !== vill[0] && c !== vill[1]) deck[dLen++] = c;
+    }
+
+    for (let j = 0; j < need; j++) {
+      const idx = j + Math.floor(rng() * (dLen - j));
+      const tmp = deck[j]!;
+      deck[j] = deck[idx]!;
+      deck[idx] = tmp;
+      finalBoard[board.length + j] = deck[j]!;
+    }
+
+    hBuf[0] = hero[0];
+    hBuf[1] = hero[1];
+    vBuf[0] = vill[0];
+    vBuf[1] = vill[1];
+    for (let i = 0; i < 5; i++) {
+      hBuf[2 + i] = finalBoard[i]!;
+      vBuf[2 + i] = finalBoard[i]!;
+    }
+
+    const hr = evaluate(hBuf);
+    const vr = evaluate(vBuf);
+
+    let share: number;
+    if (hr > vr) {
+      share = 1;
+      wins++;
+    } else if (hr === vr) {
+      share = 0.5;
+      ties++;
+    } else {
+      share = 0;
+      losses++;
+    }
+
+    eqSum += share;
+    eqSqSum += share * share;
+  }
+
+  const equity = eqSum / iterations;
+  const variance = Math.max(0, eqSqSum / iterations - equity * equity);
+  const stderr = Math.sqrt(variance / iterations);
   const stderr95 = 1.96 * stderr;
 
   return { equity, wins, ties, losses, iterations, stderr95 };
