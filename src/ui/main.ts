@@ -399,15 +399,18 @@ function renderGame(): void {
 
   app.innerHTML = `
     <div class="game">
-      <div class="game-header">
-        <span class="pot">Pot: ${gs ? chips(gs.pot) : "$0"}</span>
-        <span class="street-badge">${gs?.street ?? "setup"}</span>
+      <div class="game-topbar">
+        <span>Hand #${S.handNumber}</span>
         <button class="hdr-btn" id="new-hand">New Hand</button>
       </div>
 
       <div class="poker-table" id="poker-table">
         <div class="felt"></div>
         ${seats}
+        <div class="table-info">
+          <div class="table-pot">${gs ? chips(gs.pot) : "$0"}</div>
+          <div class="table-street">${gs?.street ?? ""}</div>
+        </div>
         <div class="board-center" id="board-area">${boardHtml}</div>
       </div>
 
@@ -421,11 +424,7 @@ function renderGame(): void {
         <button class="action-btn raise" id="next-hand" style="font-size:16px;padding:16px">NEXT HAND</button>
       </div>` : actionsHtml}
 
-      <div class="status-bar">
-        Hand #${S.handNumber} &middot; Dealer: ${positions[S.dealerSeat]}
-        ${isHeroTurn && !S.handOver ? " — <strong>YOUR TURN</strong>" : ""}
-        ${S.handOver ? " — <strong>Hand complete</strong>" : ""}
-      </div>
+      ${isHeroTurn && !S.handOver ? `<div class="status-bar"><strong>YOUR TURN</strong></div>` : ""}
     </div>`;
 
   // ── Events ──
