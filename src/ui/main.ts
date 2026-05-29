@@ -69,46 +69,93 @@ function render(): void {
 
 /* ═══════════════════ SETUP ═══════════════════ */
 
+function positionTip(pos: string): string {
+  const tips: Record<string, string> = {
+    BTN: "Dealer — best position, acts last after the flop",
+    SB: "Small Blind — forced half-bet, left of dealer",
+    BB: "Big Blind — forced full bet, left of SB",
+    UTG: "Under the Gun — first to act, tightest spot",
+    "UTG1": "Early position — second to act",
+    "UTG2": "Early position — third to act",
+    MP: "Middle Position",
+    "MP1": "Middle Position",
+    HJ: "Hijack — two seats before dealer",
+    CO: "Cutoff — one seat before dealer, wide range",
+  };
+  return tips[pos] ?? pos;
+}
+
+const ARCH_DESC: Record<string, string> = {
+  TAG: "Tight-Aggressive — plays few hands but bets hard. Toughest opponent.",
+  LAG: "Loose-Aggressive — plays many hands aggressively. Lots of bluffs.",
+  Station: "Calling Station — calls everything, rarely folds. Bet big for value.",
+  Nit: "Nit — only plays premium hands (AA, KK, AK). Easy to steal from.",
+};
+
 function renderSetup(): void {
   const positions = getPositions(S.tableSize);
   app.innerHTML = `
     <div class="setup">
       <h1>MonteCarloEdge<small>Poker Decision Assistant</small></h1>
 
+      <div class="help-banner" id="help-toggle">
+        <span class="help-icon">?</span> How does this work?
+      </div>
+      <div class="help-body hidden" id="help-body">
+        <p>This app tells you <strong>what to do</strong> at the poker table in real time.</p>
+        <ol>
+          <li>Set up your table below</li>
+          <li>Pick your two hole cards when dealt</li>
+          <li>Tap each opponent's action as it happens (fold / call / raise)</li>
+          <li>When it's <strong>your turn</strong>, the app shows the recommended play with the math behind it</li>
+          <li>After each betting round, tap the board to enter community cards</li>
+        </ol>
+        <p>The engine runs real-time equity simulations to find your best move.</p>
+      </div>
+
       <div class="field">
-        <label>Table Size</label>
+        <label>How many players?</label>
         <select id="tsize">
           ${[2, 3, 4, 5, 6, 7, 8, 9, 10].map(n =>
-            `<option value="${n}" ${n === S.tableSize ? "selected" : ""}>${n === 2 ? "Heads-Up" : n + "-max"}</option>`
+            `<option value="${n}" ${n === S.tableSize ? "selected" : ""}>${n === 2 ? "2 (Heads-Up)" : n + " players"}</option>`
           ).join("")}
         </select>
       </div>
 
       <div class="field">
-        <label>Stack Depth (bb)</label>
+        <label>Starting chips</label>
+        <span class="hint">In big blinds. If the big blind is $1 and everyone has $100, enter 100.</span>
         <input type="number" id="stack" value="${S.stackBB}" min="10" max="500" />
       </div>
 
       <div class="field">
-        <label>Your Seat (tap to select)</label>
+        <label>Where are you sitting?</label>
+        <span class="hint">Tap your seat. The dealer button (BTN) is the best spot — you act last after the flop.</span>
         <div class="seat-ring">
           ${positions.map((p, i) =>
-            `<button class="seat-btn ${i === S.heroSeat ? "selected" : ""}" data-seat="${i}">${p}</button>`
+            `<button class="seat-btn ${i === S.heroSeat ? "selected" : ""}" data-seat="${i}" title="${positionTip(p)}">${p}</button>`
           ).join("")}
         </div>
+        <span class="hint seat-tip">${positionTip(positions[S.heroSeat]!)}</span>
       </div>
 
       <div class="field">
-        <label>Opponent Type</label>
+        <label>What type of opponents?</label>
+        <span class="hint">Pick the style that best matches the people you're playing against.</span>
         <select id="arch">
           ${Object.keys(PROFILES).map(k =>
             `<option value="${k}" ${k === S.archetype ? "selected" : ""}>${k}</option>`
           ).join("")}
         </select>
+        <span class="hint arch-desc">${ARCH_DESC[S.archetype]}</span>
       </div>
 
       <button class="start-btn" id="start">DEAL HAND</button>
     </div>`;
+
+  $("#help-toggle").addEventListener("click", () => {
+    document.getElementById("help-body")?.classList.toggle("hidden");
+  });
 
   $("#tsize").addEventListener("change", (e) => {
     S.tableSize = +(e.target as HTMLSelectElement).value;
@@ -121,6 +168,8 @@ function renderSetup(): void {
   });
   $("#arch").addEventListener("change", (e) => {
     S.archetype = (e.target as HTMLSelectElement).value;
+    const desc = document.querySelector(".arch-desc");
+    if (desc) desc.textContent = ARCH_DESC[S.archetype] ?? "";
   });
 
   app.querySelectorAll(".seat-btn").forEach(btn => {
