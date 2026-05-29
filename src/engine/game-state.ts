@@ -19,6 +19,7 @@ export interface ActionInput {
 export interface GameConfig {
   tableSize: number;
   bb: number;
+  sb?: number;
   stacks: number[];
   positions: string[];
   heroSeat: number;
@@ -29,6 +30,7 @@ export interface GameConfig {
 export class GameState {
   readonly tableSize: number;
   readonly bb: number;
+  readonly sb: number;
   readonly heroSeat: number;
   readonly heroCards: readonly [Card, Card];
   readonly dealerSeat: number;
@@ -50,6 +52,7 @@ export class GameState {
   constructor(config: GameConfig) {
     this.tableSize = config.tableSize;
     this.bb = config.bb;
+    this.sb = config.sb ?? config.bb / 2;
     this.heroSeat = config.heroSeat;
     this.heroCards = config.heroCards;
     this.dealerSeat = config.dealerSeat;
@@ -75,7 +78,7 @@ export class GameState {
       sbSeat = (this.dealerSeat + 1) % n;
       bbSeat = (this.dealerSeat + 2) % n;
     }
-    this._invest(sbSeat, this.bb / 2);
+    this._invest(sbSeat, this.sb);
     this._invest(bbSeat, this.bb);
     this.currentBet = this.bb;
     for (let i = 0; i < n; i++) this._needsAct.add(i);
@@ -222,6 +225,7 @@ export class GameState {
     Object.assign(gs, {
       tableSize: this.tableSize,
       bb: this.bb,
+      sb: this.sb,
       heroSeat: this.heroSeat,
       heroCards: this.heroCards,
       dealerSeat: this.dealerSeat,

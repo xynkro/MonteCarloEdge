@@ -83,16 +83,22 @@ body {
   color: var(--text); padding: 12px 14px; font-size: 16px; outline: none; width: 100%;
 }
 
+.blinds-row {
+  display: flex; align-items: center; gap: 6px;
+}
+.blind-slash {
+  font-size: 20px; font-weight: 700; color: var(--text2);
+}
 .blind-input-row {
-  display: flex; align-items: center; gap: 0;
+  display: flex; align-items: center; gap: 0; flex: 1;
 }
 .blind-input-row .currency-sign {
   background: var(--surface2); border: 1px solid var(--border); border-right: none;
   border-radius: var(--radius) 0 0 var(--radius);
-  padding: 12px 10px; font-size: 16px; font-weight: 700; color: var(--green);
+  padding: 12px 8px; font-size: 16px; font-weight: 700; color: var(--green);
 }
 .blind-input-row input {
-  border-radius: 0 var(--radius) var(--radius) 0 !important; flex: 1;
+  border-radius: 0 var(--radius) var(--radius) 0 !important; flex: 1; min-width: 0;
 }
 
 .seat-ring { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }

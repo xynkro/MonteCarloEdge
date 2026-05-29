@@ -16,7 +16,8 @@ interface AppState {
   screen: "setup" | "game";
   tableSize: number;
   stackBB: number;
-  blindValue: number;
+  bbValue: number;
+  sbValue: number;
   heroSeat: number;
   archetype: string;
   gs: GameState | null;
@@ -36,7 +37,8 @@ const S: AppState = {
   screen: "setup",
   tableSize: 6,
   stackBB: 100,
-  blindValue: 1,
+  bbValue: 1,
+  sbValue: 0.5,
   heroSeat: 3,
   archetype: "Station",
   gs: null,
@@ -62,7 +64,7 @@ function isRed(c: Card): boolean {
   return SUIT_RED[suitOf(c)]!;
 }
 function chips(bb: number): string {
-  const v = bb * S.blindValue;
+  const v = bb * S.bbValue;
   if (v === 0) return "$0";
   return v % 1 === 0 ? `$${v}` : `$${v.toFixed(2)}`;
 }
@@ -127,19 +129,27 @@ function renderSetup(): void {
       </div>
 
       <div class="field">
-        <label>Big blind amount</label>
-        <span class="hint">What's the big blind at your table? All bets will show in this currency.</span>
-        <div class="blind-input-row">
-          <span class="currency-sign">$</span>
-          <input type="number" id="blind" value="${S.blindValue}" min="0.01" step="0.25" />
+        <label>Blinds</label>
+        <span class="hint">Enter your table's small blind / big blind. All amounts will show in dollars.</span>
+        <div class="blinds-row">
+          <div class="blind-input-row">
+            <span class="currency-sign">$</span>
+            <input type="number" id="sb-input" value="${S.sbValue}" min="0.01" step="0.25" />
+          </div>
+          <span class="blind-slash">/</span>
+          <div class="blind-input-row">
+            <span class="currency-sign">$</span>
+            <input type="number" id="bb-input" value="${S.bbValue}" min="0.01" step="0.25" />
+          </div>
         </div>
+        <span class="hint">${S.sbValue === S.bbValue ? "$" + S.sbValue + " / $" + S.bbValue + " (equal blinds)" : "$" + S.sbValue + " / $" + S.bbValue}</span>
       </div>
 
       <div class="field">
         <label>Starting chips per player</label>
         <span class="hint">In big blinds. If BB is $1 and everyone buys in for $100, enter 100.</span>
         <input type="number" id="stack" value="${S.stackBB}" min="10" max="500" />
-        <span class="hint">= ${chips(S.stackBB)} buy-in</span>
+        <span class="hint">= $${(S.stackBB * S.bbValue) % 1 === 0 ? S.stackBB * S.bbValue : (S.stackBB * S.bbValue).toFixed(2)} buy-in</span>
       </div>
 
       <div class="field">
@@ -176,8 +186,12 @@ function renderSetup(): void {
     if (S.heroSeat > max) S.heroSeat = max;
     render();
   });
-  $("#blind").addEventListener("input", (e) => {
-    S.blindValue = Math.max(0.01, +(e.target as HTMLInputElement).value || 1);
+  $("#sb-input").addEventListener("input", (e) => {
+    S.sbValue = Math.max(0.01, +(e.target as HTMLInputElement).value || 0.5);
+    render();
+  });
+  $("#bb-input").addEventListener("input", (e) => {
+    S.bbValue = Math.max(0.01, +(e.target as HTMLInputElement).value || 1);
     render();
   });
   $("#stack").addEventListener("change", (e) => {
@@ -219,6 +233,7 @@ function initGameState(): void {
   S.gs = new GameState({
     tableSize: S.tableSize,
     bb: 1,
+    sb: S.sbValue / S.bbValue,
     stacks: positions.map(() => S.stackBB),
     positions: [...positions],
     heroSeat: S.heroSeat,
