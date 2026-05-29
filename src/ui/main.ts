@@ -453,6 +453,11 @@ function doAction(seat: number, type: ActionType): void {
     S.handOver = true; S.rec = null;
   }
   updateRec(); updateMessage(); render();
+
+  // Auto-open card picker when a street's action is done
+  if (S.gs && S.gs.roundComplete() && !S.gs.isComplete() && !S.handOver) {
+    openBoardPicker();
+  }
 }
 
 function openBoardPicker(): void {
