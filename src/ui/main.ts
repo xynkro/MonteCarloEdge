@@ -29,9 +29,13 @@ interface AppState {
   pickerOpen: boolean;
   pickerTarget: "hero" | "flop" | "turn" | "river";
   pickerPicked: Card[];
+  pickerRank: number | null;
   rec: Recommendation | null;
   handOver: boolean;
   raiseAmount: number;
+  betPadOpen: boolean;
+  betPadAction: "bet" | "raise";
+  betPadSeat: number;
   message: string;
 }
 
@@ -52,9 +56,13 @@ const S: AppState = {
   pickerOpen: false,
   pickerTarget: "hero",
   pickerPicked: [],
+  pickerRank: null,
   rec: null,
   handOver: false,
   raiseAmount: 0,
+  betPadOpen: false,
+  betPadAction: "bet",
+  betPadSeat: 0,
   message: "",
 };
 
@@ -77,6 +85,7 @@ function render(): void {
   if (S.screen === "setup") renderSetup();
   else renderGame();
   if (S.pickerOpen) renderPicker();
+  if (S.betPadOpen) renderBetPad();
 }
 
 /* ═══════════════════ SETUP ═══════════════════ */
@@ -368,24 +377,14 @@ function renderGame(): void {
   // ── Actions ──
   const legal = gs && next !== null ? gs.legalActionsFor(next) : [];
   const showActions = gs && !S.handOver && next !== null && !needsBoard;
-  const maxR = gs && next !== null ? gs.stacks[next]! + gs.streetInvested[next]! : 0;
-  const minR = gs ? Math.max(
-    gs.currentBet > 0 ? minRaise(gs.currentBet, gs.bb) : openRaiseSize(gs.bb),
-    (gs.toCall(next ?? 0) || 0) + 1,
-  ) : 2;
 
   const actionsHtml = showActions ? `
-    ${legal.includes("raise") || legal.includes("bet") ? `
-    <div class="raise-row">
-      <input type="range" id="raise-slider" min="${minR}" max="${maxR}" step="0.5" value="${S.raiseAmount}" />
-      <span class="raise-val" id="raise-val">${chips(S.raiseAmount)}</span>
-    </div>` : ""}
     <div class="action-bar">
       ${legal.includes("fold") ? `<button class="action-btn fold" data-act="fold">Fold</button>` : ""}
       ${legal.includes("check") ? `<button class="action-btn check" data-act="check">Check</button>` : ""}
       ${legal.includes("call") ? `<button class="action-btn call" data-act="call">Call ${chips(gs!.toCall(next!))}</button>` : ""}
-      ${legal.includes("bet") ? `<button class="action-btn bet" data-act="bet">Bet</button>` : ""}
-      ${legal.includes("raise") ? `<button class="action-btn raise" data-act="raise">Raise</button>` : ""}
+      ${legal.includes("bet") ? `<button class="action-btn bet" data-open-bet="bet">Bet</button>` : ""}
+      ${legal.includes("raise") ? `<button class="action-btn raise" data-open-bet="raise">Raise</button>` : ""}
     </div>` : "";
 
   app.innerHTML = `
@@ -426,15 +425,15 @@ function renderGame(): void {
   app.querySelectorAll("[data-act]").forEach(btn =>
     btn.addEventListener("click", () => doAction(next!, (btn as HTMLElement).dataset.act as ActionType)),
   );
-
-  const slider = document.getElementById("raise-slider") as HTMLInputElement | null;
-  if (slider) {
-    slider.addEventListener("input", () => {
-      S.raiseAmount = +slider.value;
-      const el = document.getElementById("raise-val");
-      if (el) el.textContent = chips(S.raiseAmount);
-    });
-  }
+  app.querySelectorAll("[data-open-bet]").forEach(btn =>
+    btn.addEventListener("click", () => {
+      S.betPadAction = (btn as HTMLElement).dataset.openBet as "bet" | "raise";
+      S.betPadSeat = next!;
+      S.raiseAmount = 0;
+      S.betPadOpen = true;
+      renderBetPad();
+    }),
+  );
 
   if (needsBoard) {
     document.getElementById("board-area")?.addEventListener("click", openBoardPicker);
@@ -469,24 +468,47 @@ function openBoardPicker(): void {
   render();
 }
 
-/* ═══════════════════ CARD PICKER ═══════════════════ */
+/* ═══════════════════ CARD PICKER (rank → suit) ═══════════════════ */
 
 function renderPicker(): void {
+  document.getElementById("picker-modal")?.remove();
+
   const needed = S.pickerTarget === "hero" ? 2 : S.pickerTarget === "flop" ? 3 : 1;
-  const title = S.pickerTarget === "hero" ? "Pick your 2 hole cards"
-    : S.pickerTarget === "flop" ? "Deal the flop (3 cards)"
+  const title = S.pickerTarget === "hero" ? "Pick your hole cards"
+    : S.pickerTarget === "flop" ? "Deal the flop"
     : S.pickerTarget === "turn" ? "Deal the turn" : "Deal the river";
 
-  const grid = [0, 1, 2, 3].map(suit =>
-    Array.from({ length: 13 }, (_, rank) => {
-      const card = makeCard(rank, suit);
-      const used = S.allDealt.has(card);
-      const picked = S.pickerPicked.includes(card);
-      const cls = used ? "used" : picked ? "picked" : "";
-      const red = SUIT_RED[suit] ? "red" : "";
-      return `<div class="card-cell ${cls} ${red}" data-card="${card}">${RANKS[rank]}${SUITS[suit]}</div>`;
-    }).join(""),
+  const pickedDisp = S.pickerPicked.map(c =>
+    `<span class="picked-tag ${isRed(c) ? "red" : ""}">${cardDisplay(c)}</span>`
   ).join("");
+
+  let body: string;
+
+  if (S.pickerRank === null) {
+    // Step 1: pick a rank
+    body = `
+      <div class="pick-label">Select rank</div>
+      <div class="rank-grid">
+        ${Array.from({ length: 13 }, (_, r) => {
+          const allUsed = [0,1,2,3].every(s => S.allDealt.has(makeCard(r, s)));
+          return `<button class="rank-btn ${allUsed ? "used" : ""}" data-rank="${r}">${RANKS[r]}</button>`;
+        }).join("")}
+      </div>`;
+  } else {
+    // Step 2: pick a suit
+    const r = S.pickerRank;
+    body = `
+      <div class="pick-label">Pick suit for ${RANKS[r]}</div>
+      <div class="suit-grid">
+        ${[0,1,2,3].map(s => {
+          const card = makeCard(r, s);
+          const used = S.allDealt.has(card) || S.pickerPicked.includes(card);
+          const red = SUIT_RED[s] ? "red" : "";
+          return `<button class="suit-btn ${red} ${used ? "used" : ""}" data-suit="${s}">${SUITS[s]}</button>`;
+        }).join("")}
+      </div>
+      <button class="back-btn" id="pick-back">Back to ranks</button>`;
+  }
 
   const canConfirm = S.pickerPicked.length === needed;
 
@@ -496,7 +518,8 @@ function renderPicker(): void {
   overlay.innerHTML = `
     <div class="modal-content">
       <h3>${title} (${S.pickerPicked.length}/${needed})</h3>
-      <div class="card-grid">${grid}</div>
+      ${pickedDisp ? `<div class="picked-row">${pickedDisp}</div>` : ""}
+      ${body}
       <div class="modal-actions">
         <button class="cancel-btn" id="picker-cancel">Cancel</button>
         <button class="confirm-btn" id="picker-confirm" ${canConfirm ? "" : "disabled"}>Confirm</button>
@@ -505,36 +528,151 @@ function renderPicker(): void {
 
   app.appendChild(overlay);
 
-  overlay.querySelectorAll(".card-cell:not(.used)").forEach(cell =>
-    cell.addEventListener("click", () => {
-      const card = +(cell as HTMLElement).dataset.card!;
-      const idx = S.pickerPicked.indexOf(card);
-      if (idx >= 0) S.pickerPicked.splice(idx, 1);
-      else if (S.pickerPicked.length < needed) S.pickerPicked.push(card);
+  // Rank buttons
+  overlay.querySelectorAll(".rank-btn:not(.used)").forEach(btn =>
+    btn.addEventListener("click", () => {
+      S.pickerRank = +(btn as HTMLElement).dataset.rank!;
       document.getElementById("picker-modal")?.remove();
       renderPicker();
     }),
   );
 
+  // Suit buttons
+  overlay.querySelectorAll(".suit-btn:not(.used)").forEach(btn =>
+    btn.addEventListener("click", () => {
+      const card = makeCard(S.pickerRank!, +(btn as HTMLElement).dataset.suit!);
+      S.pickerPicked.push(card);
+      S.pickerRank = null;
+      // Auto-confirm if we have enough cards
+      if (S.pickerPicked.length === needed) {
+        confirmPicker();
+        return;
+      }
+      document.getElementById("picker-modal")?.remove();
+      renderPicker();
+    }),
+  );
+
+  document.getElementById("pick-back")?.addEventListener("click", () => {
+    S.pickerRank = null;
+    document.getElementById("picker-modal")?.remove();
+    renderPicker();
+  });
+
   document.getElementById("picker-cancel")?.addEventListener("click", () => {
-    S.pickerOpen = false; S.pickerPicked = [];
+    S.pickerOpen = false; S.pickerPicked = []; S.pickerRank = null;
     document.getElementById("picker-modal")?.remove();
     if (!S.heroCards) { S.screen = "setup"; render(); }
   });
 
-  document.getElementById("picker-confirm")?.addEventListener("click", () => {
-    if (S.pickerTarget === "hero") {
-      const [a, b] = S.pickerPicked;
-      S.heroCards = a! <= b! ? [a!, b!] : [b!, a!];
-      S.allDealt.add(a!); S.allDealt.add(b!);
-      initGameState();
-    } else {
-      for (const c of S.pickerPicked) { S.boardCards.push(c); S.allDealt.add(c); }
-      if (S.gs) { S.gs.advanceStreet(S.pickerPicked); updateRec(); updateMessage(); }
-    }
-    S.pickerOpen = false; S.pickerPicked = [];
-    document.getElementById("picker-modal")?.remove();
-    render();
+  document.getElementById("picker-confirm")?.addEventListener("click", confirmPicker);
+}
+
+function confirmPicker(): void {
+  const needed = S.pickerTarget === "hero" ? 2 : S.pickerTarget === "flop" ? 3 : 1;
+  if (S.pickerPicked.length !== needed) return;
+
+  if (S.pickerTarget === "hero") {
+    const [a, b] = S.pickerPicked;
+    S.heroCards = a! <= b! ? [a!, b!] : [b!, a!];
+    S.allDealt.add(a!); S.allDealt.add(b!);
+    initGameState();
+  } else {
+    for (const c of S.pickerPicked) { S.boardCards.push(c); S.allDealt.add(c); }
+    if (S.gs) { S.gs.advanceStreet(S.pickerPicked); updateRec(); updateMessage(); }
+  }
+  S.pickerOpen = false; S.pickerPicked = []; S.pickerRank = null;
+  document.getElementById("picker-modal")?.remove();
+  render();
+}
+
+/* ═══════════════════ BET PAD ═══════════════════ */
+
+function renderBetPad(): void {
+  document.getElementById("betpad-modal")?.remove();
+
+  const gs = S.gs!;
+  const seat = S.betPadSeat;
+  const maxBB = gs.stacks[seat]! + gs.streetInvested[seat]!;
+  const minBB = Math.max(
+    gs.currentBet > 0 ? minRaise(gs.currentBet, gs.bb) : openRaiseSize(gs.bb),
+    (gs.toCall(seat) || 0) + 1,
+  );
+  const potBB = gs.pot;
+
+  const display = S.raiseAmount > 0 ? chips(S.raiseAmount) : "$0";
+  const label = S.betPadAction === "raise" ? "Raise to" : "Bet";
+
+  const presets = [
+    { label: "Min", bb: minBB },
+    { label: "½ Pot", bb: Math.max(minBB, Math.round(potBB * 0.5 * 2) / 2) },
+    { label: "Pot", bb: Math.max(minBB, potBB) },
+    { label: "All-in", bb: maxBB },
+  ];
+
+  const overlay = document.createElement("div");
+  overlay.className = "modal-backdrop";
+  overlay.id = "betpad-modal";
+  overlay.innerHTML = `
+    <div class="modal-content">
+      <h3>${label}</h3>
+      <div class="betpad-display" id="bp-display">${display}</div>
+      <div class="betpad-presets">
+        ${presets.map(p => `<button class="preset-btn" data-bb="${p.bb}">${p.label}<br><span>${chips(p.bb)}</span></button>`).join("")}
+      </div>
+      <div class="betpad-grid">
+        ${["1","2","3","4","5","6","7","8","9",".","0","⌫"].map(k =>
+          `<button class="numpad-btn" data-key="${k}">${k}</button>`
+        ).join("")}
+      </div>
+      <div class="modal-actions">
+        <button class="cancel-btn" id="bp-cancel">Cancel</button>
+        <button class="confirm-btn" id="bp-confirm">Confirm</button>
+      </div>
+    </div>`;
+
+  app.appendChild(overlay);
+
+  let raw = S.raiseAmount > 0 ? String(S.raiseAmount * S.bbValue) : "";
+
+  function updateDisplay() {
+    const dollars = parseFloat(raw) || 0;
+    S.raiseAmount = dollars / S.bbValue;
+    const el = document.getElementById("bp-display");
+    if (el) el.textContent = raw ? `$${raw}` : "$0";
+  }
+
+  overlay.querySelectorAll(".numpad-btn").forEach(btn =>
+    btn.addEventListener("click", () => {
+      const k = (btn as HTMLElement).dataset.key!;
+      if (k === "⌫") { raw = raw.slice(0, -1); }
+      else if (k === ".") { if (!raw.includes(".")) raw += "."; }
+      else { raw += k; }
+      updateDisplay();
+    }),
+  );
+
+  overlay.querySelectorAll(".preset-btn").forEach(btn =>
+    btn.addEventListener("click", () => {
+      const bb = +(btn as HTMLElement).dataset.bb!;
+      S.raiseAmount = bb;
+      raw = String(bb * S.bbValue);
+      updateDisplay();
+    }),
+  );
+
+  document.getElementById("bp-cancel")?.addEventListener("click", () => {
+    S.betPadOpen = false;
+    document.getElementById("betpad-modal")?.remove();
+  });
+
+  document.getElementById("bp-confirm")?.addEventListener("click", () => {
+    const bb = S.raiseAmount;
+    if (bb < minBB) S.raiseAmount = minBB;
+    if (bb > maxBB) S.raiseAmount = maxBB;
+    S.betPadOpen = false;
+    document.getElementById("betpad-modal")?.remove();
+    doAction(seat, S.betPadAction);
   });
 }
 

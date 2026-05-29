@@ -260,9 +260,7 @@ body {
 .action-btn.bet, .action-btn.raise { background: var(--green); }
 .action-btn:disabled { opacity: .3; pointer-events: none; }
 
-.raise-row { display: flex; gap: 8px; padding: 0 16px 6px; align-items: center; }
-.raise-row input[type=range] { flex: 1; accent-color: var(--green); }
-.raise-val { font-size: 14px; font-weight: 700; color: var(--green); min-width: 55px; text-align: right; }
+/* slider removed — bet pad used instead */
 
 .status-bar {
   text-align: center; padding: 8px; font-size: 13px; color: var(--text2); background: var(--surface);
@@ -281,16 +279,73 @@ body {
 }
 .modal-content h3 { text-align: center; margin-bottom: 12px; font-size: 15px; color: var(--text2); }
 
-.card-grid { display: grid; grid-template-columns: repeat(13, 1fr); gap: 3px; }
-.card-cell {
-  aspect-ratio: 2/3; border: 1px solid var(--border); border-radius: 4px;
-  background: #fff; color: var(--card-black); font-size: 11px; font-weight: 700;
-  display: flex; align-items: center; justify-content: center; cursor: pointer;
-  line-height: 1; padding: 2px;
+/* ── Rank → Suit picker ── */
+.pick-label { text-align: center; font-size: 14px; color: var(--text2); margin-bottom: 10px; }
+
+.rank-grid {
+  display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin-bottom: 12px;
 }
-.card-cell.red { color: var(--card-red); }
-.card-cell.used { opacity: .12; pointer-events: none; }
-.card-cell.picked { border-color: var(--green); box-shadow: 0 0 6px rgba(16,185,129,.5); background: #d1fae5; }
+.rank-btn {
+  padding: 16px 8px; border: 2px solid var(--border); border-radius: var(--radius);
+  background: #fff; color: var(--card-black); font-size: 20px; font-weight: 800;
+  cursor: pointer; text-align: center;
+}
+.rank-btn:active { transform: scale(.95); }
+.rank-btn.used { opacity: .15; pointer-events: none; }
+
+.suit-grid {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 12px;
+}
+.suit-btn {
+  padding: 20px 8px; border: 2px solid var(--border); border-radius: var(--radius);
+  background: #fff; color: var(--card-black); font-size: 32px; cursor: pointer; text-align: center;
+}
+.suit-btn.red { color: var(--card-red); }
+.suit-btn:active { transform: scale(.95); }
+.suit-btn.used { opacity: .15; pointer-events: none; }
+
+.back-btn {
+  display: block; width: 100%; padding: 10px; margin-bottom: 8px;
+  background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius);
+  color: var(--text2); font-size: 13px; cursor: pointer; text-align: center;
+}
+
+.picked-row {
+  display: flex; gap: 8px; justify-content: center; margin-bottom: 12px;
+}
+.picked-tag {
+  background: #fff; color: var(--card-black); border: 2px solid var(--green);
+  border-radius: 6px; padding: 6px 12px; font-size: 18px; font-weight: 700;
+}
+.picked-tag.red { color: var(--card-red); }
+
+/* ── Bet numpad ── */
+.betpad-display {
+  text-align: center; font-size: 32px; font-weight: 800; color: var(--green);
+  padding: 12px; margin-bottom: 10px;
+  background: var(--bg); border-radius: var(--radius);
+}
+
+.betpad-presets {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-bottom: 10px;
+}
+.preset-btn {
+  padding: 8px 4px; border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--surface2); color: var(--text); font-size: 12px; font-weight: 600;
+  cursor: pointer; text-align: center; line-height: 1.3;
+}
+.preset-btn span { font-size: 11px; color: var(--text2); }
+.preset-btn:active { background: var(--green); color: #fff; }
+
+.betpad-grid {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-bottom: 12px;
+}
+.numpad-btn {
+  padding: 16px; border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--surface); color: var(--text); font-size: 22px; font-weight: 600;
+  cursor: pointer; text-align: center;
+}
+.numpad-btn:active { background: var(--surface2); }
 
 .modal-actions { display: flex; gap: 8px; margin-top: 12px; }
 .modal-actions button {
