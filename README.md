@@ -10,6 +10,8 @@ inherent variance of the cards remains.
 
 ## Build status
 
+Live: **https://xynkro.github.io/MonteCarloEdge/**
+
 **Phase 1: equity engine — complete and validated.**
 
 | Layer | What it proves | Status |
@@ -39,15 +41,29 @@ inherent variance of the cards remains.
 | Self-play vs TAG | Hero holds vs tight-aggressive opponent | bb/100 > −2 |
 | Self-play vs LAG | Hero is +EV against loose-aggressive opponent | bb/100 > 0 |
 
-Remaining phases:
+**Phase 4: app + advanced engine — complete.**
 
-- Phase 4 — UI (setup, seat ring, action flow, elimination, card picker)
-- Phase 5 — PWA shell, hand history, GitHub Pages deploy
+- Installable, offline PWA (oval table UI, card picker, numpad, sounds, animations).
+- Multi-way equity, position-aware equity realization, board-texture-aware sizing.
+- Adaptive opponent modeling (learns each seat's VPIP/PFR/c-bet/fold tendencies).
+- Training mode vs the AI, post-hand review, session P&L stats, CSV export.
+
+**Phase 5: GTO solver (CFR) — complete and validated.**
+
+| Layer | What it proves | Status |
+|---|---|---|
+| CFR on Kuhn poker | Engine converges to the known analytic equilibrium (value −1/18, Q never bluffed first-in, Q calls ~⅓, K value-bets 3× the J bluff) | 5/5 passing |
+| River subgame solver | Exact CFR solve of a river spot → GTO mixed strategy; nuts bets, air mixes checks, freqs sum to 1 | 4/4 passing |
+| Turn solver | Street-aware CFR over all river runouts; nuts never loses, value-bets vs calling ranges, deterministic | 5/5 passing |
+| Preflop push/fold Nash | Jam/call equilibrium matches known push/fold theory (tightens with depth, BB calls tighter, ~27% call at 10bb) | 7/7 passing |
+
+In-app: "🧠 Solve GTO" runs the CFR solver live — preflop push/fold (≤20bb HU),
+or the turn/river subgame solver — and shows the optimal mixed strategy with EV.
 
 ## Scripts
 
 ```bash
-npm test                  # vitest, unit suite (173 tests)
+npm test                  # vitest, unit suite (226 tests)
 npm run validate          # exhaustive + Monte Carlo Layer 1 validation report
 npm run validate-ranges   # Layer 2: range parsing, sampler bias, canonical spots
 npm run validate-decisions # Layer 3: decision sanity, EV checks, sizing bounds
