@@ -3,11 +3,14 @@ import { type Combo } from "../engine/range.js";
 import { mulberry32 } from "../engine/rng.js";
 import { GameState, type ActionType } from "../engine/game-state.js";
 import { getPositions } from "../engine/charts/index.js";
-import { recommend, type Recommendation } from "../engine/decision.js";
+import { recommend, type Recommendation, type ProfileMap } from "../engine/decision.js";
 import { TAG, LAG, STATION, NIT, type OpponentProfile, villainAct } from "../engine/opponent.js";
 import { evaluate } from "../engine/evaluator.js";
+import { describeHand } from "../engine/made-hand.js";
 import { openRaiseSize, minRaise } from "../engine/sizing.js";
 import { saveHand, getSessionHands, clearHistory, computeStats, type HandRecord, type SessionStats } from "../engine/hand-history.js";
+import { emptyStats, observeHand, blendProfile, playerRead, type PlayerStats } from "../engine/player-model.js";
+import { playSound, setSoundEnabled, isSoundEnabled } from "./sound.js";
 
 const RANKS = "23456789TJQKA";
 const SUITS = ["♣", "♦", "♥", "♠"];
@@ -45,6 +48,12 @@ interface AppState {
   villainCards: [Card, Card] | null;
   trainingDeck: Card[];
   trainingBoardCards: Card[];
+  // Per-seat opponent types + adaptive modeling
+  seatTypes: Map<number, string>;
+  playerStats: Map<number, PlayerStats>;
+  // Post-hand review: hero's decision points this hand
+  decisionLog: { street: string; chosen: ActionType; chosenAmt: number; rec: Recommendation }[];
+  reviewOpen: boolean;
   message: string;
 }
 
@@ -78,8 +87,47 @@ const S: AppState = {
   villainCards: null,
   trainingDeck: [],
   trainingBoardCards: [],
+  seatTypes: new Map(),
+  playerStats: new Map(),
+  decisionLog: [],
+  reviewOpen: false,
   message: "",
 };
+
+// ── Adaptive modeling: persist per-seat stats in localStorage ──
+const STATS_KEY = "mce-player-stats";
+
+function loadPlayerStats(): void {
+  try {
+    const raw = localStorage.getItem(STATS_KEY);
+    if (raw) {
+      const obj = JSON.parse(raw) as Record<string, PlayerStats>;
+      S.playerStats = new Map(Object.entries(obj).map(([k, v]) => [+k, v]));
+    }
+  } catch { /* ignore */ }
+}
+
+function savePlayerStats(): void {
+  try {
+    const obj: Record<string, PlayerStats> = {};
+    for (const [k, v] of S.playerStats) obj[k] = v;
+    localStorage.setItem(STATS_KEY, JSON.stringify(obj));
+  } catch { /* ignore */ }
+}
+
+// Build per-seat blended profiles from the chosen archetype + observed stats.
+function buildProfiles(): ProfileMap {
+  const map: ProfileMap = new Map();
+  const n = getPositions(S.tableSize).length;
+  for (let i = 0; i < n; i++) {
+    if (i === S.heroSeat) continue;
+    const archName = S.seatTypes.get(i) ?? S.archetype;
+    const prior = PROFILES[archName] ?? STATION;
+    const stats = S.playerStats.get(i);
+    map.set(i, stats ? blendProfile(prior, stats) : prior);
+  }
+  return map;
+}
 
 const $ = (s: string) => document.querySelector(s)!;
 const app = document.getElementById("app")!;
@@ -269,6 +317,8 @@ function startHand(): void {
   S.handOver = false;
   S.handResult = "";
   S.raiseAmount = 0;
+  S.decisionLog = [];
+  S.reviewOpen = false;
   S.message = "Tap your cards to pick them";
   S.screen = "game";
   S.pickerTarget = "hero";
@@ -317,6 +367,8 @@ function startTrainingHand(): void {
   S.handResult = "";
   S.raiseAmount = 0;
   S.rec = null;
+  S.decisionLog = [];
+  S.reviewOpen = false;
 
   // Create game state
   const positions = getPositions(S.tableSize);
@@ -333,6 +385,7 @@ function startTrainingHand(): void {
 
   S.screen = "game";
   S.pickerOpen = false;
+  playSound("deal");
   updateRec();
   updateMessage();
   render();
@@ -363,7 +416,8 @@ function initGameState(): void {
 function updateRec(): void {
   if (!S.gs || S.handOver) { S.rec = null; return; }
   if (S.gs.nextToAct() === S.heroSeat) {
-    S.rec = recommend(S.gs, PROFILES[S.archetype], mulberry32(0xface));
+    const prior = PROFILES[S.archetype] ?? STATION;
+    S.rec = recommend(S.gs, prior, mulberry32(0xface), buildProfiles());
     if (S.rec.amount > 0) S.rec.amount = roundBet(S.rec.amount);
     S.raiseAmount = Math.max(
       S.gs.currentBet > 0 ? minRaise(S.gs.currentBet, S.gs.bb) : openRaiseSize(S.gs.bb),
@@ -455,6 +509,14 @@ function renderGame(): void {
       ).join("")
     : `<div class="hero-card empty">?</div><div class="hero-card empty">?</div>`;
 
+  // ── Hand strength label ──
+  let handLabelHtml = "";
+  if (S.heroCards && gs) {
+    const d = describeHand(S.heroCards, gs.board);
+    const draws = d.draws.length ? ` + ${d.draws.join(" + ")}` : "";
+    handLabelHtml = `<div class="hand-label ${d.strong ? "strong" : ""}">${d.label}${draws}</div>`;
+  }
+
   // ── Recommendation ──
   const recHtml = S.rec ? `
     <div class="rec-panel">
@@ -503,6 +565,7 @@ function renderGame(): void {
 
       <div class="hero-area">
         <div class="hero-cards">${heroHtml}</div>
+        ${handLabelHtml}
         ${recHtml}
       </div>
 
@@ -563,6 +626,15 @@ function renderGame(): void {
 function doAction(seat: number, type: ActionType): void {
   if (!S.gs) return;
   const amount = type === "bet" || type === "raise" ? S.raiseAmount : 0;
+
+  // Log hero's decision against the recommendation for post-hand review.
+  if (seat === S.heroSeat && S.rec) {
+    S.decisionLog.push({ street: S.gs.street, chosen: type, chosenAmt: amount, rec: S.rec });
+  }
+
+  playSound(type === "fold" ? "fold" : type === "check" ? "check"
+    : type === "call" ? "bet" : "bet");
+
   S.gs.applyAction({ seat, type, amount });
 
   if (S.gs.activeSeatCount <= 1) {
@@ -740,6 +812,7 @@ function autoPlayVillain(): void {
   }
 
   updateRec(); updateMessage(); render();
+  if (S.gs && S.gs.nextToAct() === S.heroSeat && !S.handOver) playSound("turn");
 }
 
 function getNextBoardCards(): Card[] {
@@ -787,6 +860,22 @@ function trainingShowdown(): void {
 
 function saveHandRecord(heroPnl: number): void {
   if (!S.gs || !S.heroCards) return;
+
+  // Adaptive modeling: fold villain actions from this hand into their stats.
+  const n = getPositions(S.tableSize).length;
+  for (let i = 0; i < n; i++) {
+    if (i === S.heroSeat) continue;
+    // Only observe seats that were actually dealt in (acted or posted).
+    const dealtIn = S.gs.actions.some(a => a.seat === i) || !S.gs.folded[i] || S.gs.invested[i]! > 0;
+    if (!dealtIn) continue;
+    const prev = S.playerStats.get(i) ?? emptyStats();
+    S.playerStats.set(i, observeHand(prev, S.gs, i));
+  }
+  savePlayerStats();
+
+  // Win/lose sound.
+  playSound(heroPnl > 0 ? "win" : heroPnl < 0 ? "lose" : "check");
+
   saveHand({
     timestamp: Date.now(),
     tableSize: S.tableSize,
@@ -920,10 +1009,12 @@ function confirmPicker(): void {
     const [a, b] = S.pickerPicked;
     S.heroCards = a! <= b! ? [a!, b!] : [b!, a!];
     S.allDealt.add(a!); S.allDealt.add(b!);
+    playSound("deal");
     initGameState();
   } else {
     for (const c of S.pickerPicked) { S.boardCards.push(c); S.allDealt.add(c); }
     if (S.gs) { S.gs.advanceStreet(S.pickerPicked); updateRec(); updateMessage(); }
+    playSound("card");
   }
   S.pickerOpen = false; S.pickerPicked = []; S.pickerRank = null;
   document.getElementById("picker-modal")?.remove();
@@ -1105,4 +1196,5 @@ async function renderStats(): Promise<void> {
 
 /* ═══════════════════ INIT ═══════════════════ */
 
+loadPlayerStats();
 render();

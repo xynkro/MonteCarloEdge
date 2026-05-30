@@ -254,6 +254,12 @@ body {
 
 .hero-cards { display: flex; gap: 8px; justify-content: center; margin-bottom: 6px; }
 
+.hand-label {
+  text-align: center; font-size: 13px; font-weight: 700; color: var(--text2);
+  margin-bottom: 6px; letter-spacing: .3px;
+}
+.hand-label.strong { color: var(--gold); }
+
 .hero-card {
   width: 50px; height: 68px; border-radius: 7px;
   display: flex; align-items: center; justify-content: center;
