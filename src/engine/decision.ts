@@ -244,12 +244,16 @@ function postflopRecommend(
   const pct = (n: number) => `${(n * 100).toFixed(0)}%`;
 
   if (tc > 0) {
-    if (equity > odds + RAISE_EDGE && state.stacks[seat]! > tc) {
+    const evCall = equity * state.potAfterCall(seat) - tc;
+    const canRaise = state.stacks[seat]! > tc;
+
+    if (equity > odds + RAISE_EDGE && canRaise) {
+      // Raise size: 2.5-3x the bet with strong hands, pot-size with monsters
+      const raiseMult = equity > 0.75 ? 3.5 : equity > 0.60 ? 3.0 : 2.5;
       const amt = Math.min(
-        state.currentBet * 2.5,
+        Math.max(state.currentBet * raiseMult, state.pot + tc),
         state.stacks[seat]! + state.streetInvested[seat]!,
       );
-      const evCall = equity * state.potAfterCall(seat) - tc;
       return {
         action: "raise",
         amount: amt,
@@ -260,7 +264,6 @@ function postflopRecommend(
       };
     }
     if (equity > odds) {
-      const evCall = equity * state.potAfterCall(seat) - tc;
       return {
         action: "call",
         amount: 0,
@@ -270,7 +273,6 @@ function postflopRecommend(
         reasoning: `Call — ${pct(equity)} equity > ${pct(odds)} pot odds`,
       };
     }
-    const evCall = equity * state.potAfterCall(seat) - tc;
     return {
       action: "fold",
       amount: 0,
@@ -281,35 +283,68 @@ function postflopRecommend(
     };
   }
 
-  if (state.spr() < 1 && equity > 0.5) {
-    const amt = state.stacks[seat]!;
+  // Bet sizing: scale pot fraction by hand strength
+  // Monster (>80%): bet 80-100% pot — extract max value
+  // Strong  (>60%): bet 60-75% pot — solid value bet
+  // Good    (>VB):  bet 40-55% pot — protect / thin value
+  // Thin    (>TV):  bet 25-33% pot — cheap showdown / block
+  // Weak:           check
+  const heroStack = state.stacks[seat]!;
+  const pot = state.pot;
+
+  // Shove if we can't make a meaningful bet (short stack)
+  if (heroStack <= pot * 0.4 && equity > 0.5) {
     return {
       action: "bet",
-      amount: amt,
+      amount: heroStack,
       equity,
       potOdds: 0,
-      ev: { fold: 0, call: 0, raise: equity * (state.pot + amt * 2) - amt },
-      reasoning: `Shove — SPR < 1 with ${pct(equity)} equity`,
+      ev: { fold: 0, call: 0, raise: equity * (pot + heroStack * 2) - heroStack },
+      reasoning: `All-in — ${pct(equity)} equity, short stack`,
     };
   }
 
-  if (equity > VALUE_BET) {
-    const size = Math.min(
-      recommendSize(state.pot, state.effectiveStack(), state.street),
-      state.stacks[seat]!,
-    );
+  if (equity > 0.80) {
+    const frac = 0.80 + (equity - 0.80) * 1.0; // 80-100% pot
+    const size = Math.min(pot * frac, heroStack);
     return {
       action: "bet",
       amount: size,
       equity,
       potOdds: 0,
       ev: { fold: 0, call: 0, raise: 1 },
-      reasoning: `Bet — ${pct(equity)} equity, value`,
+      reasoning: `Bet ${pct(frac)} pot — ${pct(equity)} equity, big value`,
+    };
+  }
+
+  if (equity > 0.60) {
+    const frac = 0.55 + (equity - 0.60) * 1.0; // 55-75% pot
+    const size = Math.min(pot * frac, heroStack);
+    return {
+      action: "bet",
+      amount: size,
+      equity,
+      potOdds: 0,
+      ev: { fold: 0, call: 0, raise: 1 },
+      reasoning: `Bet ${pct(frac)} pot — ${pct(equity)} equity, value`,
+    };
+  }
+
+  if (equity > VALUE_BET) {
+    const frac = 0.40;
+    const size = Math.min(pot * frac, heroStack);
+    return {
+      action: "bet",
+      amount: size,
+      equity,
+      potOdds: 0,
+      ev: { fold: 0, call: 0, raise: 0.5 },
+      reasoning: `Bet ${pct(frac)} pot — ${pct(equity)} equity, thin value`,
     };
   }
 
   if (equity > THIN_VALUE) {
-    const size = Math.min(state.pot / 3, state.stacks[seat]!);
+    const size = Math.min(pot * 0.25, heroStack);
     if (size > 0) {
       return {
         action: "bet",
@@ -317,7 +352,7 @@ function postflopRecommend(
         equity,
         potOdds: 0,
         ev: { fold: 0, call: 0, raise: 0.3 },
-        reasoning: `Small bet — ${pct(equity)} equity, thin value`,
+        reasoning: `Small bet — ${pct(equity)} equity, block/protect`,
       };
     }
   }
