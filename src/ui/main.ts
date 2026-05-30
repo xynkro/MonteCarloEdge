@@ -4,7 +4,7 @@ import { mulberry32 } from "../engine/rng.js";
 import { GameState, type ActionType } from "../engine/game-state.js";
 import { getPositions, getRfiRange, getBbDefenseRange } from "../engine/charts/index.js";
 import { estimateVillainRange } from "../engine/opponent.js";
-import { solveRiver, type RiverResult } from "../engine/gto/river-solver.js";
+import { solveSubgame, type RiverResult } from "../engine/gto/river-solver.js";
 import { allCombos, topSlice } from "../engine/hand-strength.js";
 import { recommend, type Recommendation, type ProfileMap } from "../engine/decision.js";
 import { TAG, LAG, STATION, NIT, type OpponentProfile, villainAct } from "../engine/opponent.js";
@@ -263,7 +263,8 @@ function activeVillains(): number[] {
 
 function canSolveGto(): boolean {
   return !!(S.gs && S.heroCards && !S.handOver &&
-    S.gs.street === "river" && S.gs.nextToAct() === S.heroSeat &&
+    (S.gs.street === "turn" || S.gs.street === "river") &&
+    S.gs.nextToAct() === S.heroSeat &&
     activeVillains().length === 1);
 }
 
@@ -307,13 +308,13 @@ function runGtoSolve(): void {
   const stack = Math.min(gs.stacks[S.heroSeat]!, gs.stacks[villainSeat]!);
 
   try {
-    S.gtoResult = solveRiver({
+    S.gtoResult = solveSubgame({
       heroRange,
       villainRange: villainRange.size > 0 ? villainRange : topSlice(allCombos(), 0.4).filter([...gs.board]),
       board: gs.board,
       pot: gs.pot,
       stack: Math.max(stack, gs.pot * 0.5),
-      iterations: 12000,
+      iterations: gs.street === "river" ? 12000 : 22000,
       rng: mulberry32(0x9e3a),
     }, S.heroCards);
   } catch {
@@ -348,8 +349,8 @@ function renderGtoModal(): void {
   overlay.id = "gto-modal";
   overlay.innerHTML = `
     <div class="modal-content">
-      <h3>🧠 GTO Solution (river)</h3>
-      <div class="gto-sub">Solved with CFR — ${res.iterations.toLocaleString()} iterations · assumes you act first</div>
+      <h3>🧠 GTO Solution (${S.gs?.street ?? "river"})</h3>
+      <div class="gto-sub">Solved with CFR — ${res.iterations.toLocaleString()} iterations${S.gs?.street === "turn" ? " over all river runouts" : ""} · assumes you act first</div>
       ${rows || `<div class="hint" style="text-align:center">No solution.</div>`}
       <div class="gto-ev">Hand EV: <strong>${chips(res.heroEv)}</strong></div>
       <div class="modal-actions">
