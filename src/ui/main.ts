@@ -4,7 +4,8 @@ import { mulberry32 } from "../engine/rng.js";
 import { GameState, type ActionType } from "../engine/game-state.js";
 import { getPositions } from "../engine/charts/index.js";
 import { recommend, type Recommendation } from "../engine/decision.js";
-import { TAG, LAG, STATION, NIT, type OpponentProfile } from "../engine/opponent.js";
+import { TAG, LAG, STATION, NIT, type OpponentProfile, villainAct } from "../engine/opponent.js";
+import { evaluate } from "../engine/evaluator.js";
 import { openRaiseSize, minRaise } from "../engine/sizing.js";
 import { saveHand, getSessionHands, clearHistory, computeStats, type HandRecord, type SessionStats } from "../engine/hand-history.js";
 
@@ -15,6 +16,7 @@ const PROFILES: Record<string, OpponentProfile> = { TAG, LAG, Station: STATION, 
 
 interface AppState {
   screen: "setup" | "game" | "stats";
+  mode: "live" | "training";
   sessionStart: number;
   tableSize: number;
   stackBB: number;
@@ -39,11 +41,16 @@ interface AppState {
   betPadOpen: boolean;
   betPadAction: "bet" | "raise";
   betPadSeat: number;
+  // Training mode
+  villainCards: [Card, Card] | null;
+  trainingDeck: Card[];
+  trainingBoardCards: Card[];
   message: string;
 }
 
 const S: AppState = {
   screen: "setup",
+  mode: "live",
   sessionStart: Date.now(),
   tableSize: 6,
   stackBB: 100,
@@ -68,6 +75,9 @@ const S: AppState = {
   betPadOpen: false,
   betPadAction: "bet",
   betPadSeat: 0,
+  villainCards: null,
+  trainingDeck: [],
+  trainingBoardCards: [],
   message: "",
 };
 
@@ -203,6 +213,8 @@ function renderSetup(): void {
       </div>
 
       <button class="start-btn" id="start">DEAL HAND</button>
+      <button class="start-btn" id="start-training" style="background:var(--blue);margin-top:8px">TRAINING MODE</button>
+      <span class="hint" style="text-align:center">Training: practice against the AI. It deals cards, makes villain decisions, reveals hands at showdown.</span>
       <button class="hdr-btn" id="view-stats" style="width:100%;padding:12px;margin-top:4px;font-size:14px">Session Stats</button>
     </div>`;
 
@@ -235,7 +247,8 @@ function renderSetup(): void {
   app.querySelectorAll(".seat-btn").forEach(btn =>
     btn.addEventListener("click", () => { S.heroSeat = +(btn as HTMLElement).dataset.seat!; render(); }),
   );
-  $("#start").addEventListener("click", startHand);
+  $("#start").addEventListener("click", () => { S.mode = "live"; startHand(); });
+  document.getElementById("start-training")?.addEventListener("click", () => { S.mode = "training"; startTrainingHand(); });
   document.getElementById("view-stats")?.addEventListener("click", () => {
     S.screen = "stats"; render();
   });
@@ -267,7 +280,65 @@ function startHand(): void {
 function nextHand(): void {
   const n = getPositions(S.tableSize).length;
   S.dealerSeat = (S.dealerSeat + 1) % n;
-  startHand();
+  if (S.mode === "training") startTrainingHand();
+  else startHand();
+}
+
+function shuffleDeck(): Card[] {
+  const deck: Card[] = [];
+  for (let i = 0; i < NUM_CARDS; i++) deck.push(i);
+  // Fisher-Yates
+  for (let i = deck.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    const tmp = deck[i]!; deck[i] = deck[j]!; deck[j] = tmp;
+  }
+  return deck;
+}
+
+function startTrainingHand(): void {
+  const n = getPositions(S.tableSize).length;
+  if (S.dealerSeat < 0) {
+    S.dealerSeat = S.tableSize === 2 ? 0 : n - 3;
+  }
+  S.handNumber++;
+
+  // Shuffle and deal
+  const deck = shuffleDeck();
+  const heroCards: [Card, Card] = deck[0]! <= deck[1]! ? [deck[0]!, deck[1]!] : [deck[1]!, deck[0]!];
+  const villCards: [Card, Card] = deck[2]! <= deck[3]! ? [deck[2]!, deck[3]!] : [deck[3]!, deck[2]!];
+  const boardCards = [deck[4]!, deck[5]!, deck[6]!, deck[7]!, deck[8]!];
+
+  S.heroCards = heroCards;
+  S.villainCards = villCards;
+  S.trainingBoardCards = boardCards;
+  S.boardCards = [];
+  S.allDealt = new Set([heroCards[0], heroCards[1], villCards[0], villCards[1], ...boardCards]);
+  S.handOver = false;
+  S.handResult = "";
+  S.raiseAmount = 0;
+  S.rec = null;
+
+  // Create game state
+  const positions = getPositions(S.tableSize);
+  S.gs = new GameState({
+    tableSize: S.tableSize,
+    bb: 1,
+    sb: S.sbValue / S.bbValue,
+    stacks: positions.map(() => S.stackBB),
+    positions: [...positions],
+    heroSeat: S.heroSeat,
+    heroCards: heroCards,
+    dealerSeat: S.dealerSeat,
+  });
+
+  S.screen = "game";
+  S.pickerOpen = false;
+  updateRec();
+  updateMessage();
+  render();
+
+  // If villain acts first, auto-play them
+  autoPlayVillain();
 }
 
 /* ═══════════════════ GAME ═══════════════════ */
@@ -411,7 +482,7 @@ function renderGame(): void {
   app.innerHTML = `
     <div class="game">
       <div class="game-topbar">
-        <span>Hand #${S.handNumber}</span>
+        <span>Hand #${S.handNumber}${S.mode === "training" ? " · <strong style=\"color:var(--blue)\">TRAINING</strong>" : ""}</span>
         <button class="hdr-btn" id="new-hand">New Hand</button>
       </div>
 
@@ -494,27 +565,30 @@ function doAction(seat: number, type: ActionType): void {
     S.handOver = true; S.rec = null; updateMessage(); render(); return;
   }
 
-  // Check if hand is complete (river action done, or all-in with no more action)
+  // Training mode: let villain AI take over after hero acts
+  if (S.mode === "training") {
+    if (S.gs.isComplete() || (S.gs.roundComplete() && S.gs.street === "river")) {
+      trainingShowdown(); return;
+    }
+    updateRec(); updateMessage(); render();
+    autoPlayVillain();
+    return;
+  }
+
+  // Live mode: check if hand is complete
   if (S.gs.isComplete() || (S.gs.roundComplete() && S.gs.street === "river")) {
     S.handResult = "showdown";
     S.handOver = true; S.rec = null; updateMessage(); render(); return;
   }
 
-  // Check if all remaining players are all-in (no one can act anymore)
+  // Check if all remaining players are all-in
   const anyCanAct = S.gs.stacks.some((s, i) => !S.gs!.folded[i] && s > 0);
   if (S.gs.roundComplete() && !anyCanAct) {
-    // Everyone is all-in — deal remaining board and go to showdown
-    while (S.gs.street !== "river") {
-      const cards = S.gs.street === "preflop" ? 3 : 1;
-      S.pickerTarget = S.gs.street === "preflop" ? "flop" : S.gs.street === "flop" ? "turn" : "river";
-      // Need user to pick the board cards — open picker for each street
-      S.pickerPicked = [];
-      S.pickerOpen = true;
-      updateRec(); updateMessage(); render();
-      return;
-    }
-    S.handResult = "showdown";
-    S.handOver = true; S.rec = null; updateMessage(); render(); return;
+    S.pickerTarget = S.gs.street === "preflop" ? "flop" : S.gs.street === "flop" ? "turn" : "river";
+    S.pickerPicked = [];
+    S.pickerOpen = true;
+    updateRec(); updateMessage(); render();
+    return;
   }
 
   updateRec(); updateMessage(); render();
@@ -529,8 +603,8 @@ function renderHandResult(positions: readonly string[]): string {
   if (!S.gs) return "";
   const pot = S.gs.pot;
 
-  if (S.handResult === "showdown") {
-    // River complete — ask who won
+  if (S.handResult === "showdown" && S.mode === "live") {
+    // Live mode: ask who won
     const remaining = S.gs.folded
       .map((f, i) => f ? null : i)
       .filter((i): i is number => i !== null);
@@ -550,14 +624,139 @@ function renderHandResult(positions: readonly string[]): string {
       </div>`;
   }
 
-  // Fold result — already determined
+  // Training showdown or fold — show villain cards + result
+  const villainReveal = S.mode === "training" && S.villainCards && S.handOver
+    ? `<div class="villain-reveal">
+        <span class="hint">Opponent's hand:</span>
+        <div class="hero-cards" style="margin-top:4px">
+          <div class="hero-card dealt ${isRed(S.villainCards[0]) ? "red" : ""}" style="width:44px;height:60px;font-size:17px">${cardDisplay(S.villainCards[0])}</div>
+          <div class="hero-card dealt ${isRed(S.villainCards[1]) ? "red" : ""}" style="width:44px;height:60px;font-size:17px">${cardDisplay(S.villainCards[1])}</div>
+        </div>
+      </div>`
+    : "";
+
   return `
     <div class="result-panel">
+      ${villainReveal}
       <div class="result-text">${S.handResult}</div>
       <div class="action-bar" style="margin-top:10px">
         <button class="action-btn raise" id="next-hand" style="font-size:16px;padding:16px">NEXT HAND</button>
       </div>
     </div>`;
+}
+
+function autoPlayVillain(): void {
+  if (!S.gs || S.handOver || S.mode !== "training" || !S.villainCards) return;
+
+  // Keep playing villain turns until it's hero's turn or hand is over
+  const profile = PROFILES[S.archetype]!;
+  const rng = () => Math.random();
+  let safety = 20;
+
+  while (safety-- > 0) {
+    if (S.gs.activeSeatCount <= 1 || S.gs.isComplete()) break;
+
+    // If round is complete, deal next street automatically
+    if (S.gs.roundComplete() && !S.gs.isComplete()) {
+      if (S.gs.street === "river") {
+        // Go to showdown
+        trainingShowdown();
+        return;
+      }
+      // Check if anyone can act next street
+      const anyCanAct = S.gs.stacks.some((s, i) => !S.gs!.folded[i] && s > 0);
+      if (!anyCanAct) {
+        // All-in — deal remaining board and showdown
+        while (S.gs.street !== "river") {
+          const cards = getNextBoardCards();
+          S.boardCards.push(...cards);
+          S.gs.advanceStreet(cards);
+        }
+        trainingShowdown();
+        return;
+      }
+      const cards = getNextBoardCards();
+      S.boardCards.push(...cards);
+      S.gs.advanceStreet(cards);
+    }
+
+    const next = S.gs.nextToAct();
+    if (next === null) break;
+    if (next === S.heroSeat) break; // Hero's turn — stop and wait for input
+
+    // Villain acts
+    const vAct = villainAct(S.gs, next, S.villainCards, profile, rng);
+    let action = vAct.type;
+    let amount = vAct.amount;
+    const legal = S.gs.legalActionsFor(next);
+
+    if (action === "raise" && !legal.includes("raise")) {
+      action = legal.includes("call") ? "call" : "check"; amount = 0;
+    }
+    if (action === "bet" && !legal.includes("bet")) { action = "check"; amount = 0; }
+    if (action === "fold" && !legal.includes("fold")) { action = "check"; amount = 0; }
+
+    S.gs.applyAction({ seat: next, type: action, amount });
+
+    if (S.gs.activeSeatCount <= 1) {
+      // Villain folded
+      const winnerSeat = S.gs.folded.findIndex(f => !f);
+      const winnerPos = winnerSeat === S.heroSeat ? "You" : S.gs.positions[winnerSeat]!;
+      const folderPos = S.gs.positions[next]!;
+      S.handResult = `${folderPos} folded — ${winnerPos} won ${chips(S.gs.pot)}`;
+      const heroPnl = winnerSeat === S.heroSeat
+        ? S.gs.pot - S.gs.invested[S.heroSeat]! : -S.gs.invested[S.heroSeat]!;
+      saveHandRecord(heroPnl);
+      S.handOver = true; S.rec = null;
+      updateMessage(); render();
+      return;
+    }
+  }
+
+  updateRec(); updateMessage(); render();
+}
+
+function getNextBoardCards(): Card[] {
+  if (!S.gs) return [];
+  const street = S.gs.street;
+  if (street === "preflop") return [S.trainingBoardCards[0]!, S.trainingBoardCards[1]!, S.trainingBoardCards[2]!];
+  if (street === "flop") return [S.trainingBoardCards[3]!];
+  if (street === "turn") return [S.trainingBoardCards[4]!];
+  return [];
+}
+
+function trainingShowdown(): void {
+  if (!S.gs || !S.heroCards || !S.villainCards) return;
+  // Make sure full board is dealt
+  while (S.boardCards.length < 5) {
+    const cards = getNextBoardCards();
+    if (cards.length === 0) break;
+    S.boardCards.push(...cards);
+    if (S.gs.street !== "river") S.gs.advanceStreet(cards);
+  }
+
+  const board5 = S.boardCards.slice(0, 5);
+  const heroRank = evaluate([S.heroCards[0], S.heroCards[1], ...board5]);
+  const villRank = evaluate([S.villainCards[0], S.villainCards[1], ...board5]);
+
+  const invested = S.gs.invested[S.heroSeat]!;
+  let heroPnl: number;
+  const villPos = S.gs.positions.find((_, i) => i !== S.heroSeat && !S.gs!.folded[i]) ?? "Villain";
+
+  if (heroRank > villRank) {
+    S.handResult = `You won ${chips(S.gs.pot)} at showdown`;
+    heroPnl = S.gs.pot - invested;
+  } else if (heroRank === villRank) {
+    S.handResult = `Split pot — ${chips(S.gs.pot / 2)} each`;
+    heroPnl = S.gs.pot / 2 - invested;
+  } else {
+    S.handResult = `${villPos} won ${chips(S.gs.pot)} at showdown`;
+    heroPnl = -invested;
+  }
+
+  saveHandRecord(heroPnl);
+  S.handOver = true; S.rec = null;
+  updateMessage(); render();
 }
 
 function saveHandRecord(heroPnl: number): void {
