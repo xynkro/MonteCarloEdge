@@ -392,4 +392,21 @@ body {
 .confirm-btn { background: var(--green); }
 .cancel-btn { background: var(--surface2); color: var(--text2) !important; }
 
+/* ── Stats ── */
+.stats-card {
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 16px; text-align: center;
+}
+.stats-card.small { flex: 1; padding: 12px; }
+.stats-row { display: flex; gap: 8px; }
+.stat-big { font-size: 32px; font-weight: 800; }
+.stat-num { font-size: 20px; font-weight: 700; }
+.stat-label { font-size: 12px; color: var(--text2); margin-top: 4px; text-transform: uppercase; letter-spacing: .5px; }
+
+.chart-row {
+  display: flex; gap: 2px; align-items: flex-end; justify-content: center;
+  height: 50px;
+}
+.chart-bar { width: 6px; border-radius: 2px 2px 0 0; min-height: 2px; }
+
 .hidden { display: none !important; }

@@ -3,6 +3,7 @@ import { type Rng, mulberry32 } from "./rng.js";
 import { monteCarloEquityVsRange } from "./equity.js";
 import { getRfiRange, getBbDefenseRange } from "./charts/index.js";
 import { comboScore, sortedCombos } from "./hand-strength.js";
+import { analyzeBoard, heroConnection } from "./board-texture.js";
 import {
   type ActionType,
   type GameState,
@@ -283,16 +284,20 @@ function postflopRecommend(
     };
   }
 
-  // Bet sizing: scale pot fraction by hand strength
-  // Monster (>80%): bet 80-100% pot — extract max value
-  // Strong  (>60%): bet 60-75% pot — solid value bet
-  // Good    (>VB):  bet 40-55% pot — protect / thin value
-  // Thin    (>TV):  bet 25-33% pot — cheap showdown / block
-  // Weak:           check
   const heroStack = state.stacks[seat]!;
   const pot = state.pot;
+  const tex = analyzeBoard(state.board);
+  const conn = heroConnection(hero, state.board);
 
-  // Shove if we can't make a meaningful bet (short stack)
+  // Board texture adjusts sizing:
+  // Dry board → bet bigger (less for opponent to continue with, more fold equity)
+  // Wet board → bet smaller (opponents have draws, will call anyway)
+  // Monotone without flush → cautious (someone may have flush)
+  // Hero has draw → semi-bluff (bet for fold equity + draw equity)
+  const texAdj = tex.dry ? 1.15 : tex.wet ? 0.85 : 1.0;
+  const texNote = tex.desc;
+
+  // Shove if short-stacked
   if (heroStack <= pot * 0.4 && equity > 0.5) {
     return {
       action: "bet",
@@ -304,8 +309,47 @@ function postflopRecommend(
     };
   }
 
+  // Semi-bluff with draws even at lower equity
+  if ((conn.hasFlushDraw || conn.hasStraightDraw) && equity > 0.30) {
+    const frac = Math.min(0.65, 0.50 * texAdj);
+    const size = Math.min(pot * frac, heroStack);
+    const drawType = conn.hasFlushDraw ? "flush draw" : "straight draw";
+    return {
+      action: "bet",
+      amount: size,
+      equity,
+      potOdds: 0,
+      ev: { fold: 0, call: 0, raise: 0.8 },
+      reasoning: `Semi-bluff — ${pct(equity)} equity, ${drawType} on ${texNote}`,
+    };
+  }
+
+  // Monotone board without flush → check cautiously with medium hands
+  if (tex.monotone && !conn.hasFlushDraw && equity < 0.70) {
+    if (equity > THIN_VALUE) {
+      const size = Math.min(pot * 0.25, heroStack);
+      return {
+        action: "bet",
+        amount: size,
+        equity,
+        potOdds: 0,
+        ev: { fold: 0, call: 0, raise: 0.2 },
+        reasoning: `Small bet — ${pct(equity)} equity, cautious on ${texNote} board`,
+      };
+    }
+    return {
+      action: "check",
+      amount: 0,
+      equity,
+      potOdds: 0,
+      ev: { fold: 0, call: 0, raise: -0.5 },
+      reasoning: `Check — ${pct(equity)} equity, wary of flush on ${texNote} board`,
+    };
+  }
+
+  // Standard value betting tiers with texture adjustment
   if (equity > 0.80) {
-    const frac = 0.80 + (equity - 0.80) * 1.0; // 80-100% pot
+    const frac = Math.min(1.0, (0.80 + (equity - 0.80)) * texAdj);
     const size = Math.min(pot * frac, heroStack);
     return {
       action: "bet",
@@ -313,12 +357,12 @@ function postflopRecommend(
       equity,
       potOdds: 0,
       ev: { fold: 0, call: 0, raise: 1 },
-      reasoning: `Bet ${pct(frac)} pot — ${pct(equity)} equity, big value`,
+      reasoning: `Bet ${pct(frac)} pot — ${pct(equity)} equity, big value on ${texNote} board`,
     };
   }
 
   if (equity > 0.60) {
-    const frac = 0.55 + (equity - 0.60) * 1.0; // 55-75% pot
+    const frac = Math.min(0.85, (0.55 + (equity - 0.60)) * texAdj);
     const size = Math.min(pot * frac, heroStack);
     return {
       action: "bet",
@@ -326,12 +370,12 @@ function postflopRecommend(
       equity,
       potOdds: 0,
       ev: { fold: 0, call: 0, raise: 1 },
-      reasoning: `Bet ${pct(frac)} pot — ${pct(equity)} equity, value`,
+      reasoning: `Bet ${pct(frac)} pot — ${pct(equity)} equity on ${texNote} board`,
     };
   }
 
   if (equity > VALUE_BET) {
-    const frac = 0.40;
+    const frac = Math.min(0.55, 0.40 * texAdj);
     const size = Math.min(pot * frac, heroStack);
     return {
       action: "bet",
@@ -339,7 +383,7 @@ function postflopRecommend(
       equity,
       potOdds: 0,
       ev: { fold: 0, call: 0, raise: 0.5 },
-      reasoning: `Bet ${pct(frac)} pot — ${pct(equity)} equity, thin value`,
+      reasoning: `Bet ${pct(frac)} pot — ${pct(equity)} equity, thin value on ${texNote} board`,
     };
   }
 
@@ -352,7 +396,7 @@ function postflopRecommend(
         equity,
         potOdds: 0,
         ev: { fold: 0, call: 0, raise: 0.3 },
-        reasoning: `Small bet — ${pct(equity)} equity, block/protect`,
+        reasoning: `Small bet — ${pct(equity)} equity on ${texNote} board`,
       };
     }
   }
@@ -363,6 +407,6 @@ function postflopRecommend(
     equity,
     potOdds: 0,
     ev: { fold: 0, call: 0, raise: -0.5 },
-    reasoning: `Check — ${pct(equity)} equity`,
+    reasoning: `Check — ${pct(equity)} equity on ${texNote} board`,
   };
 }

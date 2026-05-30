@@ -6,6 +6,7 @@ import { getPositions } from "../engine/charts/index.js";
 import { recommend, type Recommendation } from "../engine/decision.js";
 import { TAG, LAG, STATION, NIT, type OpponentProfile } from "../engine/opponent.js";
 import { openRaiseSize, minRaise } from "../engine/sizing.js";
+import { saveHand, getSessionHands, clearHistory, computeStats, type HandRecord, type SessionStats } from "../engine/hand-history.js";
 
 const RANKS = "23456789TJQKA";
 const SUITS = ["♣", "♦", "♥", "♠"];
@@ -13,7 +14,8 @@ const SUIT_RED = [false, true, true, false];
 const PROFILES: Record<string, OpponentProfile> = { TAG, LAG, Station: STATION, Nit: NIT };
 
 interface AppState {
-  screen: "setup" | "game";
+  screen: "setup" | "game" | "stats";
+  sessionStart: number;
   tableSize: number;
   stackBB: number;
   bbValue: number;
@@ -42,6 +44,7 @@ interface AppState {
 
 const S: AppState = {
   screen: "setup",
+  sessionStart: Date.now(),
   tableSize: 6,
   stackBB: 100,
   bbValue: 1,
@@ -94,6 +97,7 @@ function chipsBet(bb: number): string {
 
 function render(): void {
   if (S.screen === "setup") renderSetup();
+  else if (S.screen === "stats") renderStats();
   else renderGame();
   if (S.pickerOpen) renderPicker();
   if (S.betPadOpen) renderBetPad();
@@ -199,6 +203,7 @@ function renderSetup(): void {
       </div>
 
       <button class="start-btn" id="start">DEAL HAND</button>
+      <button class="hdr-btn" id="view-stats" style="width:100%;padding:12px;margin-top:4px;font-size:14px">Session Stats</button>
     </div>`;
 
   $("#help-toggle").addEventListener("click", () => {
@@ -231,6 +236,9 @@ function renderSetup(): void {
     btn.addEventListener("click", () => { S.heroSeat = +(btn as HTMLElement).dataset.seat!; render(); }),
   );
   $("#start").addEventListener("click", startHand);
+  document.getElementById("view-stats")?.addEventListener("click", () => {
+    S.screen = "stats"; render();
+  });
 }
 
 function startHand(): void {
@@ -435,13 +443,18 @@ function renderGame(): void {
   app.querySelectorAll("[data-winner]").forEach(btn =>
     btn.addEventListener("click", () => {
       const val = (btn as HTMLElement).dataset.winner!;
+      let heroPnl: number;
+      const invested = S.gs!.invested[S.heroSeat]!;
       if (val === "split") {
         S.handResult = `Split pot — ${chips(S.gs!.pot / 2)} each`;
+        heroPnl = S.gs!.pot / 2 - invested;
       } else {
         const w = +val;
         const who = w === S.heroSeat ? "You" : S.gs!.positions[w]!;
         S.handResult = `${who} won ${chips(S.gs!.pot)}`;
+        heroPnl = w === S.heroSeat ? S.gs!.pot - invested : -invested;
       }
+      saveHandRecord(heroPnl);
       render();
     }),
   );
@@ -474,6 +487,10 @@ function doAction(seat: number, type: ActionType): void {
     const winnerPos = winnerSeat === S.heroSeat ? "You" : S.gs.positions[winnerSeat]!;
     const folderPos = seat === S.heroSeat ? "You" : S.gs.positions[seat]!;
     S.handResult = `${folderPos} folded — ${winnerPos} won ${chips(S.gs.pot)}`;
+    const heroPnl = winnerSeat === S.heroSeat
+      ? S.gs.pot - S.gs.invested[S.heroSeat]!
+      : -S.gs.invested[S.heroSeat]!;
+    saveHandRecord(heroPnl);
     S.handOver = true; S.rec = null; updateMessage(); render(); return;
   }
 
@@ -541,6 +558,24 @@ function renderHandResult(positions: readonly string[]): string {
         <button class="action-btn raise" id="next-hand" style="font-size:16px;padding:16px">NEXT HAND</button>
       </div>
     </div>`;
+}
+
+function saveHandRecord(heroPnl: number): void {
+  if (!S.gs || !S.heroCards) return;
+  saveHand({
+    timestamp: Date.now(),
+    tableSize: S.tableSize,
+    heroSeat: S.heroSeat,
+    heroCards: S.heroCards,
+    boardCards: [...S.boardCards],
+    actions: [...S.gs.actions],
+    pot: S.gs.pot * S.bbValue,
+    result: S.handResult,
+    heroPnl: heroPnl * S.bbValue,
+    bbValue: S.bbValue,
+    sbValue: S.sbValue,
+    dealerSeat: S.dealerSeat,
+  }).catch(() => {});
 }
 
 function openBoardPicker(): void {
@@ -760,6 +795,86 @@ function renderBetPad(): void {
     S.betPadOpen = false;
     document.getElementById("betpad-modal")?.remove();
     doAction(seat, S.betPadAction);
+  });
+}
+
+/* ═══════════════════ STATS SCREEN ═══════════════════ */
+
+async function renderStats(): Promise<void> {
+  const hands = await getSessionHands(S.sessionStart);
+  const allHands = await getSessionHands();
+  const stats = computeStats(hands);
+  const allStats = computeStats(allHands);
+
+  const fmt = (v: number) => v >= 0 ? `+$${v.toFixed(2)}` : `-$${Math.abs(v).toFixed(2)}`;
+  const pnlColor = (v: number) => v >= 0 ? "var(--green)" : "var(--red)";
+
+  // Mini P&L chart using simple bars
+  const history = stats.pnlHistory;
+  const maxAbs = Math.max(1, ...history.map(Math.abs));
+  const chartBars = history.map((v, i) =>
+    `<div class="chart-bar" style="height:${Math.abs(v) / maxAbs * 40}px;background:${v >= 0 ? "var(--green)" : "var(--red)"}"></div>`
+  ).join("");
+
+  app.innerHTML = `
+    <div class="setup">
+      <h1>Session Stats</h1>
+
+      <div class="stats-card">
+        <div class="stat-big" style="color:${pnlColor(stats.totalPnl)}">
+          ${fmt(stats.totalPnl)}
+        </div>
+        <div class="stat-label">This Session P&L</div>
+      </div>
+
+      <div class="stats-row">
+        <div class="stats-card small">
+          <div class="stat-num">${stats.hands}</div>
+          <div class="stat-label">Hands</div>
+        </div>
+        <div class="stats-card small">
+          <div class="stat-num">${stats.wins}</div>
+          <div class="stat-label">Wins</div>
+        </div>
+        <div class="stats-card small">
+          <div class="stat-num">${stats.losses}</div>
+          <div class="stat-label">Losses</div>
+        </div>
+      </div>
+
+      ${stats.hands > 0 ? `
+      <div class="stats-row">
+        <div class="stats-card small">
+          <div class="stat-num" style="color:var(--green)">${fmt(stats.biggestWin)}</div>
+          <div class="stat-label">Biggest Win</div>
+        </div>
+        <div class="stats-card small">
+          <div class="stat-num" style="color:var(--red)">${fmt(stats.biggestLoss)}</div>
+          <div class="stat-label">Biggest Loss</div>
+        </div>
+      </div>
+
+      <div class="stats-card">
+        <div class="stat-label" style="margin-bottom:8px">P&L Over Hands</div>
+        <div class="chart-row">${chartBars}</div>
+      </div>` : ""}
+
+      ${allHands.length > hands.length ? `
+      <div class="stats-card">
+        <div class="stat-label">All Time: ${allStats.hands} hands, ${fmt(allStats.totalPnl)}</div>
+      </div>` : ""}
+
+      <button class="start-btn" id="back-setup">Back to Table</button>
+      ${allHands.length > 0 ? `<button class="hdr-btn" id="clear-hist" style="width:100%;padding:12px;margin-top:4px;font-size:13px;color:var(--red)">Clear All History</button>` : ""}
+    </div>`;
+
+  document.getElementById("back-setup")?.addEventListener("click", () => {
+    S.screen = "setup"; render();
+  });
+  document.getElementById("clear-hist")?.addEventListener("click", () => {
+    if (confirm("Clear all hand history?")) {
+      clearHistory().then(() => { S.sessionStart = Date.now(); render(); });
+    }
   });
 }
 
