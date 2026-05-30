@@ -605,6 +605,12 @@ function doAction(seat: number, type: ActionType): void {
     return;
   }
 
+  // Final catch-all: if hand is complete, go to showdown
+  if (S.gs.isComplete() || (S.gs.roundComplete() && S.gs.street === "river")) {
+    S.handResult = "showdown";
+    S.handOver = true; S.rec = null; updateMessage(); render(); return;
+  }
+
   updateRec(); updateMessage(); render();
 
   // Auto-open card picker when a street's action is done
@@ -725,6 +731,12 @@ function autoPlayVillain(): void {
       updateMessage(); render();
       return;
     }
+  }
+
+  // After loop: check if hand ended while villain was acting
+  if (S.gs && (S.gs.isComplete() || (S.gs.roundComplete() && S.gs.street === "river"))) {
+    trainingShowdown();
+    return;
   }
 
   updateRec(); updateMessage(); render();
