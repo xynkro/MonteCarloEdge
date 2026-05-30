@@ -32,6 +32,7 @@ interface AppState {
   pickerRank: number | null;
   rec: Recommendation | null;
   handOver: boolean;
+  handResult: string;
   raiseAmount: number;
   betPadOpen: boolean;
   betPadAction: "bet" | "raise";
@@ -59,6 +60,7 @@ const S: AppState = {
   pickerRank: null,
   rec: null,
   handOver: false,
+  handResult: "",
   raiseAmount: 0,
   betPadOpen: false,
   betPadAction: "bet",
@@ -244,6 +246,7 @@ function startHand(): void {
   S.gs = null;
   S.rec = null;
   S.handOver = false;
+  S.handResult = "";
   S.raiseAmount = 0;
   S.message = "Tap your cards to pick them";
   S.screen = "game";
@@ -419,10 +422,7 @@ function renderGame(): void {
         ${recHtml}
       </div>
 
-      ${S.handOver ? `
-      <div class="action-bar">
-        <button class="action-btn raise" id="next-hand" style="font-size:16px;padding:16px">NEXT HAND</button>
-      </div>` : actionsHtml}
+      ${S.handOver ? renderHandResult(positions) : actionsHtml}
 
       ${isHeroTurn && !S.handOver ? `<div class="status-bar"><strong>YOUR TURN</strong></div>` : ""}
     </div>`;
@@ -430,6 +430,21 @@ function renderGame(): void {
   // ── Events ──
   $("#new-hand")?.addEventListener("click", () => { S.screen = "setup"; S.dealerSeat = -1; S.handNumber = 0; render(); });
   document.getElementById("next-hand")?.addEventListener("click", nextHand);
+
+  // Showdown winner buttons
+  app.querySelectorAll("[data-winner]").forEach(btn =>
+    btn.addEventListener("click", () => {
+      const val = (btn as HTMLElement).dataset.winner!;
+      if (val === "split") {
+        S.handResult = `Split pot — ${chips(S.gs!.pot / 2)} each`;
+      } else {
+        const w = +val;
+        const who = w === S.heroSeat ? "You" : S.gs!.positions[w]!;
+        S.handResult = `${who} won ${chips(S.gs!.pot)}`;
+      }
+      render();
+    }),
+  );
 
   app.querySelectorAll("[data-act]").forEach(btn =>
     btn.addEventListener("click", () => doAction(next!, (btn as HTMLElement).dataset.act as ActionType)),
@@ -455,9 +470,16 @@ function doAction(seat: number, type: ActionType): void {
   S.gs.applyAction({ seat, type, amount });
 
   if (S.gs.activeSeatCount <= 1) {
+    // Someone folded — find the winner
+    const winnerSeat = S.gs.folded.findIndex(f => !f);
+    const winnerPos = winnerSeat === S.heroSeat ? "You" : S.gs.positions[winnerSeat]!;
+    const folderPos = seat === S.heroSeat ? "You" : S.gs.positions[seat]!;
+    S.handResult = `${folderPos} folded — ${winnerPos} won ${chips(S.gs.pot)}`;
     S.handOver = true; S.rec = null; updateMessage(); render(); return;
   }
   if (S.gs.roundComplete() && S.gs.street === "river") {
+    // Showdown — need user to say who won
+    S.handResult = "showdown";
     S.handOver = true; S.rec = null;
   }
   updateRec(); updateMessage(); render();
@@ -466,6 +488,41 @@ function doAction(seat: number, type: ActionType): void {
   if (S.gs && S.gs.roundComplete() && !S.gs.isComplete() && !S.handOver) {
     openBoardPicker();
   }
+}
+
+function renderHandResult(positions: readonly string[]): string {
+  if (!S.gs) return "";
+  const pot = S.gs.pot;
+
+  if (S.handResult === "showdown") {
+    // River complete — ask who won
+    const remaining = S.gs.folded
+      .map((f, i) => f ? null : i)
+      .filter((i): i is number => i !== null);
+
+    return `
+      <div class="result-panel">
+        <div class="result-title">Showdown — ${chips(pot)} pot</div>
+        <div class="result-question">Who won?</div>
+        <div class="result-buttons">
+          ${remaining.map(i =>
+            `<button class="result-btn ${i === S.heroSeat ? "hero" : ""}" data-winner="${i}">
+              ${i === S.heroSeat ? "You won" : positions[i] + " won"}
+            </button>`
+          ).join("")}
+          <button class="result-btn split" data-winner="split">Split pot</button>
+        </div>
+      </div>`;
+  }
+
+  // Fold result — already determined
+  return `
+    <div class="result-panel">
+      <div class="result-text">${S.handResult}</div>
+      <div class="action-bar" style="margin-top:10px">
+        <button class="action-btn raise" id="next-hand" style="font-size:16px;padding:16px">NEXT HAND</button>
+      </div>
+    </div>`;
 }
 
 function openBoardPicker(): void {
