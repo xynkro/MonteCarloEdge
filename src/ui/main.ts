@@ -470,18 +470,36 @@ function doAction(seat: number, type: ActionType): void {
   S.gs.applyAction({ seat, type, amount });
 
   if (S.gs.activeSeatCount <= 1) {
-    // Someone folded — find the winner
     const winnerSeat = S.gs.folded.findIndex(f => !f);
     const winnerPos = winnerSeat === S.heroSeat ? "You" : S.gs.positions[winnerSeat]!;
     const folderPos = seat === S.heroSeat ? "You" : S.gs.positions[seat]!;
     S.handResult = `${folderPos} folded — ${winnerPos} won ${chips(S.gs.pot)}`;
     S.handOver = true; S.rec = null; updateMessage(); render(); return;
   }
-  if (S.gs.roundComplete() && S.gs.street === "river") {
-    // Showdown — need user to say who won
+
+  // Check if hand is complete (river action done, or all-in with no more action)
+  if (S.gs.isComplete() || (S.gs.roundComplete() && S.gs.street === "river")) {
     S.handResult = "showdown";
-    S.handOver = true; S.rec = null;
+    S.handOver = true; S.rec = null; updateMessage(); render(); return;
   }
+
+  // Check if all remaining players are all-in (no one can act anymore)
+  const anyCanAct = S.gs.stacks.some((s, i) => !S.gs!.folded[i] && s > 0);
+  if (S.gs.roundComplete() && !anyCanAct) {
+    // Everyone is all-in — deal remaining board and go to showdown
+    while (S.gs.street !== "river") {
+      const cards = S.gs.street === "preflop" ? 3 : 1;
+      S.pickerTarget = S.gs.street === "preflop" ? "flop" : S.gs.street === "flop" ? "turn" : "river";
+      // Need user to pick the board cards — open picker for each street
+      S.pickerPicked = [];
+      S.pickerOpen = true;
+      updateRec(); updateMessage(); render();
+      return;
+    }
+    S.handResult = "showdown";
+    S.handOver = true; S.rec = null; updateMessage(); render(); return;
+  }
+
   updateRec(); updateMessage(); render();
 
   // Auto-open card picker when a street's action is done
