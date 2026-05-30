@@ -222,6 +222,142 @@ export function monteCarloEquityVsRange(input: RangeEquityInput): EquityResult {
   return { equity, wins, ties, losses, iterations, stderr95 };
 }
 
+export interface MultiwayEquityInput {
+  hero: readonly [Card, Card];
+  villainRanges: Range[];
+  board?: readonly Card[];
+  iterations?: number;
+  rng?: Rng;
+}
+
+// Hero equity against multiple villains, each with their own range.
+// Each iteration: sample one combo per villain (rejecting card conflicts),
+// deal the remaining board, compare all hands. Hero's share is 1 if strictly
+// best, 1/k if tied k-ways for best, 0 otherwise.
+export function monteCarloEquityMultiway(input: MultiwayEquityInput): EquityResult {
+  const {
+    hero,
+    villainRanges,
+    board = [],
+    iterations = 50_000,
+    rng = mulberry32(0xC0FFEE),
+  } = input;
+
+  if (
+    board.length !== 0 && board.length !== 3 &&
+    board.length !== 4 && board.length !== 5
+  ) {
+    throw new Error(`board must have 0, 3, 4, or 5 cards (got ${board.length})`);
+  }
+
+  const dead: Card[] = [hero[0], hero[1], ...board];
+
+  // Pre-filter each villain range; drop villains with no legal combos.
+  const filtered = villainRanges
+    .map((r) => r.filter(dead))
+    .filter((r) => r.size > 0);
+
+  if (filtered.length === 0) {
+    // No contesting villains — hero wins outright every time.
+    return { equity: 1, wins: iterations, ties: 0, losses: 0, iterations, stderr95: 0 };
+  }
+
+  const baseDead = new Uint8Array(NUM_CARDS);
+  baseDead[hero[0]] = 1;
+  baseDead[hero[1]] = 1;
+  for (const c of board) baseDead[c] = 1;
+
+  const baseDeck: Card[] = [];
+  for (let c = 0; c < NUM_CARDS; c++) if (!baseDead[c]) baseDeck.push(c);
+
+  const need = 5 - board.length;
+
+  let wins = 0, ties = 0, losses = 0;
+  let eqSum = 0, eqSqSum = 0;
+
+  const used = new Uint8Array(NUM_CARDS);
+  const villCards: Card[] = new Array(filtered.length * 2);
+  const deck: Card[] = new Array(baseDeck.length);
+  const finalBoard: Card[] = new Array(5);
+  for (let i = 0; i < board.length; i++) finalBoard[i] = board[i]!;
+
+  const heroBuf: Card[] = [hero[0], hero[1], 0, 0, 0, 0, 0];
+  const vBuf: Card[] = [0, 0, 0, 0, 0, 0, 0];
+
+  let counted = 0;
+  for (let it = 0; it < iterations; it++) {
+    // Reset used to baseDead.
+    used.set(baseDead);
+
+    // Sample a non-conflicting combo for each villain.
+    let ok = true;
+    for (let v = 0; v < filtered.length; v++) {
+      let placed = false;
+      for (let attempt = 0; attempt < 16; attempt++) {
+        const combo = filtered[v]!.sample(rng)!;
+        if (!used[combo[0]] && !used[combo[1]]) {
+          used[combo[0]] = 1;
+          used[combo[1]] = 1;
+          villCards[v * 2] = combo[0];
+          villCards[v * 2 + 1] = combo[1];
+          placed = true;
+          break;
+        }
+      }
+      if (!placed) { ok = false; break; }
+    }
+    if (!ok) continue;
+
+    // Build the live deck (cards not used by hero/board/villains).
+    let dLen = 0;
+    for (let i = 0; i < baseDeck.length; i++) {
+      const c = baseDeck[i]!;
+      if (!used[c]) deck[dLen++] = c;
+    }
+
+    // Deal the remaining board.
+    for (let j = 0; j < need; j++) {
+      const idx = j + Math.floor(rng() * (dLen - j));
+      const tmp = deck[j]!;
+      deck[j] = deck[idx]!;
+      deck[idx] = tmp;
+      finalBoard[board.length + j] = deck[j]!;
+    }
+
+    for (let i = 0; i < 5; i++) heroBuf[2 + i] = finalBoard[i]!;
+    const heroRank = evaluate(heroBuf);
+
+    let bestVill = -1;
+    let villTies = 0;
+    for (let v = 0; v < filtered.length; v++) {
+      vBuf[0] = villCards[v * 2]!;
+      vBuf[1] = villCards[v * 2 + 1]!;
+      for (let i = 0; i < 5; i++) vBuf[2 + i] = finalBoard[i]!;
+      const r = evaluate(vBuf);
+      if (r > bestVill) { bestVill = r; villTies = 1; }
+      else if (r === bestVill) villTies++;
+    }
+
+    let share: number;
+    if (heroRank > bestVill) { share = 1; wins++; }
+    else if (heroRank === bestVill) { share = 1 / (villTies + 1); ties++; }
+    else { share = 0; losses++; }
+
+    eqSum += share;
+    eqSqSum += share * share;
+    counted++;
+  }
+
+  if (counted === 0) {
+    return { equity: 0, wins: 0, ties: 0, losses: 0, iterations: 0, stderr95: 1 };
+  }
+
+  const equity = eqSum / counted;
+  const variance = Math.max(0, eqSqSum / counted - equity * equity);
+  const stderr = Math.sqrt(variance / counted);
+  return { equity, wins, ties, losses, iterations: counted, stderr95: 1.96 * stderr };
+}
+
 export interface ExhaustiveResult {
   equity: number;
   wins: number;

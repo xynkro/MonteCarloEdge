@@ -133,6 +133,21 @@ export class GameState {
     return this.pot > 0 ? this.effectiveStack() / this.pot : Infinity;
   }
 
+  // The active player who acts last postflop (closest to the button) is "in position".
+  lastActivePostflop(): number {
+    const n = this.stacks.length;
+    let last = -1;
+    for (let i = 1; i <= n; i++) {
+      const seat = (this.dealerSeat + i) % n;
+      if (!this.folded[seat]) last = seat;
+    }
+    return last;
+  }
+
+  isInPosition(seat: number): boolean {
+    return seat === this.lastActivePostflop();
+  }
+
   streetsRemaining(): number {
     const m: Record<Street, number> = { preflop: 3, flop: 2, turn: 1, river: 0 };
     return m[this.street];
