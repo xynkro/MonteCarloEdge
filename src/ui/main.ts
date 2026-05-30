@@ -5,6 +5,7 @@ import { GameState, type ActionType } from "../engine/game-state.js";
 import { getPositions, getRfiRange, getBbDefenseRange } from "../engine/charts/index.js";
 import { estimateVillainRange } from "../engine/opponent.js";
 import { solveSubgame, type RiverResult } from "../engine/gto/river-solver.js";
+import { solvePushFold, handClassKey, type PushFoldResult } from "../engine/gto/pushfold.js";
 import { allCombos, topSlice } from "../engine/hand-strength.js";
 import { recommend, type Recommendation, type ProfileMap } from "../engine/decision.js";
 import { TAG, LAG, STATION, NIT, type OpponentProfile, villainAct } from "../engine/opponent.js";
@@ -60,9 +61,11 @@ interface AppState {
   // Generic numpad (blinds / stack)
   numpadTarget: NumpadTarget | null;
   numpadRaw: string;
-  // GTO river solver
+  // GTO river/turn solver
   gtoResult: RiverResult | null;
   gtoSolving: boolean;
+  // GTO preflop push/fold readout
+  gtoPreflop: { title: string; rows: { label: string; freq: number }[]; note: string } | null;
   message: string;
 }
 
@@ -104,8 +107,12 @@ const S: AppState = {
   numpadRaw: "",
   gtoResult: null,
   gtoSolving: false,
+  gtoPreflop: null,
   message: "",
 };
+
+// Cache push/fold solutions by effective-stack depth (equity table is reused).
+const pushFoldCache = new Map<number, PushFoldResult>();
 
 // ── Adaptive modeling: persist per-seat stats in localStorage ──
 const STATS_KEY = "mce-player-stats";
@@ -262,10 +269,17 @@ function activeVillains(): number[] {
 }
 
 function canSolveGto(): boolean {
-  return !!(S.gs && S.heroCards && !S.handOver &&
-    (S.gs.street === "turn" || S.gs.street === "river") &&
-    S.gs.nextToAct() === S.heroSeat &&
-    activeVillains().length === 1);
+  if (!S.gs || !S.heroCards || S.handOver) return false;
+  if (S.gs.nextToAct() !== S.heroSeat) return false;
+  if (activeVillains().length !== 1) return false;
+  if (S.gs.street === "turn" || S.gs.street === "river") return true;
+  // Preflop push/fold: short effective stack, heads-up.
+  if (S.gs.street === "preflop") {
+    const eff = Math.min(S.gs.stacks[S.heroSeat]! + S.gs.streetInvested[S.heroSeat]!,
+      ...activeVillains().map(v => S.gs!.stacks[v]! + S.gs!.streetInvested[v]!));
+    return eff <= 20.0001;
+  }
+  return false;
 }
 
 function heroRangeEstimate(): Range {
@@ -301,12 +315,20 @@ function startGtoSolve(): void {
 function runGtoSolve(): void {
   const gs = S.gs;
   if (!gs || !S.heroCards) { S.gtoSolving = false; render(); return; }
+
+  // Preflop short-stack → push/fold Nash readout.
+  if (gs.street === "preflop") {
+    runPushFoldSolve();
+    return;
+  }
+
   const villainSeat = activeVillains()[0]!;
   const profile = buildProfiles().get(villainSeat);
   const heroRange = heroRangeEstimate();
   const villainRange = estimateVillainRange(gs, villainSeat, profile ?? PROFILES[S.archetype]!);
   const stack = Math.min(gs.stacks[S.heroSeat]!, gs.stacks[villainSeat]!);
 
+  S.gtoPreflop = null;
   try {
     S.gtoResult = solveSubgame({
       heroRange,
@@ -325,8 +347,80 @@ function runGtoSolve(): void {
   renderGtoModal();
 }
 
+function runPushFoldSolve(): void {
+  const gs = S.gs!;
+  const hero = S.heroCards!;
+  const eff = Math.round(Math.min(
+    gs.stacks[S.heroSeat]! + gs.streetInvested[S.heroSeat]!,
+    ...activeVillains().map(v => gs.stacks[v]! + gs.streetInvested[v]!),
+  ));
+  const depth = Math.max(1, Math.min(25, eff));
+
+  let res = pushFoldCache.get(depth);
+  if (!res) {
+    res = solvePushFold(depth, 50000, mulberry32(0x9111));
+    pushFoldCache.set(depth, res);
+  }
+
+  const cls = handClassKey(hero[0], hero[1]);
+  // Are we facing an all-in (deciding to call) or first-in (deciding to jam)?
+  const facingAllIn = gs.toCall(S.heroSeat) >= gs.stacks[S.heroSeat]! - 0.01 && gs.toCall(S.heroSeat) > 0;
+
+  if (facingAllIn) {
+    const callFreq = res.call.get(cls) ?? 0;
+    S.gtoPreflop = {
+      title: `Push/Fold — facing all-in (${depth}bb)`,
+      rows: [
+        { label: "Call", freq: callFreq },
+        { label: "Fold", freq: 1 - callFreq },
+      ],
+      note: `${cls} · Nash call-off range at ${depth}bb effective`,
+    };
+  } else {
+    const jamFreq = res.jam.get(cls) ?? 0;
+    S.gtoPreflop = {
+      title: `Push/Fold — open jam (${depth}bb)`,
+      rows: [
+        { label: "Jam (all-in)", freq: jamFreq },
+        { label: "Fold", freq: 1 - jamFreq },
+      ],
+      note: `${cls} · Nash open-shove range at ${depth}bb effective`,
+    };
+  }
+  S.gtoResult = null;
+  S.gtoSolving = false;
+  render();
+  renderGtoModal();
+}
+
 function renderGtoModal(): void {
   document.getElementById("gto-modal")?.remove();
+
+  // Preflop push/fold readout
+  if (S.gtoPreflop) {
+    const pf = S.gtoPreflop;
+    const rows = pf.rows.map(r => `<div class="gto-row">
+        <span class="gto-act">${r.label}</span>
+        <div class="gto-bar"><div class="gto-fill" style="width:${(r.freq * 100).toFixed(0)}%"></div></div>
+        <span class="gto-pct">${(r.freq * 100).toFixed(0)}%</span>
+      </div>`).join("");
+    const overlay = document.createElement("div");
+    overlay.className = "modal-backdrop";
+    overlay.id = "gto-modal";
+    overlay.innerHTML = `
+      <div class="modal-content">
+        <h3>🧠 ${pf.title}</h3>
+        <div class="gto-sub">Solved with CFR (Nash equilibrium) · ${pf.note}</div>
+        ${rows}
+        <div class="modal-actions"><button class="confirm-btn" id="gto-close">Close</button></div>
+      </div>`;
+    app.appendChild(overlay);
+    document.getElementById("gto-close")?.addEventListener("click", () => {
+      document.getElementById("gto-modal")?.remove();
+    });
+    return;
+  }
+
   if (!S.gtoResult) return;
   const res = S.gtoResult;
 
@@ -543,6 +637,7 @@ function startHand(): void {
   S.reviewOpen = false;
   S.gtoResult = null;
   S.gtoSolving = false;
+  S.gtoPreflop = null;
   S.message = "Tap your cards to pick them";
   S.screen = "game";
   S.pickerTarget = "hero";
@@ -595,6 +690,7 @@ function startTrainingHand(): void {
   S.reviewOpen = false;
   S.gtoResult = null;
   S.gtoSolving = false;
+  S.gtoPreflop = null;
 
   // Create game state
   const positions = getPositions(S.tableSize);
