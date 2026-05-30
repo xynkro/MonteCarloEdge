@@ -470,13 +470,18 @@ function renderGame(): void {
   const legal = gs && next !== null ? gs.legalActionsFor(next) : [];
   const showActions = gs && !S.handOver && next !== null && !needsBoard;
 
+  // If there's a rec with amount, show it on the bet/raise button for one-tap action
+  const recAmt = S.rec && S.rec.amount > 0 ? roundBet(S.rec.amount) : 0;
+  const betLabel = recAmt > 0 && S.rec?.action === "bet" ? `Bet ${chipsBet(recAmt)}` : "Bet";
+  const raiseLabel = recAmt > 0 && S.rec?.action === "raise" ? `Raise ${chipsBet(recAmt)}` : "Raise";
+
   const actionsHtml = showActions ? `
     <div class="action-bar">
       ${legal.includes("fold") ? `<button class="action-btn fold" data-act="fold">Fold</button>` : ""}
       ${legal.includes("check") ? `<button class="action-btn check" data-act="check">Check</button>` : ""}
       ${legal.includes("call") ? `<button class="action-btn call" data-act="call">Call ${chips(gs!.toCall(next!))}</button>` : ""}
-      ${legal.includes("bet") ? `<button class="action-btn bet" data-open-bet="bet">Bet</button>` : ""}
-      ${legal.includes("raise") ? `<button class="action-btn raise" data-open-bet="raise">Raise</button>` : ""}
+      ${legal.includes("bet") ? `<button class="action-btn bet" data-open-bet="bet">${betLabel}</button>` : ""}
+      ${legal.includes("raise") ? `<button class="action-btn raise" data-open-bet="raise">${raiseLabel}</button>` : ""}
     </div>` : "";
 
   app.innerHTML = `
@@ -537,7 +542,14 @@ function renderGame(): void {
     btn.addEventListener("click", () => {
       S.betPadAction = (btn as HTMLElement).dataset.openBet as "bet" | "raise";
       S.betPadSeat = next!;
-      S.raiseAmount = 0;
+      // Auto-fill with recommendation amount if available
+      if (S.rec && S.rec.amount > 0 && (S.rec.action === "bet" || S.rec.action === "raise")) {
+        S.raiseAmount = roundBet(S.rec.amount);
+      } else {
+        S.raiseAmount = roundBet(gs!.currentBet > 0
+          ? minRaise(gs!.currentBet, gs!.bb)
+          : openRaiseSize(gs!.bb));
+      }
       S.betPadOpen = true;
       renderBetPad();
     }),
@@ -562,7 +574,9 @@ function doAction(seat: number, type: ActionType): void {
       ? S.gs.pot - S.gs.invested[S.heroSeat]!
       : -S.gs.invested[S.heroSeat]!;
     saveHandRecord(heroPnl);
-    S.handOver = true; S.rec = null; updateMessage(); render(); return;
+    S.handOver = true; S.rec = null;
+    updateMessage(); render();
+    return;
   }
 
   // Training mode: let villain AI take over after hero acts

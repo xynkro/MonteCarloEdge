@@ -205,6 +205,12 @@ body {
 .table-seat.active .seat-chip {
   border-color: var(--gold);
   box-shadow: 0 0 12px rgba(245,158,11,.35);
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { box-shadow: 0 0 8px rgba(245,158,11,.25); }
+  50% { box-shadow: 0 0 18px rgba(245,158,11,.5); }
 }
 
 .board-center {
@@ -224,8 +230,20 @@ body {
 }
 .board-card.dealt {
   border: 1.5px solid #ccc; background: #fff; color: var(--card-black);
+  animation: dealCard .35s ease-out;
 }
 .board-card.dealt.red { color: var(--card-red); }
+
+@keyframes dealCard {
+  0% { transform: scale(0) rotateY(90deg); opacity: 0; }
+  60% { transform: scale(1.1) rotateY(0); opacity: 1; }
+  100% { transform: scale(1) rotateY(0); }
+}
+.board-card.dealt:nth-child(2) { animation-delay: .08s; }
+.board-card.dealt:nth-child(3) { animation-delay: .16s; }
+.board-card.dealt:nth-child(4) { animation-delay: .24s; }
+.board-card.dealt:nth-child(5) { animation-delay: .32s; }
+.hero-card.dealt:nth-child(2) { animation-delay: .12s; }
 
 /* ── Hero area ── */
 
@@ -246,6 +264,8 @@ body {
 }
 .hero-card.dealt {
   border: 2px solid #ccc; background: #fff; color: var(--card-black);
+  animation: dealCard .4s ease-out;
+  box-shadow: 0 2px 8px rgba(0,0,0,.3);
 }
 .hero-card.dealt.red { color: var(--card-red); }
 
@@ -253,6 +273,12 @@ body {
   background: linear-gradient(135deg, #1a2e1a, #0f2f1f);
   border: 1px solid var(--green); border-radius: var(--radius);
   padding: 10px 12px; margin: 6px 0;
+  animation: slideUp .25s ease-out;
+}
+
+@keyframes slideUp {
+  from { transform: translateY(10px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
 }
 .rec-action { font-size: 20px; font-weight: 800; color: var(--green); text-transform: uppercase; }
 .rec-details { display: flex; gap: 16px; margin-top: 4px; font-size: 13px; color: var(--text2); }
@@ -276,6 +302,7 @@ body {
 .result-panel {
   padding: 14px 16px;
   text-align: center;
+  animation: slideUp .3s ease-out;
 }
 .result-title {
   font-size: 18px; font-weight: 800; color: var(--gold); margin-bottom: 6px;
@@ -315,11 +342,16 @@ body {
 .modal-backdrop {
   position: fixed; inset: 0; background: rgba(0,0,0,.7);
   display: flex; align-items: flex-end; justify-content: center; z-index: 100;
+  animation: fadeIn .15s ease-out;
 }
 .modal-content {
   background: var(--surface); border-radius: 16px 16px 0 0; padding: 16px;
   width: 100%; max-width: 480px; max-height: 70dvh; overflow-y: auto;
+  animation: sheetUp .25s ease-out;
 }
+
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes sheetUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
 .modal-content h3 { text-align: center; margin-bottom: 12px; font-size: 15px; color: var(--text2); }
 
 /* ── Rank → Suit picker ── */
