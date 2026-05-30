@@ -54,6 +54,9 @@ interface AppState {
   // Post-hand review: hero's decision points this hand
   decisionLog: { street: string; chosen: ActionType; chosenAmt: number; rec: Recommendation }[];
   reviewOpen: boolean;
+  // Generic numpad (blinds / stack)
+  numpadTarget: NumpadTarget | null;
+  numpadRaw: string;
   message: string;
 }
 
@@ -91,6 +94,8 @@ const S: AppState = {
   playerStats: new Map(),
   decisionLog: [],
   reviewOpen: false,
+  numpadTarget: null,
+  numpadRaw: "",
   message: "",
 };
 
@@ -153,12 +158,87 @@ function chipsBet(bb: number): string {
   return chips(roundBet(bb));
 }
 
+function fmtMoney(v: number): string {
+  return v % 1 === 0 ? String(v) : v.toFixed(2);
+}
+
+type NumpadTarget = "sb" | "bb" | "stack";
+
 function render(): void {
   if (S.screen === "setup") renderSetup();
   else if (S.screen === "stats") renderStats();
   else renderGame();
   if (S.pickerOpen) renderPicker();
   if (S.betPadOpen) renderBetPad();
+  if (S.numpadTarget) renderNumpad();
+  if (S.reviewOpen) renderReview();
+}
+
+/* ═══════════════════ GENERIC NUMPAD (blinds / stack) ═══════════════════ */
+
+function openNumpad(target: NumpadTarget): void {
+  S.numpadTarget = target;
+  S.numpadRaw = "";
+  renderNumpad();
+}
+
+function renderNumpad(): void {
+  document.getElementById("numpad-modal")?.remove();
+  const target = S.numpadTarget;
+  if (!target) return;
+
+  const titles: Record<NumpadTarget, string> = {
+    sb: "Small Blind ($)", bb: "Big Blind ($)", stack: "Stack (big blinds)",
+  };
+  const current = target === "sb" ? S.sbValue : target === "bb" ? S.bbValue : S.stackBB;
+  const display = S.numpadRaw || String(current);
+  const unit = target === "stack" ? "" : "$";
+
+  const overlay = document.createElement("div");
+  overlay.className = "modal-backdrop";
+  overlay.id = "numpad-modal";
+  overlay.innerHTML = `
+    <div class="modal-content">
+      <h3>${titles[target]}</h3>
+      <div class="betpad-display">${unit}${display}</div>
+      <div class="betpad-grid">
+        ${["1","2","3","4","5","6","7","8","9",".","0","⌫"].map(k =>
+          `<button class="numpad-btn" data-key="${k}">${k}</button>`
+        ).join("")}
+      </div>
+      <div class="modal-actions">
+        <button class="cancel-btn" id="np-cancel">Cancel</button>
+        <button class="confirm-btn" id="np-confirm">Set</button>
+      </div>
+    </div>`;
+  app.appendChild(overlay);
+
+  overlay.querySelectorAll(".numpad-btn").forEach(btn =>
+    btn.addEventListener("click", () => {
+      const k = (btn as HTMLElement).dataset.key!;
+      if (k === "⌫") S.numpadRaw = S.numpadRaw.slice(0, -1);
+      else if (k === ".") { if (!S.numpadRaw.includes(".")) S.numpadRaw = (S.numpadRaw || "0") + "."; }
+      else S.numpadRaw += k;
+      const d = overlay.querySelector(".betpad-display");
+      if (d) d.textContent = `${unit}${S.numpadRaw || "0"}`;
+    }),
+  );
+
+  document.getElementById("np-cancel")?.addEventListener("click", () => {
+    S.numpadTarget = null; S.numpadRaw = "";
+    document.getElementById("numpad-modal")?.remove();
+  });
+  document.getElementById("np-confirm")?.addEventListener("click", () => {
+    const v = parseFloat(S.numpadRaw);
+    if (!isNaN(v) && v > 0) {
+      if (target === "sb") S.sbValue = v;
+      else if (target === "bb") S.bbValue = v;
+      else S.stackBB = Math.max(2, Math.round(v));
+    }
+    S.numpadTarget = null; S.numpadRaw = "";
+    document.getElementById("numpad-modal")?.remove();
+    render();
+  });
 }
 
 /* ═══════════════════ SETUP ═══════════════════ */
@@ -216,26 +296,18 @@ function renderSetup(): void {
 
       <div class="field">
         <label>Blinds</label>
-        <span class="hint">Enter your table's small blind / big blind. All amounts will show in dollars.</span>
+        <span class="hint">Tap to set your table's small / big blind. All amounts show in dollars.</span>
         <div class="blinds-row">
-          <div class="blind-input-row">
-            <span class="currency-sign">$</span>
-            <input type="number" id="sb-input" value="${S.sbValue}" min="0.01" step="0.25" />
-          </div>
+          <button class="tap-input" data-numpad="sb">$${fmtMoney(S.sbValue)}</button>
           <span class="blind-slash">/</span>
-          <div class="blind-input-row">
-            <span class="currency-sign">$</span>
-            <input type="number" id="bb-input" value="${S.bbValue}" min="0.01" step="0.25" />
-          </div>
+          <button class="tap-input" data-numpad="bb">$${fmtMoney(S.bbValue)}</button>
         </div>
-        <span class="hint">${S.sbValue === S.bbValue ? "$" + S.sbValue + " / $" + S.bbValue + " (equal blinds)" : "$" + S.sbValue + " / $" + S.bbValue}</span>
       </div>
 
       <div class="field">
         <label>Starting chips per player</label>
-        <span class="hint">In big blinds. If BB is $1 and everyone buys in for $100, enter 100.</span>
-        <input type="number" id="stack" value="${S.stackBB}" min="10" max="500" />
-        <span class="hint">= $${(S.stackBB * S.bbValue) % 1 === 0 ? S.stackBB * S.bbValue : (S.stackBB * S.bbValue).toFixed(2)} buy-in</span>
+        <span class="hint">In big blinds. Tap to set.</span>
+        <button class="tap-input" data-numpad="stack">${S.stackBB} bb = $${fmtMoney(S.stackBB * S.bbValue)}</button>
       </div>
 
       <div class="field">
@@ -250,8 +322,8 @@ function renderSetup(): void {
       </div>
 
       <div class="field">
-        <label>What type of opponents?</label>
-        <span class="hint">Pick the style that best matches the players at your table.</span>
+        <label>Default opponent type</label>
+        <span class="hint">Best match for the table. The app learns each player's real style as you log hands.</span>
         <select id="arch">
           ${Object.keys(PROFILES).map(k =>
             `<option value="${k}" ${k === S.archetype ? "selected" : ""}>${k}</option>`
@@ -260,10 +332,34 @@ function renderSetup(): void {
         <span class="hint arch-desc">${ARCH_DESC[S.archetype]}</span>
       </div>
 
+      <div class="field">
+        <div class="per-seat-head" id="per-seat-toggle">
+          <label>Customize per seat ▾</label>
+        </div>
+        <div class="per-seat-body hidden" id="per-seat-body">
+          ${positions.map((p, i) => {
+            if (i === S.heroSeat) return "";
+            const read = S.playerStats.get(i) ? playerRead(S.playerStats.get(i)!) : null;
+            return `<div class="per-seat-row">
+              <span class="per-seat-pos">${p}</span>
+              <select data-seat-type="${i}">
+                ${Object.keys(PROFILES).map(k =>
+                  `<option value="${k}" ${(S.seatTypes.get(i) ?? S.archetype) === k ? "selected" : ""}>${k}</option>`
+                ).join("")}
+              </select>
+              ${read ? `<span class="per-seat-read">${read}</span>` : ""}
+            </div>`;
+          }).join("")}
+        </div>
+      </div>
+
       <button class="start-btn" id="start">DEAL HAND</button>
       <button class="start-btn" id="start-training" style="background:var(--blue);margin-top:8px">TRAINING MODE</button>
       <span class="hint" style="text-align:center">Training: practice against the AI. It deals cards, makes villain decisions, reveals hands at showdown.</span>
-      <button class="hdr-btn" id="view-stats" style="width:100%;padding:12px;margin-top:4px;font-size:14px">Session Stats</button>
+      <div class="setup-footer">
+        <button class="hdr-btn" id="view-stats">Session Stats</button>
+        <button class="hdr-btn" id="sound-toggle">${isSoundEnabled() ? "🔊 Sound On" : "🔇 Sound Off"}</button>
+      </div>
     </div>`;
 
   $("#help-toggle").addEventListener("click", () => {
@@ -275,22 +371,26 @@ function renderSetup(): void {
     if (S.heroSeat > max) S.heroSeat = max;
     render();
   });
-  $("#sb-input").addEventListener("change", (e) => {
-    const v = +(e.target as HTMLInputElement).value;
-    if (v > 0) { S.sbValue = v; render(); }
-  });
-  $("#bb-input").addEventListener("change", (e) => {
-    const v = +(e.target as HTMLInputElement).value;
-    if (v > 0) { S.bbValue = v; render(); }
-  });
-  $("#stack").addEventListener("change", (e) => {
-    S.stackBB = Math.max(10, +(e.target as HTMLInputElement).value);
-    render();
-  });
+  app.querySelectorAll("[data-numpad]").forEach(btn =>
+    btn.addEventListener("click", () => openNumpad((btn as HTMLElement).dataset.numpad as NumpadTarget)),
+  );
   $("#arch").addEventListener("change", (e) => {
     S.archetype = (e.target as HTMLSelectElement).value;
     const d = document.querySelector(".arch-desc");
     if (d) d.textContent = ARCH_DESC[S.archetype] ?? "";
+  });
+  document.getElementById("per-seat-toggle")?.addEventListener("click", () => {
+    document.getElementById("per-seat-body")?.classList.toggle("hidden");
+  });
+  app.querySelectorAll("[data-seat-type]").forEach(sel =>
+    sel.addEventListener("change", (e) => {
+      const seat = +(sel as HTMLElement).dataset.seatType!;
+      S.seatTypes.set(seat, (e.target as HTMLSelectElement).value);
+    }),
+  );
+  document.getElementById("sound-toggle")?.addEventListener("click", () => {
+    setSoundEnabled(!isSoundEnabled());
+    render();
   });
   app.querySelectorAll(".seat-btn").forEach(btn =>
     btn.addEventListener("click", () => { S.heroSeat = +(btn as HTMLElement).dataset.seat!; render(); }),
@@ -577,6 +677,7 @@ function renderGame(): void {
   // ── Events ──
   $("#new-hand")?.addEventListener("click", () => { S.screen = "setup"; S.dealerSeat = -1; S.handNumber = 0; render(); });
   document.getElementById("next-hand")?.addEventListener("click", nextHand);
+  document.getElementById("review-hand")?.addEventListener("click", () => { S.reviewOpen = true; renderReview(); });
 
   // Showdown winner buttons
   app.querySelectorAll("[data-winner]").forEach(btn =>
@@ -727,14 +828,65 @@ function renderHandResult(positions: readonly string[]): string {
       </div>`
     : "";
 
+  const reviewBtn = S.decisionLog.length
+    ? `<button class="action-btn check" id="review-hand" style="flex:0 0 auto;padding:16px 14px">📋 Review</button>`
+    : "";
+
   return `
     <div class="result-panel">
       ${villainReveal}
       <div class="result-text">${S.handResult}</div>
       <div class="action-bar" style="margin-top:10px">
+        ${reviewBtn}
         <button class="action-btn raise" id="next-hand" style="font-size:16px;padding:16px">NEXT HAND</button>
       </div>
     </div>`;
+}
+
+// Post-hand review: compare each hero decision to the engine's recommendation.
+function renderReview(): void {
+  document.getElementById("review-modal")?.remove();
+  if (!S.reviewOpen) return;
+
+  const rows = S.decisionLog.map((d) => {
+    const recAmt = d.rec.amount > 0 ? ` ${chipsBet(d.rec.amount)}` : "";
+    const chosenAmt = d.chosenAmt > 0 ? ` ${chips(d.chosenAmt)}` : "";
+    const matched = d.chosen === d.rec.action;
+    const verdict = matched ? "✓ matched" : "✗ deviated";
+    return `<div class="review-row ${matched ? "ok" : "bad"}">
+      <div class="review-street">${d.street}</div>
+      <div class="review-cmp">
+        <span>You: <strong>${d.chosen}${chosenAmt}</strong></span>
+        <span>Engine: <strong>${d.rec.action}${recAmt}</strong></span>
+      </div>
+      <div class="review-reason">${d.rec.reasoning}</div>
+      <div class="review-verdict">${verdict}</div>
+    </div>`;
+  }).join("");
+
+  const deviations = S.decisionLog.filter((d) => d.chosen !== d.rec.action).length;
+  const summary = deviations === 0
+    ? "Every decision matched the engine. 🎯"
+    : `${deviations} of ${S.decisionLog.length} decisions deviated from the engine.`;
+
+  const overlay = document.createElement("div");
+  overlay.className = "modal-backdrop";
+  overlay.id = "review-modal";
+  overlay.innerHTML = `
+    <div class="modal-content">
+      <h3>Hand Review</h3>
+      <div class="review-summary">${summary}</div>
+      ${rows || `<div class="hint" style="text-align:center">No hero decisions to review.</div>`}
+      <div class="modal-actions">
+        <button class="confirm-btn" id="review-close">Close</button>
+      </div>
+    </div>`;
+  app.appendChild(overlay);
+
+  document.getElementById("review-close")?.addEventListener("click", () => {
+    S.reviewOpen = false;
+    document.getElementById("review-modal")?.remove();
+  });
 }
 
 function autoPlayVillain(): void {
@@ -1181,12 +1333,14 @@ async function renderStats(): Promise<void> {
       </div>` : ""}
 
       <button class="start-btn" id="back-setup">Back to Table</button>
+      ${allHands.length > 0 ? `<button class="hdr-btn" id="export-csv" style="width:100%;padding:12px;margin-top:4px;font-size:13px">Export CSV</button>` : ""}
       ${allHands.length > 0 ? `<button class="hdr-btn" id="clear-hist" style="width:100%;padding:12px;margin-top:4px;font-size:13px;color:var(--red)">Clear All History</button>` : ""}
     </div>`;
 
   document.getElementById("back-setup")?.addEventListener("click", () => {
     S.screen = "setup"; render();
   });
+  document.getElementById("export-csv")?.addEventListener("click", () => exportCsv(allHands));
   document.getElementById("clear-hist")?.addEventListener("click", () => {
     if (confirm("Clear all hand history?")) {
       clearHistory().then(() => { S.sessionStart = Date.now(); render(); });
@@ -1194,7 +1348,33 @@ async function renderStats(): Promise<void> {
   });
 }
 
+function exportCsv(hands: HandRecord[]): void {
+  const head = ["hand", "time", "tableSize", "heroCards", "board", "pot", "result", "heroPnl"];
+  const rows = hands.map((hd, i) => {
+    const hc = hd.heroCards.map(cardDisplay).join(" ");
+    const bd = hd.boardCards.map(cardDisplay).join(" ");
+    const t = new Date(hd.timestamp).toISOString();
+    const res = `"${hd.result.replace(/"/g, "'")}"`;
+    return [i + 1, t, hd.tableSize, hc, bd, hd.pot.toFixed(2), res, hd.heroPnl.toFixed(2)].join(",");
+  });
+  const csv = [head.join(","), ...rows].join("\n");
+  const blob = new Blob([csv], { type: "text/csv" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `montecarloedge-hands-${Date.now()}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 /* ═══════════════════ INIT ═══════════════════ */
+
+// Register the service worker for offline / installable PWA.
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js`).catch(() => {});
+  });
+}
 
 loadPlayerStats();
 render();

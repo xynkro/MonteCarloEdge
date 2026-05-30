@@ -1,0 +1,14 @@
+{
+  "name": "MonteCarloEdge",
+  "short_name": "MCEdge",
+  "description": "No-Limit Hold'em decision assistant — equity, ranges, and recommended actions in real time.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0f172a",
+  "theme_color": "#0f172a",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

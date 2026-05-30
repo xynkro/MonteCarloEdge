@@ -453,4 +453,45 @@ body {
 }
 .chart-bar { width: 6px; border-radius: 2px 2px 0 0; min-height: 2px; }
 
+/* ── Tappable inputs (numpad) ── */
+.tap-input {
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  color: var(--text); padding: 12px 14px; font-size: 16px; font-weight: 700;
+  text-align: left; cursor: pointer; width: 100%;
+}
+.tap-input:active { background: var(--surface2); }
+.blinds-row .tap-input { flex: 1; text-align: center; }
+
+/* ── Per-seat opponent types ── */
+.per-seat-head { cursor: pointer; }
+.per-seat-head label { cursor: pointer; color: var(--blue); }
+.per-seat-body { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
+.per-seat-row { display: flex; align-items: center; gap: 8px; }
+.per-seat-pos { width: 44px; font-weight: 700; font-size: 13px; color: var(--text2); }
+.per-seat-row select { flex: 1; background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); color: var(--text); padding: 8px 10px; font-size: 14px; }
+.per-seat-read { font-size: 11px; color: var(--gold); font-style: italic; max-width: 38%; }
+
+.setup-footer { display: flex; gap: 8px; }
+.setup-footer .hdr-btn { flex: 1; padding: 12px; font-size: 14px; }
+
+/* ── Post-hand review ── */
+.review-summary {
+  text-align: center; font-size: 14px; color: var(--text); margin-bottom: 12px;
+  padding: 10px; background: var(--bg); border-radius: var(--radius);
+}
+.review-row {
+  border-left: 3px solid var(--border); padding: 8px 12px; margin-bottom: 8px;
+  background: var(--bg); border-radius: 0 var(--radius) var(--radius) 0;
+}
+.review-row.ok { border-left-color: var(--green); }
+.review-row.bad { border-left-color: var(--red); }
+.review-street { font-size: 11px; text-transform: uppercase; letter-spacing: .5px; color: var(--text2); }
+.review-cmp { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; margin: 3px 0; }
+.review-cmp strong { color: var(--text); }
+.review-reason { font-size: 11px; color: var(--text2); font-style: italic; }
+.review-verdict { font-size: 12px; font-weight: 700; margin-top: 3px; }
+.review-row.ok .review-verdict { color: var(--green); }
+.review-row.bad .review-verdict { color: var(--red); }
+
 .hidden { display: none !important; }
