@@ -1,8 +1,11 @@
 import { type Card, rankOf, suitOf, makeCard, NUM_CARDS } from "../engine/cards.js";
-import { type Combo } from "../engine/range.js";
+import { type Combo, Range } from "../engine/range.js";
 import { mulberry32 } from "../engine/rng.js";
 import { GameState, type ActionType } from "../engine/game-state.js";
-import { getPositions } from "../engine/charts/index.js";
+import { getPositions, getRfiRange, getBbDefenseRange } from "../engine/charts/index.js";
+import { estimateVillainRange } from "../engine/opponent.js";
+import { solveRiver, type RiverResult } from "../engine/gto/river-solver.js";
+import { allCombos, topSlice } from "../engine/hand-strength.js";
 import { recommend, type Recommendation, type ProfileMap } from "../engine/decision.js";
 import { TAG, LAG, STATION, NIT, type OpponentProfile, villainAct } from "../engine/opponent.js";
 import { evaluate } from "../engine/evaluator.js";
@@ -57,6 +60,9 @@ interface AppState {
   // Generic numpad (blinds / stack)
   numpadTarget: NumpadTarget | null;
   numpadRaw: string;
+  // GTO river solver
+  gtoResult: RiverResult | null;
+  gtoSolving: boolean;
   message: string;
 }
 
@@ -96,6 +102,8 @@ const S: AppState = {
   reviewOpen: false,
   numpadTarget: null,
   numpadRaw: "",
+  gtoResult: null,
+  gtoSolving: false,
   message: "",
 };
 
@@ -238,6 +246,119 @@ function renderNumpad(): void {
     S.numpadTarget = null; S.numpadRaw = "";
     document.getElementById("numpad-modal")?.remove();
     render();
+  });
+}
+
+/* ═══════════════════ GTO RIVER SOLVER ═══════════════════ */
+
+// GTO solving is currently river, heads-up (one active villain).
+function activeVillains(): number[] {
+  if (!S.gs) return [];
+  const out: number[] = [];
+  for (let i = 0; i < S.gs.folded.length; i++) {
+    if (i !== S.heroSeat && !S.gs.folded[i]) out.push(i);
+  }
+  return out;
+}
+
+function canSolveGto(): boolean {
+  return !!(S.gs && S.heroCards && !S.handOver &&
+    S.gs.street === "river" && S.gs.nextToAct() === S.heroSeat &&
+    activeVillains().length === 1);
+}
+
+function heroRangeEstimate(): Range {
+  const gs = S.gs!;
+  const pos = gs.positions[S.heroSeat]!;
+  const raisedPre = gs.actions.some(a =>
+    a.seat === S.heroSeat && (a.type === "raise" || a.type === "bet") && a.street === "preflop");
+  let r: Range;
+  try {
+    if (pos === "BB" && !raisedPre) {
+      const opener = gs.actions.find(a =>
+        a.seat !== S.heroSeat && (a.type === "raise" || a.type === "bet") && a.street === "preflop");
+      r = opener ? getBbDefenseRange(gs.tableSize, gs.positions[opener.seat]!) : topSlice(allCombos(), 0.4);
+    } else {
+      r = getRfiRange(gs.tableSize, pos);
+    }
+  } catch {
+    r = topSlice(allCombos(), 0.4);
+  }
+  r = r.filter([...gs.board]);
+  // Guarantee hero's actual hand is in their own range.
+  return r.union(Range.fromCombos([S.heroCards!]));
+}
+
+function startGtoSolve(): void {
+  if (!canSolveGto()) return;
+  S.gtoSolving = true;
+  render();
+  // Yield so the "Solving…" state paints before the (synchronous) CFR run.
+  setTimeout(runGtoSolve, 30);
+}
+
+function runGtoSolve(): void {
+  const gs = S.gs;
+  if (!gs || !S.heroCards) { S.gtoSolving = false; render(); return; }
+  const villainSeat = activeVillains()[0]!;
+  const profile = buildProfiles().get(villainSeat);
+  const heroRange = heroRangeEstimate();
+  const villainRange = estimateVillainRange(gs, villainSeat, profile ?? PROFILES[S.archetype]!);
+  const stack = Math.min(gs.stacks[S.heroSeat]!, gs.stacks[villainSeat]!);
+
+  try {
+    S.gtoResult = solveRiver({
+      heroRange,
+      villainRange: villainRange.size > 0 ? villainRange : topSlice(allCombos(), 0.4).filter([...gs.board]),
+      board: gs.board,
+      pot: gs.pot,
+      stack: Math.max(stack, gs.pot * 0.5),
+      iterations: 12000,
+      rng: mulberry32(0x9e3a),
+    }, S.heroCards);
+  } catch {
+    S.gtoResult = null;
+  }
+  S.gtoSolving = false;
+  render();
+  renderGtoModal();
+}
+
+function renderGtoModal(): void {
+  document.getElementById("gto-modal")?.remove();
+  if (!S.gtoResult) return;
+  const res = S.gtoResult;
+
+  const rows = res.strategy
+    .filter(a => a.freq > 0.005)
+    .sort((a, b) => b.freq - a.freq)
+    .map(a => {
+      const label = a.action === "check" ? "Check"
+        : `Bet ${chips(a.amount)}`;
+      const pct = (a.freq * 100).toFixed(0);
+      return `<div class="gto-row">
+        <span class="gto-act">${label}</span>
+        <div class="gto-bar"><div class="gto-fill" style="width:${(a.freq * 100).toFixed(0)}%"></div></div>
+        <span class="gto-pct">${pct}%</span>
+      </div>`;
+    }).join("");
+
+  const overlay = document.createElement("div");
+  overlay.className = "modal-backdrop";
+  overlay.id = "gto-modal";
+  overlay.innerHTML = `
+    <div class="modal-content">
+      <h3>🧠 GTO Solution (river)</h3>
+      <div class="gto-sub">Solved with CFR — ${res.iterations.toLocaleString()} iterations · assumes you act first</div>
+      ${rows || `<div class="hint" style="text-align:center">No solution.</div>`}
+      <div class="gto-ev">Hand EV: <strong>${chips(res.heroEv)}</strong></div>
+      <div class="modal-actions">
+        <button class="confirm-btn" id="gto-close">Close</button>
+      </div>
+    </div>`;
+  app.appendChild(overlay);
+  document.getElementById("gto-close")?.addEventListener("click", () => {
+    document.getElementById("gto-modal")?.remove();
   });
 }
 
@@ -419,6 +540,8 @@ function startHand(): void {
   S.raiseAmount = 0;
   S.decisionLog = [];
   S.reviewOpen = false;
+  S.gtoResult = null;
+  S.gtoSolving = false;
   S.message = "Tap your cards to pick them";
   S.screen = "game";
   S.pickerTarget = "hero";
@@ -469,6 +592,8 @@ function startTrainingHand(): void {
   S.rec = null;
   S.decisionLog = [];
   S.reviewOpen = false;
+  S.gtoResult = null;
+  S.gtoSolving = false;
 
   // Create game state
   const positions = getPositions(S.tableSize);
@@ -667,6 +792,7 @@ function renderGame(): void {
         <div class="hero-cards">${heroHtml}</div>
         ${handLabelHtml}
         ${recHtml}
+        ${canSolveGto() ? `<button class="gto-btn" id="gto-solve">${S.gtoSolving ? "Solving…" : "🧠 Solve GTO"}</button>` : ""}
       </div>
 
       ${S.handOver ? renderHandResult(positions) : actionsHtml}
@@ -678,6 +804,7 @@ function renderGame(): void {
   $("#new-hand")?.addEventListener("click", () => { S.screen = "setup"; S.dealerSeat = -1; S.handNumber = 0; render(); });
   document.getElementById("next-hand")?.addEventListener("click", nextHand);
   document.getElementById("review-hand")?.addEventListener("click", () => { S.reviewOpen = true; renderReview(); });
+  document.getElementById("gto-solve")?.addEventListener("click", startGtoSolve);
 
   // Showdown winner buttons
   app.querySelectorAll("[data-winner]").forEach(btn =>
