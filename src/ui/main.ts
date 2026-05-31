@@ -1120,13 +1120,20 @@ function renderGame(): void {
     btn.addEventListener("click", () => {
       S.betPadAction = (btn as HTMLElement).dataset.openBet as "bet" | "raise";
       S.betPadSeat = next!;
-      // Auto-fill with recommendation amount if available
-      if (S.rec && S.rec.amount > 0 && (S.rec.action === "bet" || S.rec.action === "raise")) {
-        S.raiseAmount = roundBet(S.rec.amount);
+      // Pre-fill the amount only for YOUR own action — either the recommended
+      // size or a standard open. For an OPPONENT you're recording what they
+      // actually did, so open the pad blank and just key their number (presets
+      // are still there for quick entry).
+      if (next === S.heroSeat) {
+        if (S.rec && S.rec.amount > 0 && (S.rec.action === "bet" || S.rec.action === "raise")) {
+          S.raiseAmount = roundBet(S.rec.amount);
+        } else {
+          S.raiseAmount = roundBet(gs!.currentBet > 0
+            ? minRaise(gs!.currentBet, gs!.bb)
+            : openRaiseSize(gs!.bb));
+        }
       } else {
-        S.raiseAmount = roundBet(gs!.currentBet > 0
-          ? minRaise(gs!.currentBet, gs!.bb)
-          : openRaiseSize(gs!.bb));
+        S.raiseAmount = 0; // blank — enter the opponent's actual size
       }
       S.betPadOpen = true;
       renderBetPad();
