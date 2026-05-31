@@ -944,15 +944,21 @@ function renderGame(): void {
         <button class="hdr-btn" id="new-hand">New Hand</button>
       </div>
 
-      <div class="poker-table" id="poker-table">
-        <div class="felt"></div>
-        ${seats}
-        <div class="table-info">
-          <div class="table-pot">${gs ? chips(gs.pot) : "$0"}</div>
-          <div class="table-street">${gs?.street ?? ""}</div>
+      <div class="table-wrap">
+        <div class="poker-table" id="poker-table">
+          <div class="felt"></div>
+          ${seats}
+          <div class="table-info">
+            <div class="table-pot">${gs ? chips(gs.pot) : "$0"}</div>
+            <div class="table-street">${gs?.street ?? ""}</div>
+          </div>
+          <div class="board-center" id="board-area">${boardHtml}</div>
         </div>
-        <div class="board-center" id="board-area">${boardHtml}</div>
       </div>
+
+      ${!S.handOver ? `<div class="status-bar ${isHeroTurn ? "your-turn" : ""}">${
+        isHeroTurn ? "<strong>YOUR TURN</strong>" : S.message || ""
+      }</div>` : ""}
 
       <div class="hero-area">
         <div class="hero-cards">${heroHtml}</div>
@@ -963,8 +969,6 @@ function renderGame(): void {
       </div>
 
       ${S.handOver ? renderHandResult(positions) : actionsHtml}
-
-      ${isHeroTurn && !S.handOver ? `<div class="status-bar"><strong>YOUR TURN</strong></div>` : ""}
     </div>`;
 
   // ── Events ──
