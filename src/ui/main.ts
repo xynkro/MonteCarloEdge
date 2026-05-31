@@ -40,9 +40,12 @@ interface AppState {
   boardCards: Card[];
   allDealt: Set<number>;
   pickerOpen: boolean;
-  pickerTarget: "hero" | "flop" | "turn" | "river";
+  pickerTarget: "hero" | "flop" | "turn" | "river" | "villain";
+  pickerVillainSeat: number;
   pickerPicked: Card[];
   pickerRank: number | null;
+  // Showdown: villain hole cards keyed by the user (seat -> cards)
+  showdownCards: Map<number, [Card, Card]>;
   rec: Recommendation | null;
   handOver: boolean;
   handResult: string;
@@ -92,8 +95,10 @@ const S: AppState = {
   allDealt: new Set(),
   pickerOpen: false,
   pickerTarget: "hero",
+  pickerVillainSeat: -1,
   pickerPicked: [],
   pickerRank: null,
+  showdownCards: new Map(),
   rec: null,
   handOver: false,
   handResult: "",
@@ -642,6 +647,7 @@ function startHand(): void {
   S.rec = null;
   S.handOver = false;
   S.handResult = "";
+  S.showdownCards = new Map();
   S.raiseAmount = 0;
   S.decisionLog = [];
   S.reviewOpen = false;
@@ -696,6 +702,7 @@ function startTrainingHand(): void {
   S.allDealt = new Set([heroCards[0], heroCards[1], villCards[0], villCards[1], ...boardCards]);
   S.handOver = false;
   S.handResult = "";
+  S.showdownCards = new Map();
   S.raiseAmount = 0;
   S.rec = null;
   S.decisionLog = [];
@@ -997,6 +1004,23 @@ function renderGame(): void {
     }),
   );
 
+  // Showdown: enter a villain's cards
+  app.querySelectorAll("[data-vcards]").forEach(btn =>
+    btn.addEventListener("click", () => {
+      S.pickerTarget = "villain";
+      S.pickerVillainSeat = +(btn as HTMLElement).dataset.vcards!;
+      S.pickerPicked = []; S.pickerRank = null;
+      S.pickerOpen = true;
+      renderPicker();
+    }),
+  );
+  // Showdown: confirm the auto-computed winner
+  document.getElementById("sd-confirm")?.addEventListener("click", () => {
+    const remaining = S.gs!.folded.map((f, i) => f ? -1 : i).filter((i) => i >= 0);
+    const auto = computeShowdown(remaining, S.boardCards.slice(0, 5));
+    if (auto) recordShowdownResult(auto.winners, auto.label);
+  });
+
   app.querySelectorAll("[data-act]").forEach(btn =>
     btn.addEventListener("click", () => doAction(next!, (btn as HTMLElement).dataset.act as ActionType)),
   );
@@ -1095,15 +1119,44 @@ function renderHandResult(positions: readonly string[]): string {
   const pot = S.gs.pot;
 
   if (S.handResult === "showdown" && S.mode === "live") {
-    // Live mode: ask who won
     const remaining = S.gs.folded
       .map((f, i) => f ? null : i)
       .filter((i): i is number => i !== null);
+    const villains = remaining.filter((i) => i !== S.heroSeat);
+    const board5 = S.boardCards.slice(0, 5);
+
+    // If every remaining villain's cards are keyed, read out the winner exactly.
+    const allKeyed = board5.length === 5 && villains.every((i) => S.showdownCards.has(i));
+    let autoBlock = "";
+    if (allKeyed && S.heroCards) {
+      const auto = computeShowdown(remaining, board5);
+      if (auto) {
+        const who = auto.winners.length > 1
+          ? "Split pot"
+          : auto.winners[0] === S.heroSeat ? "You win" : `${positions[auto.winners[0]!]} wins`;
+        autoBlock = `
+          <div class="result-text" style="margin-bottom:10px">${who} — ${auto.label}</div>
+          <button class="result-btn hero" id="sd-confirm">Confirm & next hand</button>`;
+      }
+    }
+
+    const villainCardRows = villains.map((i) => {
+      const c = S.showdownCards.get(i);
+      const cardsHtml = c
+        ? `<span class="sd-cards"><span class="${isRed(c[0]) ? "r" : ""}">${cardDisplay(c[0])}</span> <span class="${isRed(c[1]) ? "r" : ""}">${cardDisplay(c[1])}</span></span>`
+        : `<span class="sd-unknown">— —</span>`;
+      return `<button class="sd-villain-row" data-vcards="${i}">
+        <span class="sd-pos">${positions[i]}</span>${cardsHtml}<span class="sd-edit">${c ? "edit" : "tap to enter"}</span>
+      </button>`;
+    }).join("");
 
     return `
       <div class="result-panel">
         <div class="result-title">Showdown — ${chips(pot)} pot</div>
-        <div class="result-question">Who won?</div>
+        <div class="result-question">Enter opponents' cards (optional) for an exact read:</div>
+        <div class="sd-villains">${villainCardRows}</div>
+        ${autoBlock || `
+        <div class="result-question" style="margin-top:6px">…or just tap who won:</div>
         <div class="result-buttons">
           ${remaining.map(i =>
             `<button class="result-btn ${i === S.heroSeat ? "hero" : ""}" data-winner="${i}">
@@ -1111,7 +1164,7 @@ function renderHandResult(positions: readonly string[]): string {
             </button>`
           ).join("")}
           <button class="result-btn split" data-winner="split">Split pot</button>
-        </div>
+        </div>`}
       </div>`;
   }
 
@@ -1343,6 +1396,39 @@ function saveHandRecord(heroPnl: number): void {
   }).catch(() => {});
 }
 
+// Determine the winner(s) from keyed cards. Returns winning seats + hand label.
+function computeShowdown(remaining: number[], board5: Card[]):
+  { winners: number[]; label: string } | null {
+  if (!S.heroCards || board5.length < 5) return null;
+  const rankBy = new Map<number, number>();
+  for (const i of remaining) {
+    const cards = i === S.heroSeat ? S.heroCards : S.showdownCards.get(i);
+    if (!cards) return null;
+    rankBy.set(i, evaluate([cards[0], cards[1], ...board5]));
+  }
+  const max = Math.max(...rankBy.values());
+  const winners = remaining.filter((i) => rankBy.get(i) === max);
+  const w = winners[0]!;
+  const wc = w === S.heroSeat ? S.heroCards : S.showdownCards.get(w)!;
+  return { winners, label: describeHand(wc, board5).label };
+}
+
+function recordShowdownResult(winners: number[], label: string): void {
+  if (!S.gs) return;
+  const pot = S.gs.pot;
+  const invested = S.gs.invested[S.heroSeat]!;
+  const heroWon = winners.includes(S.heroSeat);
+  const heroPnl = (heroWon ? pot / winners.length : 0) - invested;
+  if (winners.length > 1) S.handResult = `Split pot — ${label}`;
+  else {
+    const who = winners[0] === S.heroSeat ? "You" : S.gs.positions[winners[0]!]!;
+    S.handResult = `${who} won ${chips(pot)} — ${label}`;
+  }
+  saveHandRecord(heroPnl);
+  S.handOver = true; S.rec = null;
+  render();
+}
+
 function openBoardPicker(): void {
   if (!S.gs) return;
   const nm: Record<string, "flop" | "turn" | "river"> = { preflop: "flop", flop: "turn", turn: "river" };
@@ -1357,8 +1443,11 @@ function openBoardPicker(): void {
 function renderPicker(): void {
   document.getElementById("picker-modal")?.remove();
 
-  const needed = S.pickerTarget === "hero" ? 2 : S.pickerTarget === "flop" ? 3 : 1;
+  const needed = S.pickerTarget === "hero" || S.pickerTarget === "villain"
+    ? 2 : S.pickerTarget === "flop" ? 3 : 1;
+  const villPos = S.gs?.positions[S.pickerVillainSeat] ?? "opponent";
   const title = S.pickerTarget === "hero" ? "Pick your hole cards"
+    : S.pickerTarget === "villain" ? `Enter ${villPos}'s cards`
     : S.pickerTarget === "flop" ? "Deal the flop"
     : S.pickerTarget === "turn" ? "Deal the turn" : "Deal the river";
 
@@ -1453,8 +1542,22 @@ function renderPicker(): void {
 }
 
 function confirmPicker(): void {
-  const needed = S.pickerTarget === "hero" ? 2 : S.pickerTarget === "flop" ? 3 : 1;
+  const needed = S.pickerTarget === "hero" || S.pickerTarget === "villain"
+    ? 2 : S.pickerTarget === "flop" ? 3 : 1;
   if (S.pickerPicked.length !== needed) return;
+
+  if (S.pickerTarget === "villain") {
+    const [a, b] = S.pickerPicked;
+    const combo: [Card, Card] = a! <= b! ? [a!, b!] : [b!, a!];
+    const prev = S.showdownCards.get(S.pickerVillainSeat);
+    if (prev) { S.allDealt.delete(prev[0]); S.allDealt.delete(prev[1]); }
+    S.showdownCards.set(S.pickerVillainSeat, combo);
+    S.allDealt.add(combo[0]); S.allDealt.add(combo[1]);
+    S.pickerOpen = false; S.pickerPicked = []; S.pickerRank = null;
+    document.getElementById("picker-modal")?.remove();
+    render();
+    return;
+  }
 
   if (S.pickerTarget === "hero") {
     const [a, b] = S.pickerPicked;
@@ -1464,8 +1567,27 @@ function confirmPicker(): void {
     initGameState();
   } else {
     for (const c of S.pickerPicked) { S.boardCards.push(c); S.allDealt.add(c); }
-    if (S.gs) { S.gs.advanceStreet(S.pickerPicked); updateRec(); updateMessage(); }
     playSound("card");
+    S.pickerOpen = false; S.pickerPicked = []; S.pickerRank = null;
+    document.getElementById("picker-modal")?.remove();
+    if (S.gs) {
+      S.gs.advanceStreet(S.pickerPicked);
+      const anyCanAct = S.gs.stacks.some((s, i) => !S.gs!.folded[i] && s > 0);
+      // Hand finished (river dealt, or all-in runout complete) → go to showdown.
+      if (S.gs.isComplete() || (S.gs.street === "river" && S.gs.roundComplete())) {
+        S.handResult = "showdown"; S.handOver = true; S.rec = null;
+        updateMessage(); render();
+        return;
+      }
+      // Still all-in with more board to come → immediately prompt the next street.
+      if (S.gs.roundComplete() && !anyCanAct) {
+        openBoardPicker();
+        return;
+      }
+      updateRec(); updateMessage();
+    }
+    render();
+    return;
   }
   S.pickerOpen = false; S.pickerPicked = []; S.pickerRank = null;
   document.getElementById("picker-modal")?.remove();

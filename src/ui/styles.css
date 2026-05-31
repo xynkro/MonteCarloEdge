@@ -414,6 +414,19 @@ body {
 .result-btn.hero { border-color: var(--emerald); background: linear-gradient(135deg, rgba(0,214,143,.18), rgba(4,32,24,.6)); color: #b9ffe6; }
 .result-btn.split { border-color: var(--teal); color: var(--teal); }
 
+.sd-villains { display: flex; flex-direction: column; gap: 7px; margin-bottom: 10px; }
+.sd-villain-row {
+  display: flex; align-items: center; gap: 10px; padding: 11px 14px;
+  background: var(--surface); border: 1px solid var(--line-2); border-radius: var(--radius);
+  color: var(--text); cursor: pointer; font-size: 15px;
+}
+.sd-villain-row:active { background: var(--surface-2); }
+.sd-pos { font-weight: 800; width: 44px; text-align: left; color: var(--muted); }
+.sd-cards { font-weight: 800; font-size: 18px; flex: 1; text-align: center; color: #fff; }
+.sd-cards .r { color: var(--rose); }
+.sd-unknown { flex: 1; text-align: center; color: var(--faint); letter-spacing: 3px; }
+.sd-edit { font-size: 11px; color: var(--violet); text-transform: uppercase; letter-spacing: .5px; }
+
 .villain-reveal {
   text-align: center; margin-bottom: 10px; padding: 11px;
   background: var(--surface); border-radius: var(--radius); border: 1px solid var(--line);
