@@ -1555,44 +1555,34 @@ function renderPicker(): void {
     `<span class="picked-tag ${isRed(c) ? "red" : ""}">${cardDisplay(c)}</span>`
   ).join("");
 
-  let body: string;
+  // Single screen: ranks on top, suits below. Tap a rank, then a suit.
+  const selR = S.pickerRank;
+  const rankGrid = Array.from({ length: 13 }, (_, r) => {
+    const allUsed = [0, 1, 2, 3].every(s => S.allDealt.has(makeCard(r, s)) || S.pickerPicked.includes(makeCard(r, s)));
+    const sel = selR === r ? "sel" : "";
+    return `<button class="rank-btn ${allUsed ? "used" : ""} ${sel}" data-rank="${r}">${RANKS[r]}</button>`;
+  }).join("");
 
-  if (S.pickerRank === null) {
-    // Step 1: pick a rank
-    body = `
-      <div class="pick-label">Select rank</div>
-      <div class="rank-grid">
-        ${Array.from({ length: 13 }, (_, r) => {
-          const allUsed = [0,1,2,3].every(s => S.allDealt.has(makeCard(r, s)));
-          return `<button class="rank-btn ${allUsed ? "used" : ""}" data-rank="${r}">${RANKS[r]}</button>`;
-        }).join("")}
-      </div>`;
-  } else {
-    // Step 2: pick a suit
-    const r = S.pickerRank;
-    body = `
-      <div class="pick-label">Pick suit for ${RANKS[r]}</div>
-      <div class="suit-grid">
-        ${[0,1,2,3].map(s => {
-          const card = makeCard(r, s);
-          const used = S.allDealt.has(card) || S.pickerPicked.includes(card);
-          const red = SUIT_RED[s] ? "red" : "";
-          return `<button class="suit-btn ${red} ${used ? "used" : ""}" data-suit="${s}">${SUITS[s]}</button>`;
-        }).join("")}
-      </div>
-      <button class="back-btn" id="pick-back">Back to ranks</button>`;
-  }
+  const suitRow = [0, 1, 2, 3].map(s => {
+    const disabled = selR === null;
+    const used = selR !== null && (S.allDealt.has(makeCard(selR, s)) || S.pickerPicked.includes(makeCard(selR, s)));
+    const red = SUIT_RED[s] ? "red" : "";
+    return `<button class="suit-btn ${red} ${used || disabled ? "used" : ""}" data-suit="${s}">${SUITS[s]}</button>`;
+  }).join("");
 
+  const hint = selR === null ? "Tap a rank, then its suit" : `${RANKS[selR]} — now tap the suit`;
   const canConfirm = S.pickerPicked.length === needed;
 
   const overlay = document.createElement("div");
   overlay.className = "modal-backdrop";
   overlay.id = "picker-modal";
   overlay.innerHTML = `
-    <div class="modal-content">
+    <div class="modal-content picker-single">
       <h3>${title} (${S.pickerPicked.length}/${needed})</h3>
       ${pickedDisp ? `<div class="picked-row">${pickedDisp}</div>` : ""}
-      ${body}
+      <div class="pick-label">${hint}</div>
+      <div class="rank-grid big">${rankGrid}</div>
+      <div class="suit-row">${suitRow}</div>
       <div class="modal-actions">
         <button class="cancel-btn" id="picker-cancel">Cancel</button>
         <button class="confirm-btn" id="picker-confirm" ${canConfirm ? "" : "disabled"}>Confirm</button>
@@ -1601,36 +1591,26 @@ function renderPicker(): void {
 
   app.appendChild(overlay);
 
-  // Rank buttons
+  // Rank: select (highlight) without leaving the screen.
   overlay.querySelectorAll(".rank-btn:not(.used)").forEach(btn =>
     btn.addEventListener("click", () => {
       S.pickerRank = +(btn as HTMLElement).dataset.rank!;
-      document.getElementById("picker-modal")?.remove();
       renderPicker();
     }),
   );
 
-  // Suit buttons
+  // Suit: commit the card once a rank is selected.
   overlay.querySelectorAll(".suit-btn:not(.used)").forEach(btn =>
     btn.addEventListener("click", () => {
-      const card = makeCard(S.pickerRank!, +(btn as HTMLElement).dataset.suit!);
+      if (S.pickerRank === null) return;
+      const card = makeCard(S.pickerRank, +(btn as HTMLElement).dataset.suit!);
       S.pickerPicked.push(card);
       S.pickerRank = null;
-      // Auto-confirm if we have enough cards
-      if (S.pickerPicked.length === needed) {
-        confirmPicker();
-        return;
-      }
-      document.getElementById("picker-modal")?.remove();
+      playSound("card");
+      if (S.pickerPicked.length === needed) { confirmPicker(); return; }
       renderPicker();
     }),
   );
-
-  document.getElementById("pick-back")?.addEventListener("click", () => {
-    S.pickerRank = null;
-    document.getElementById("picker-modal")?.remove();
-    renderPicker();
-  });
 
   document.getElementById("picker-cancel")?.addEventListener("click", () => {
     S.pickerOpen = false; S.pickerPicked = []; S.pickerRank = null;
