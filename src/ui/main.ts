@@ -865,6 +865,51 @@ function updateBoardRead(): void {
   S.boardRead = { equity, nuts, nutsPct };
 }
 
+// Common one-tap raise/bet sizes for the seat about to act. Facing a bet →
+// multiples of it (the "× the raise" sizes live players eyeball); no bet yet →
+// fractions of the pot. Each is clamped to the legal min-raise and the stack.
+function sizeChips(gs: GameState, seat: number): { label: string; bb: number }[] {
+  const minBB = roundBet(Math.max(
+    gs.currentBet > 0 ? minRaise(gs.currentBet, gs.bb) : openRaiseSize(gs.bb),
+    (gs.toCall(seat) || 0) + 1,
+  ));
+  const maxBB = roundBet(gs.stacks[seat]! + gs.streetInvested[seat]!);
+  const clamp = (x: number) => roundBet(Math.min(maxBB, Math.max(minBB, x)));
+  const raw = gs.currentBet > 0
+    ? [
+        { label: "2×", bb: clamp(gs.currentBet * 2) },
+        { label: "2.5×", bb: clamp(gs.currentBet * 2.5) },
+        { label: "3×", bb: clamp(gs.currentBet * 3) },
+        { label: "Pot", bb: clamp(gs.pot + gs.currentBet) },
+        { label: "All in", bb: maxBB },
+      ]
+    : [
+        { label: "⅓", bb: clamp(gs.pot / 3) },
+        { label: "½", bb: clamp(gs.pot / 2) },
+        { label: "¾", bb: clamp(gs.pot * 0.75) },
+        { label: "Pot", bb: clamp(gs.pot) },
+        { label: "All in", bb: maxBB },
+      ];
+  // Drop chips that collapsed onto the same amount (e.g. min-raise > 3×).
+  const seen = new Set<number>();
+  return raw.filter((c) => (seen.has(c.bb) ? false : (seen.add(c.bb), true)));
+}
+
+// Compact one-line recap of the current street's action, so table state is
+// verifiable at a glance while logging a busy multiway pot.
+function streetRecap(gs: GameState): string {
+  const acts = gs.actions.filter((a) => a.street === gs.street);
+  if (acts.length === 0) return "";
+  return acts.map((a) => {
+    const who = a.seat === S.heroSeat ? "You" : (gs.positions[a.seat] ?? "?");
+    const v = a.type === "fold" ? "fold"
+      : a.type === "check" ? "check"
+      : a.type === "call" ? "call"
+      : `${a.type} ${chipsBet(a.amount)}`;
+    return `${who} ${v}`;
+  }).join("  ·  ");
+}
+
 function updateMessage(): void {
   if (!S.gs) return;
   if (S.handOver) { S.message = "Hand complete — tap Next Hand"; return; }
@@ -999,11 +1044,27 @@ function renderGame(): void {
   const quickHtml = oppTurn ? `
     <div class="quick-row">
       <button class="quick-btn" id="fold-to-me">⏩ Fold to me</button>
-      ${gs!.currentBet === 0 ? `<button class="quick-btn" id="check-to-me">⏩ Check to me</button>` : ""}
+      ${gs!.currentBet === 0
+        ? `<button class="quick-btn" id="check-to-me">⏩ Check to me</button>`
+        : `<button class="quick-btn" id="call-to-me">⏩ Call to me</button>`}
     </div>` : "";
 
+  // One-tap raise/bet sizes — for an opponent, so logging their raise is a
+  // single tap (your own keeps the bet pad for considered sizing).
+  const sizeRowHtml = oppTurn && (legal.includes("raise") || legal.includes("bet")) ? `
+    <div class="size-row">
+      ${sizeChips(gs!, next!).map((c) =>
+        `<button class="size-chip" data-size="${c.bb}">${c.label}<span>${chipsBet(c.bb)}</span></button>`).join("")}
+    </div>` : "";
+
+  // Recap of the current street's action, for at-a-glance state checks.
+  const recap = showActions && S.mode === "live" ? streetRecap(gs!) : "";
+  const recapHtml = recap ? `<div class="recap-strip">${recap}</div>` : "";
+
   const actionsHtml = showActions ? `
+    ${recapHtml}
     ${quickHtml}
+    ${sizeRowHtml}
     <div class="action-bar">
       ${legal.includes("fold") ? `<button class="action-btn fold" data-act="fold">Fold</button>` : ""}
       ${legal.includes("check") ? `<button class="action-btn check" data-act="check">Check</button>` : ""}
@@ -1116,6 +1177,16 @@ function renderGame(): void {
   );
   document.getElementById("fold-to-me")?.addEventListener("click", () => { pushUndo("fold to you"); advanceOpponents("fold"); });
   document.getElementById("check-to-me")?.addEventListener("click", () => { pushUndo("check to you"); advanceOpponents("check"); });
+  document.getElementById("call-to-me")?.addEventListener("click", () => { pushUndo("call to you"); advanceOpponents("call"); });
+  app.querySelectorAll("[data-size]").forEach(btn =>
+    btn.addEventListener("click", () => {
+      S.raiseAmount = +(btn as HTMLElement).dataset.size!;
+      const action: ActionType = gs!.currentBet > 0 ? "raise" : "bet";
+      const who = next === S.heroSeat ? "You" : (gs?.positions[next!] ?? "");
+      pushUndo(`${who} ${action}`);
+      doAction(next!, action);
+    }),
+  );
   app.querySelectorAll("[data-open-bet]").forEach(btn =>
     btn.addEventListener("click", () => {
       S.betPadAction = (btn as HTMLElement).dataset.openBet as "bet" | "raise";
@@ -1157,7 +1228,9 @@ function renderGame(): void {
 }
 
 // Batch the obvious action for every opponent up to the hero (live mode).
-function advanceOpponents(action: "fold" | "check"): void {
+// Stops (rather than guessing) the moment the intended action isn't legal, so
+// nobody is silently folded/called against the run of play.
+function advanceOpponents(action: "fold" | "check" | "call"): void {
   let guard = 12;
   while (guard-- > 0) {
     const gs = S.gs;
@@ -1165,8 +1238,10 @@ function advanceOpponents(action: "fold" | "check"): void {
     const next = gs.nextToAct();
     if (next === null || next === S.heroSeat) break;
     const legal = gs.legalActionsFor(next);
-    const act = legal.includes(action) ? action : "fold";
-    if (!legal.includes(act)) break;
+    let act: ActionType | null = null;
+    if (legal.includes(action)) act = action;
+    else if (action === "call" && legal.includes("check")) act = "check"; // nothing to call
+    if (act === null) break;
     doAction(next, act);
     if (S.pickerOpen || S.allInPrompt) break; // a board/all-in step interrupted
   }
