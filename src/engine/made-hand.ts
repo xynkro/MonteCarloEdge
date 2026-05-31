@@ -58,23 +58,37 @@ function straightDraw(holeRanks: number[], boardRanks: number[]): "oesd" | "guts
   return null;
 }
 
-// The best possible hand any two hole cards can make on this board ("the nuts").
-export function nutHand(board: readonly Card[]): { label: string } | null {
+// The best possible hand any two hole cards can make on this board ("the nuts"),
+// plus every 2-card combo that makes it (for "chance someone holds it").
+export function nutHand(
+  board: readonly Card[],
+  dead: readonly Card[] = [],
+): { label: string; combos: [Card, Card][] } | null {
   if (board.length < 3) return null;
   const used = new Uint8Array(NUM_CARDS);
   for (const c of board) used[c] = 1;
+  for (const c of dead) used[c] = 1;
   let best = -1;
-  let bestCombo: [Card, Card] | null = null;
+  const ranks: number[] = [];
+  const combos: [Card, Card][] = [];
   for (let a = 0; a < NUM_CARDS; a++) {
     if (used[a]) continue;
     for (let b = a + 1; b < NUM_CARDS; b++) {
       if (used[b]) continue;
-      const r = evaluate([a, b, ...board]);
-      if (r > best) { best = r; bestCombo = [a, b]; }
+      ranks.push(evaluate([a, b, ...board]));
     }
   }
-  if (!bestCombo) return null;
-  return { label: describeHand(bestCombo, board).label };
+  for (const r of ranks) if (r > best) best = r;
+  // Second pass to collect all combos achieving the top rank.
+  for (let a = 0; a < NUM_CARDS; a++) {
+    if (used[a]) continue;
+    for (let b = a + 1; b < NUM_CARDS; b++) {
+      if (used[b]) continue;
+      if (evaluate([a, b, ...board]) === best) combos.push([a, b]);
+    }
+  }
+  if (combos.length === 0) return null;
+  return { label: describeHand(combos[0]!, board).label, combos };
 }
 
 export function describeHand(

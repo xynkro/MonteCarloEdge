@@ -68,7 +68,7 @@ interface AppState {
   // GTO preflop push/fold readout
   gtoPreflop: { title: string; rows: { label: string; freq: number }[]; note: string } | null;
   // Board read: hero win% vs villain range(s) + the nuts on this board
-  boardRead: { equity: number | null; nuts: string } | null;
+  boardRead: { equity: number | null; nuts: string; nutsPct: number | null } | null;
   boardReadKey: string;
   message: string;
 }
@@ -80,7 +80,7 @@ const S: AppState = {
   tableSize: 6,
   stackBB: 100,
   bbValue: 1,
-  sbValue: 0.5,
+  sbValue: 1,
   heroSeat: 3,
   dealerSeat: -1,
   handNumber: 0,
@@ -771,8 +771,10 @@ function updateBoardRead(): void {
   if (key === S.boardReadKey && S.boardRead) return;
   S.boardReadKey = key;
 
-  const nuts = nutHand(S.gs.board)?.label ?? "—";
+  const nut = nutHand(S.gs.board, [S.heroCards[0], S.heroCards[1]]);
+  const nuts = nut?.label ?? "—";
   let equity: number | null = null;
+  let nutsPct: number | null = null;
   if (vils.length > 0) {
     const prof = buildProfiles();
     const ranges = vils
@@ -783,9 +785,20 @@ function updateBoardRead(): void {
         hero: S.heroCards, villainRanges: ranges, board: S.gs.board,
         iterations: 4000, rng: mulberry32(0x1234),
       }).equity;
+      // P(at least one villain holds a nut combo) = 1 - Π(1 - p_i).
+      if (nut && nut.combos.length > 0) {
+        let pNone = 1;
+        for (const r of ranges) {
+          let held = 0;
+          for (const c of nut.combos) if (r.has(c)) held++;
+          const p = r.size > 0 ? held / r.size : 0;
+          pNone *= (1 - p);
+        }
+        nutsPct = 1 - pNone;
+      }
     }
   }
-  S.boardRead = { equity, nuts };
+  S.boardRead = { equity, nuts, nutsPct };
 }
 
 function updateMessage(): void {
@@ -883,9 +896,13 @@ function renderGame(): void {
   if (S.boardRead) {
     const eq = S.boardRead.equity;
     const eqStr = eq === null ? "—" : `${(eq * 100).toFixed(0)}%`;
+    const npct = S.boardRead.nutsPct;
+    const heldItem = npct === null ? "" :
+      `<div class="br-item"><span class="br-label">Nuts out</span><span class="br-val ${npct > 0.15 ? "warn" : ""}">${(npct * 100).toFixed(0)}%</span></div>`;
     boardReadHtml = `<div class="board-read">
       <div class="br-item"><span class="br-label">Win</span><span class="br-val win">${eqStr}</span></div>
       <div class="br-item"><span class="br-label">Nuts</span><span class="br-val">${S.boardRead.nuts}</span></div>
+      ${heldItem}
     </div>`;
   }
 

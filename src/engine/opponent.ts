@@ -187,33 +187,50 @@ function villainPreflopAct(
   seat: number,
   cards: Combo,
   profile: OpponentProfile,
-  _rng: Rng,
+  rng: Rng,
 ): ActionInput {
-  const pct = comboPercentile(cards);
+  const pct = comboPercentile(cards); // 0 = best hand, ~1 = worst
   const pos = state.positions[seat]!;
   const facingRaise = state.currentBet > state.bb;
+  const toCall = state.toCall(seat);
   const maxBet = state.stacks[seat]! + state.streetInvested[seat]!;
 
-  if (pos === "BB" && facingRaise) {
+  if (facingRaise) {
+    // 3-bet the very top, otherwise defend (flat-call) up to the VPIP range.
     if (pct < profile.threeBetPct) {
-      const amt = Math.min(threeBetSize(state.currentBet, false), maxBet);
-      return { seat, type: "raise", amount: amt };
+      const amt = Math.min(threeBetSize(state.currentBet, pos === "BTN" || pos === "CO"), maxBet);
+      if (amt > state.currentBet) return { seat, type: "raise", amount: amt };
     }
-    if (pct < profile.vpip) return { seat, type: "call", amount: 0 };
+    // Loose players defend wide; tight players need a real hand. BB defends a
+    // touch wider since it's already partly invested and getting a price.
+    const defend = (pos === "BB" ? profile.vpip + 0.08 : profile.vpip) * 0.9;
+    if (pct < defend) return { seat, type: "call", amount: 0 };
     return { seat, type: "fold", amount: 0 };
   }
 
-  if (pos === "BB" && !facingRaise) {
-    if (pct < 0.3) {
+  // Unraised pot.
+  if (pos === "BB" && toCall === 0) {
+    // BB can check for free or raise its opening range.
+    if (pct < profile.pfr) {
       const amt = Math.min(openRaiseSize(state.bb), maxBet);
-      return { seat, type: "bet", amount: amt };
+      return { seat, type: "raise", amount: amt };
     }
     return { seat, type: "check", amount: 0 };
   }
 
+  // First in / limped pot: open-raise the PFR range, limp/complete the rest of
+  // the VPIP range, fold the bottom. This keeps multiple players in the pot.
   if (pct < profile.pfr) {
     const amt = Math.min(openRaiseSize(state.bb), maxBet);
     return { seat, type: "raise", amount: amt };
+  }
+  if (pct < profile.vpip) {
+    // Mostly limp, occasionally raise marginal hands for variety.
+    if (rng() < 0.12) {
+      const amt = Math.min(openRaiseSize(state.bb), maxBet);
+      return { seat, type: "raise", amount: amt };
+    }
+    return { seat, type: "call", amount: 0 };
   }
   return { seat, type: "fold", amount: 0 };
 }
