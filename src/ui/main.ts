@@ -272,7 +272,7 @@ function canSolveGto(): boolean {
   if (!S.gs || !S.heroCards || S.handOver) return false;
   if (S.gs.nextToAct() !== S.heroSeat) return false;
   if (activeVillains().length !== 1) return false;
-  if (S.gs.street === "turn" || S.gs.street === "river") return true;
+  if (S.gs.street === "flop" || S.gs.street === "turn" || S.gs.street === "river") return true;
   // Preflop push/fold: short effective stack, heads-up.
   if (S.gs.street === "preflop") {
     const eff = Math.min(S.gs.stacks[S.heroSeat]! + S.gs.streetInvested[S.heroSeat]!,
@@ -336,7 +336,7 @@ function runGtoSolve(): void {
       board: gs.board,
       pot: gs.pot,
       stack: Math.max(stack, gs.pot * 0.5),
-      iterations: gs.street === "river" ? 12000 : 22000,
+      iterations: gs.street === "river" ? 12000 : gs.street === "turn" ? 22000 : 16000,
       rng: mulberry32(0x9e3a),
     }, S.heroCards);
   } catch {
@@ -444,7 +444,7 @@ function renderGtoModal(): void {
   overlay.innerHTML = `
     <div class="modal-content">
       <h3>🧠 GTO Solution (${S.gs?.street ?? "river"})</h3>
-      <div class="gto-sub">Solved with CFR — ${res.iterations.toLocaleString()} iterations${S.gs?.street === "turn" ? " over all river runouts" : ""} · assumes you act first</div>
+      <div class="gto-sub">Solved with CFR — ${res.iterations.toLocaleString()} iters${S.gs?.street === "turn" ? " · over all river runouts" : S.gs?.street === "flop" ? " · flop street (all-in equity beyond)" : ""} · assumes you act first</div>
       ${rows || `<div class="hint" style="text-align:center">No solution.</div>`}
       <div class="gto-ev">Hand EV: <strong>${chips(res.heroEv)}</strong></div>
       <div class="modal-actions">

@@ -1,4 +1,4 @@
-import { type Card, NUM_CARDS } from "../cards.js";
+import { type Card, NUM_CARDS, rankOf, suitOf } from "../cards.js";
 import { type Combo, Range } from "../range.js";
 import { evaluate } from "../evaluator.js";
 import { type Rng, mulberry32 } from "../rng.js";
@@ -41,6 +41,27 @@ interface Ctx {
   maxRaises: number;
   rng: Rng;
   info: InfoSets;
+  initialLen: number; // board length the solve started from (3/4/5)
+  // Equity-leaf mode: when betting closes before the river, award the pot by
+  // all-in equity over the runout instead of recursing further streets. Keeps
+  // flop solves fast (single betting street) — it assumes a check-down after.
+  equityLeaf: boolean;
+  eqCache: Map<string, { pWin: number; pTie: number }>;
+  leafSamples: number;
+}
+
+// Bucket a runout card by what it DOES relative to the prior board, so later-
+// street info sets don't fragment per exact card (card abstraction). The
+// showdown always uses the real card; only info-set keys are bucketed.
+function cardBucket(card: Card, prevBoard: Card[]): string {
+  const r = rankOf(card), s = suitOf(card);
+  let paired = false, suitCount = 0;
+  for (const b of prevBoard) {
+    if (rankOf(b) === r) paired = true;
+    if (suitOf(b) === s) suitCount++;
+  }
+  const tier = r >= 8 ? "H" : r >= 5 ? "M" : "L";
+  return tier + (paired ? "p" : "") + (suitCount >= 2 ? "f" : "");
 }
 
 interface St {
@@ -143,9 +164,50 @@ function availableCards(s: St): Card[] {
   return out;
 }
 
-function infoKey(s: St): string {
+// All-in equity for the current pair over the runout, cached per matchup.
+function leafEquity(ctx: Ctx, s: St): { pWin: number; pTie: number } {
+  const key = `${comboId(s.hero)}_${comboId(s.vill)}`;
+  const hit = ctx.eqCache.get(key);
+  if (hit) return hit;
+  const cards = availableCards(s);
+  const need = 5 - s.board.length;
+  let win = 0, tie = 0, n = 0;
+  const N = ctx.leafSamples;
+  const full = s.board.slice();
+  for (let it = 0; it < N; it++) {
+    // partial Fisher–Yates draw of `need` cards
+    for (let j = 0; j < need; j++) {
+      const idx = j + Math.floor(ctx.rng() * (cards.length - j));
+      const t = cards[j]!; cards[j] = cards[idx]!; cards[idx] = t;
+    }
+    full.length = s.board.length;
+    for (let j = 0; j < need; j++) full.push(cards[j]!);
+    const hr = evaluate([s.hero[0], s.hero[1], ...full]);
+    const vr = evaluate([s.vill[0], s.vill[1], ...full]);
+    if (hr > vr) win++; else if (hr === vr) tie++;
+    n++;
+  }
+  const res = { pWin: n ? win / n : 0.5, pTie: n ? tie / n : 0 };
+  ctx.eqCache.set(key, res);
+  return res;
+}
+
+function leafUtil(ctx: Ctx, s: St): number {
+  const { pWin, pTie } = leafEquity(ctx, s);
+  const pLose = 1 - pWin - pTie;
+  const win = ctx.pot + s.inv[1]!;
+  const lose = -s.inv[0]!;
+  return pWin * win + pLose * lose + pTie * (win + lose) / 2;
+}
+
+function infoKey(ctx: Ctx, s: St): string {
   const combo = s.toAct === 0 ? s.hero : s.vill;
-  return `${comboId(combo)}|${s.board.join(",")}|${s.hist}`;
+  const init = ctx.initialLen;
+  let key = `${comboId(combo)}|${s.board.slice(0, init).join(",")}`;
+  for (let i = init; i < s.board.length; i++) {
+    key += `|${cardBucket(s.board[i]!, s.board.slice(0, i))}`;
+  }
+  return `${key}|${s.hist}`;
 }
 
 // CFR traversal with chance sampling at street transitions.
@@ -153,13 +215,14 @@ function traverse(ctx: Ctx, s: St, pi0: number, pi1: number): number {
   if (s.done === "fold") return terminalUtil(ctx, s);
   if (s.done === "showdown") {
     if (s.board.length >= 5) return terminalUtil(ctx, s);
+    if (ctx.equityLeaf) return leafUtil(ctx, s);
     const cards = availableCards(s);
     const card = cards[Math.floor(ctx.rng() * cards.length)]!;
     return traverse(ctx, transition(s, card), pi0, pi1);
   }
 
   const pl = s.toAct;
-  const key = infoKey(s);
+  const key = infoKey(ctx, s);
   const acts = actions(ctx, s);
   const n = acts.length;
   const strat = ctx.info.getStrategy(key, n);
@@ -188,6 +251,7 @@ function evalNode(ctx: Ctx, s: St): number {
   if (s.done === "fold") return terminalUtil(ctx, s);
   if (s.done === "showdown") {
     if (s.board.length >= 5) return terminalUtil(ctx, s);
+    if (ctx.equityLeaf) return leafUtil(ctx, s);
     const cards = availableCards(s);
     // One layer to the river → enumerate; deeper (flop) → sample to bound cost.
     const layersLeft = 5 - s.board.length;
@@ -196,7 +260,7 @@ function evalNode(ctx: Ctx, s: St): number {
     for (const c of chosen) sum += evalNode(ctx, transition(s, c));
     return sum / chosen.length;
   }
-  const key = infoKey(s);
+  const key = infoKey(ctx, s);
   const acts = actions(ctx, s);
   const avg = ctx.info.average(key) ?? acts.map(() => 1 / acts.length);
   let v = 0;
@@ -219,6 +283,7 @@ export function solveSubgame(spot: RiverSpot, heroHand: Combo): RiverResult {
   if (spot.board.length < 3 || spot.board.length > 5) {
     throw new Error("subgame solver needs a 3-, 4-, or 5-card board");
   }
+  const flop = spot.board.length === 3;
   const ctx: Ctx = {
     pot: spot.pot,
     stack: Math.max(spot.stack, spot.pot * 0.5),
@@ -226,8 +291,13 @@ export function solveSubgame(spot: RiverSpot, heroHand: Combo): RiverResult {
     maxRaises: spot.maxRaises ?? 2,
     rng: spot.rng ?? mulberry32(0x5001),
     info: new InfoSets(),
+    initialLen: spot.board.length,
+    equityLeaf: flop, // flop: single betting street + all-in-equity leaves
+    eqCache: new Map(),
+    leafSamples: 160,
   };
-  const iterations = spot.iterations ?? (spot.board.length === 5 ? 12000 : 24000);
+  const iterations = spot.iterations ??
+    (spot.board.length === 5 ? 12000 : spot.board.length === 4 ? 24000 : 18000);
 
   const dead = [...spot.board];
   const heroCombos = spot.heroRange.filter(dead).combos;
