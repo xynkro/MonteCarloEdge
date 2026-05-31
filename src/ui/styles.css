@@ -198,6 +198,8 @@ body {
   transition: background .15s, transform .1s;
 }
 .hdr-btn:active { background: var(--elevate); transform: scale(.97); }
+.topbar-btns { display: flex; gap: 8px; align-items: center; }
+.hdr-btn.undo { background: rgba(245,158,11,.14); border-color: rgba(245,158,11,.45); color: #fbbf24; }
 
 /* ── Poker table ── */
 

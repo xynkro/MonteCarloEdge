@@ -24,6 +24,22 @@ const SUITS = ["♣", "♦", "♥", "♠"];
 const SUIT_RED = [false, true, true, false];
 const PROFILES: Record<string, OpponentProfile> = { Auto: AUTO, TAG, LAG, Station: STATION, Nit: NIT };
 
+// A reversible snapshot of mid-hand state (live mode). Pushed before each
+// user-initiated mutation so a mis-tap can be taken back. Cleared once the
+// hand resolves (the result is persisted at that point and shouldn't be undone).
+interface UndoSnapshot {
+  label: string;
+  gs: GameState | null;
+  boardCards: Card[];
+  allDealt: Set<number>;
+  handOver: boolean;
+  handResult: string;
+  decisionLog: { street: string; chosen: ActionType; chosenAmt: number; rec: Recommendation }[];
+  showdownCards: Map<number, [Card, Card]>;
+  allInPrompt: boolean;
+  message: string;
+}
+
 interface AppState {
   screen: "setup" | "game" | "stats";
   mode: "live" | "training";
@@ -82,6 +98,8 @@ interface AppState {
   boardRead: { equity: number | null; nuts: string; nutsPct: number | null } | null;
   boardReadKey: string;
   message: string;
+  // Undo: reversible snapshots of mid-hand state (live mode only).
+  undoStack: UndoSnapshot[];
 }
 
 const S: AppState = {
@@ -132,6 +150,7 @@ const S: AppState = {
   boardRead: null,
   boardReadKey: "",
   message: "",
+  undoStack: [],
 };
 
 // Cache push/fold solutions by effective-stack depth (equity table is reused).
@@ -686,6 +705,7 @@ function startHand(): void {
   S.gtoPreflop = null;
   S.boardRead = null;
   S.boardReadKey = "";
+  S.undoStack = [];
   S.message = "Tap your cards to pick them";
   S.screen = "game";
   S.pickerTarget = "hero";
@@ -996,7 +1016,12 @@ function renderGame(): void {
     <div class="game">
       <div class="game-topbar">
         <span>Hand #${S.handNumber}${S.mode === "training" ? " · <strong style=\"color:var(--violet)\">TRAINING</strong>" : ""}</span>
-        <button class="hdr-btn" id="new-hand">New Hand</button>
+        <div class="topbar-btns">
+          ${S.mode === "live" && S.undoStack.length > 0
+            ? `<button class="hdr-btn undo" id="undo-btn" title="Undo ${S.undoStack[S.undoStack.length - 1]!.label}">↩ Undo</button>`
+            : ""}
+          <button class="hdr-btn" id="new-hand">New Hand</button>
+        </div>
       </div>
 
       <div class="table-wrap">
@@ -1030,6 +1055,7 @@ function renderGame(): void {
 
   // ── Events ──
   $("#new-hand")?.addEventListener("click", () => { S.screen = "setup"; S.dealerSeat = -1; S.handNumber = 0; render(); });
+  document.getElementById("undo-btn")?.addEventListener("click", undo);
   document.getElementById("next-hand")?.addEventListener("click", nextHand);
   document.getElementById("review-hand")?.addEventListener("click", () => { S.reviewOpen = true; renderReview(); });
   document.getElementById("gto-solve")?.addEventListener("click", startGtoSolve);
@@ -1081,10 +1107,15 @@ function renderGame(): void {
   );
 
   app.querySelectorAll("[data-act]").forEach(btn =>
-    btn.addEventListener("click", () => doAction(next!, (btn as HTMLElement).dataset.act as ActionType)),
+    btn.addEventListener("click", () => {
+      const act = (btn as HTMLElement).dataset.act as ActionType;
+      const who = next === S.heroSeat ? "You" : (gs?.positions[next!] ?? "");
+      pushUndo(`${who} ${act}`);
+      doAction(next!, act);
+    }),
   );
-  document.getElementById("fold-to-me")?.addEventListener("click", () => advanceOpponents("fold"));
-  document.getElementById("check-to-me")?.addEventListener("click", () => advanceOpponents("check"));
+  document.getElementById("fold-to-me")?.addEventListener("click", () => { pushUndo("fold to you"); advanceOpponents("fold"); });
+  document.getElementById("check-to-me")?.addEventListener("click", () => { pushUndo("check to you"); advanceOpponents("check"); });
   app.querySelectorAll("[data-open-bet]").forEach(btn =>
     btn.addEventListener("click", () => {
       S.betPadAction = (btn as HTMLElement).dataset.openBet as "bet" | "raise";
@@ -1132,6 +1163,49 @@ function advanceOpponents(action: "fold" | "check"): void {
     doAction(next, act);
     if (S.pickerOpen || S.allInPrompt) break; // a board/all-in step interrupted
   }
+}
+
+// ── Undo: snapshot/restore mid-hand state (live mode) ──
+// Capture the current state before a user-initiated mutation. No-op outside
+// live mode (training has an AI opponent and isn't hand-logged by tap).
+function pushUndo(label: string): void {
+  if (S.mode !== "live") return;
+  S.undoStack.push({
+    label,
+    gs: S.gs ? S.gs.clone() : null,
+    boardCards: [...S.boardCards],
+    allDealt: new Set(S.allDealt),
+    handOver: S.handOver,
+    handResult: S.handResult,
+    decisionLog: S.decisionLog.map((d) => ({ ...d })),
+    showdownCards: new Map(S.showdownCards),
+    allInPrompt: S.allInPrompt,
+    message: S.message,
+  });
+  if (S.undoStack.length > 50) S.undoStack.shift();
+}
+
+function undo(): void {
+  const s = S.undoStack.pop();
+  if (!s) return;
+  S.gs = s.gs;
+  S.boardCards = s.boardCards;
+  S.allDealt = s.allDealt;
+  S.handOver = s.handOver;
+  S.handResult = s.handResult;
+  S.decisionLog = s.decisionLog;
+  S.showdownCards = s.showdownCards;
+  S.allInPrompt = s.allInPrompt;
+  S.message = s.message;
+  // Reverting an action reopens the betting; close any transient overlays and
+  // recompute everything derived from the restored game state.
+  S.pickerOpen = false; S.pickerPicked = []; S.pickerRank = null;
+  S.betPadOpen = false;
+  S.rit = null;
+  document.getElementById("picker-modal")?.remove();
+  document.getElementById("betpad-modal")?.remove();
+  updateRec(); updateBoardRead(); updateMessage();
+  render();
 }
 
 function doAction(seat: number, type: ActionType): void {
@@ -1521,6 +1595,9 @@ function resolveLive(strength: number[], resultText: string): void {
   S.handResult = resultText;
   saveHandRecord(heroPnl);
   S.handOver = true; S.rec = null;
+  // The hand is now persisted (stats + history) — undoing past this point would
+  // leave that record dangling, so the trail ends here.
+  S.undoStack = [];
   render();
 }
 
@@ -1729,6 +1806,7 @@ function confirmPicker(): void {
     playSound("deal");
     initGameState();
   } else {
+    pushUndo(`deal ${S.pickerTarget}`);
     for (const c of S.pickerPicked) { S.boardCards.push(c); S.allDealt.add(c); }
     playSound("card");
     S.pickerOpen = false; S.pickerPicked = []; S.pickerRank = null;
@@ -1846,6 +1924,8 @@ function renderBetPad(): void {
     S.raiseAmount = bb;
     S.betPadOpen = false;
     document.getElementById("betpad-modal")?.remove();
+    const who = seat === S.heroSeat ? "You" : (S.gs?.positions[seat] ?? "");
+    pushUndo(`${who} ${S.betPadAction}`);
     doAction(seat, S.betPadAction);
   });
 }
