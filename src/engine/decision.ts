@@ -42,13 +42,45 @@ export function recommend(
   rng?: Rng,
   profiles?: ProfileMap,
 ): Recommendation {
-  if (state.street === "preflop") return preflopRecommend(state);
+  if (state.street === "preflop") return preflopRecommend(state, villainProfile ?? TAG, profiles);
   return postflopRecommend(
     state,
     villainProfile ?? TAG,
     rng ?? mulberry32(0xdec1de),
     profiles,
   );
+}
+
+// Open-raise size (in chips) adapted to the table. Standard ~2.5-3bb, but vs a
+// loose/sticky field (calling stations) size up to charge them and thin the
+// field, plus extra per limper. A premium still wants callers, so this caps at
+// a sane iso size rather than "buy everyone out".
+function openSizeFor(
+  state: GameState,
+  villainProfile: OpponentProfile,
+  profiles?: ProfileMap,
+): number {
+  const seat = state.heroSeat;
+  // Count limpers: seats that just called the big blind ahead of the hero.
+  let limpers = 0;
+  for (const a of state.actions) {
+    if (a.street === "preflop" && a.seat !== seat && a.type === "call") limpers++;
+  }
+  // Field stickiness = how much the live opponents call down.
+  let sticky = 0, k = 0;
+  for (let i = 0; i < state.folded.length; i++) {
+    if (i === seat || state.folded[i]) continue;
+    const p = profiles?.get(i) ?? villainProfile;
+    sticky += p.calldownPct; k++;
+  }
+  if (k > 0) sticky /= k; else sticky = villainProfile.calldownPct;
+
+  // Base 3bb (live default) scaling toward ~5bb vs a station-heavy field.
+  const baseBB = 3 + Math.max(0, Math.min(0.4, sticky - 0.45)) * 5;
+  // Each limper adds 1bb (more vs a loose field that will call the iso).
+  const perLimper = sticky > 0.55 ? 1.5 : 1.0;
+  const openBB = baseBB + limpers * perLimper;
+  return Math.min(openBB * state.bb, state.stacks[seat]! + state.streetInvested[seat]!);
 }
 
 // Equity realization: raw all-in equity overstates what marginal hands win
@@ -66,7 +98,11 @@ function realizationFactor(
   return Math.max(0.85, Math.min(1.12, f));
 }
 
-function preflopRecommend(state: GameState): Recommendation {
+function preflopRecommend(
+  state: GameState,
+  villainProfile: OpponentProfile = TAG,
+  profiles?: ProfileMap,
+): Recommendation {
   const hero = state.heroCards;
   const seat = state.heroSeat;
   const pos = state.positions[seat]!;
@@ -93,17 +129,16 @@ function preflopRecommend(state: GameState): Recommendation {
     try {
       const rfi = getRfiRange(state.tableSize, pos);
       if (rfi.has([hero[0], hero[1]])) {
-        const amt = Math.min(
-          openRaiseSize(state.bb),
-          state.stacks[seat]! + state.streetInvested[seat]!,
-        );
+        const amt = openSizeFor(state, villainProfile, profiles);
+        const bbN = (amt / state.bb);
+        const note = bbN >= 4 ? " (sized up vs loose field)" : "";
         return {
           action: "raise",
           amount: amt,
           equity: 0.55,
           potOdds: 0,
           ev: { fold: 0, call: 0.5, raise: 1 },
-          reasoning: `Open raise — ${label} in ${pos} RFI range`,
+          reasoning: `Open raise to ${bbN.toFixed(1)}bb — ${label} in ${pos} RFI range${note}`,
         };
       }
     } catch {
