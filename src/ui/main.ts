@@ -10,7 +10,8 @@ import { allCombos, topSlice } from "../engine/hand-strength.js";
 import { recommend, type Recommendation, type ProfileMap } from "../engine/decision.js";
 import { TAG, LAG, STATION, NIT, type OpponentProfile, villainAct } from "../engine/opponent.js";
 import { evaluate } from "../engine/evaluator.js";
-import { describeHand } from "../engine/made-hand.js";
+import { describeHand, nutHand } from "../engine/made-hand.js";
+import { monteCarloEquityMultiway } from "../engine/equity.js";
 import { openRaiseSize, minRaise } from "../engine/sizing.js";
 import { saveHand, getSessionHands, clearHistory, computeStats, type HandRecord, type SessionStats } from "../engine/hand-history.js";
 import { emptyStats, observeHand, blendProfile, playerRead, type PlayerStats } from "../engine/player-model.js";
@@ -66,6 +67,9 @@ interface AppState {
   gtoSolving: boolean;
   // GTO preflop push/fold readout
   gtoPreflop: { title: string; rows: { label: string; freq: number }[]; note: string } | null;
+  // Board read: hero win% vs villain range(s) + the nuts on this board
+  boardRead: { equity: number | null; nuts: string } | null;
+  boardReadKey: string;
   message: string;
 }
 
@@ -108,6 +112,8 @@ const S: AppState = {
   gtoResult: null,
   gtoSolving: false,
   gtoPreflop: null,
+  boardRead: null,
+  boardReadKey: "",
   message: "",
 };
 
@@ -329,6 +335,8 @@ function runGtoSolve(): void {
   const stack = Math.min(gs.stacks[S.heroSeat]!, gs.stacks[villainSeat]!);
 
   S.gtoPreflop = null;
+  S.boardRead = null;
+  S.boardReadKey = "";
   try {
     S.gtoResult = solveSubgame({
       heroRange,
@@ -429,7 +437,7 @@ function renderGtoModal(): void {
     .sort((a, b) => b.freq - a.freq)
     .map(a => {
       const label = a.action === "check" ? "Check"
-        : `Bet ${chips(a.amount)}`;
+        : `Bet ${chipsBet(a.amount)}`;
       const pct = (a.freq * 100).toFixed(0);
       return `<div class="gto-row">
         <span class="gto-act">${label}</span>
@@ -570,7 +578,7 @@ function renderSetup(): void {
       </div>
 
       <button class="start-btn" id="start">DEAL HAND</button>
-      <button class="start-btn" id="start-training" style="background:var(--blue);margin-top:8px">TRAINING MODE</button>
+      <button class="start-btn" id="start-training" style="background:linear-gradient(135deg,var(--violet),var(--violet-2));color:#fff;box-shadow:0 8px 22px rgba(124,92,255,.3);margin-top:8px">TRAINING MODE</button>
       <span class="hint" style="text-align:center">Training: practice against the AI. It deals cards, makes villain decisions, reveals hands at showdown.</span>
       <div class="setup-footer">
         <button class="hdr-btn" id="view-stats">Session Stats</button>
@@ -638,6 +646,8 @@ function startHand(): void {
   S.gtoResult = null;
   S.gtoSolving = false;
   S.gtoPreflop = null;
+  S.boardRead = null;
+  S.boardReadKey = "";
   S.message = "Tap your cards to pick them";
   S.screen = "game";
   S.pickerTarget = "hero";
@@ -691,6 +701,8 @@ function startTrainingHand(): void {
   S.gtoResult = null;
   S.gtoSolving = false;
   S.gtoPreflop = null;
+  S.boardRead = null;
+  S.boardReadKey = "";
 
   // Create game state
   const positions = getPositions(S.tableSize);
@@ -750,6 +762,32 @@ function updateRec(): void {
   }
 }
 
+// Hero's win% vs the active villain range(s) and the nuts on the current board.
+// Cached per (street, board, villains) so it only recomputes when the board changes.
+function updateBoardRead(): void {
+  if (!S.gs || !S.heroCards || S.gs.board.length < 3) { S.boardRead = null; S.boardReadKey = ""; return; }
+  const vils = activeVillains();
+  const key = `${S.gs.board.join(",")}|${vils.join(",")}`;
+  if (key === S.boardReadKey && S.boardRead) return;
+  S.boardReadKey = key;
+
+  const nuts = nutHand(S.gs.board)?.label ?? "—";
+  let equity: number | null = null;
+  if (vils.length > 0) {
+    const prof = buildProfiles();
+    const ranges = vils
+      .map(v => estimateVillainRange(S.gs!, v, prof.get(v) ?? PROFILES[S.archetype]!))
+      .filter(r => r.size > 0);
+    if (ranges.length > 0) {
+      equity = monteCarloEquityMultiway({
+        hero: S.heroCards, villainRanges: ranges, board: S.gs.board,
+        iterations: 4000, rng: mulberry32(0x1234),
+      }).equity;
+    }
+  }
+  S.boardRead = { equity, nuts };
+}
+
 function updateMessage(): void {
   if (!S.gs) return;
   if (S.handOver) { S.message = "Hand complete — tap Next Hand"; return; }
@@ -777,6 +815,7 @@ function renderGame(): void {
     return;
   }
   const gs = S.gs;
+  updateBoardRead();
   const positions = getPositions(S.tableSize);
   const next = gs?.nextToAct() ?? null;
   const needsBoard = gs && gs.roundComplete() && !gs.isComplete() && !S.handOver;
@@ -839,6 +878,17 @@ function renderGame(): void {
     handLabelHtml = `<div class="hand-label ${d.strong ? "strong" : ""}">${d.label}${draws}</div>`;
   }
 
+  // ── Board read: win% + the nuts ──
+  let boardReadHtml = "";
+  if (S.boardRead) {
+    const eq = S.boardRead.equity;
+    const eqStr = eq === null ? "—" : `${(eq * 100).toFixed(0)}%`;
+    boardReadHtml = `<div class="board-read">
+      <div class="br-item"><span class="br-label">Win</span><span class="br-val win">${eqStr}</span></div>
+      <div class="br-item"><span class="br-label">Nuts</span><span class="br-val">${S.boardRead.nuts}</span></div>
+    </div>`;
+  }
+
   // ── Recommendation ──
   const recHtml = S.rec ? `
     <div class="rec-panel">
@@ -871,7 +921,7 @@ function renderGame(): void {
   app.innerHTML = `
     <div class="game">
       <div class="game-topbar">
-        <span>Hand #${S.handNumber}${S.mode === "training" ? " · <strong style=\"color:var(--blue)\">TRAINING</strong>" : ""}</span>
+        <span>Hand #${S.handNumber}${S.mode === "training" ? " · <strong style=\"color:var(--violet)\">TRAINING</strong>" : ""}</span>
         <button class="hdr-btn" id="new-hand">New Hand</button>
       </div>
 
@@ -888,6 +938,7 @@ function renderGame(): void {
       <div class="hero-area">
         <div class="hero-cards">${heroHtml}</div>
         ${handLabelHtml}
+        ${boardReadHtml}
         ${recHtml}
         ${canSolveGto() ? `<button class="gto-btn" id="gto-solve">${S.gtoSolving ? "Solving…" : "🧠 Solve GTO"}</button>` : ""}
       </div>

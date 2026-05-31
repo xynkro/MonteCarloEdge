@@ -1,4 +1,4 @@
-import { type Card, rankOf, suitOf, RANK_CHARS } from "./cards.js";
+import { type Card, rankOf, suitOf, RANK_CHARS, NUM_CARDS } from "./cards.js";
 import { evaluate, categoryOf, CATEGORY } from "./evaluator.js";
 
 export interface HandDescription {
@@ -56,6 +56,25 @@ function straightDraw(holeRanks: number[], boardRanks: number[]): "oesd" | "guts
   if (completing.length >= 2) return "oesd";
   if (completing.length === 1) return "gutshot";
   return null;
+}
+
+// The best possible hand any two hole cards can make on this board ("the nuts").
+export function nutHand(board: readonly Card[]): { label: string } | null {
+  if (board.length < 3) return null;
+  const used = new Uint8Array(NUM_CARDS);
+  for (const c of board) used[c] = 1;
+  let best = -1;
+  let bestCombo: [Card, Card] | null = null;
+  for (let a = 0; a < NUM_CARDS; a++) {
+    if (used[a]) continue;
+    for (let b = a + 1; b < NUM_CARDS; b++) {
+      if (used[b]) continue;
+      const r = evaluate([a, b, ...board]);
+      if (r > best) { best = r; bestCombo = [a, b]; }
+    }
+  }
+  if (!bestCombo) return null;
+  return { label: describeHand(bestCombo, board).label };
 }
 
 export function describeHand(

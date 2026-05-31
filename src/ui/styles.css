@@ -201,10 +201,10 @@ body {
 
 /* ── Poker table ── */
 
-.poker-table { position: relative; width: 100%; aspect-ratio: 5 / 4.4; flex-shrink: 0; }
+.poker-table { position: relative; width: 100%; aspect-ratio: 1 / 0.92; flex-shrink: 0; }
 
 .felt {
-  position: absolute; inset: 12% 7%;
+  position: absolute; inset: 8% 4%;
   border-radius: 48% / 50%;
   background:
     radial-gradient(110% 90% at 50% 34%, var(--felt-1) 0%, var(--felt-2) 52%, var(--felt-3) 100%);
@@ -312,6 +312,18 @@ body {
   margin-bottom: 7px; letter-spacing: .3px; text-transform: uppercase;
 }
 .hand-label.strong { color: var(--gold); text-shadow: 0 0 16px rgba(255,209,102,.3); }
+
+.board-read {
+  display: flex; gap: 9px; margin-bottom: 8px;
+}
+.br-item {
+  flex: 1; display: flex; flex-direction: column; align-items: center; gap: 1px;
+  padding: 7px 6px; background: var(--surface); border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+}
+.br-label { font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); font-weight: 700; }
+.br-val { font-size: 14px; font-weight: 800; color: var(--text); }
+.br-val.win { color: var(--gold); }
 
 .hero-card {
   width: 54px; height: 74px; border-radius: 9px;
