@@ -271,6 +271,27 @@ function postflopRecommend(
   const posTag = inPos ? "IP" : "OOP";
   const wayTag = villainSeats.length > 1 ? ` ${villainSeats.length + 1}-way` : "";
 
+  // ── Opponent-aware exploitation ──
+  // Aggregate the active villains' tendencies: how sticky (calls down), how
+  // foldy (folds to bets), how aggressive (bets/bluffs). Used to size value
+  // bets, decide whether bluffing is profitable, and tighten/loosen calls.
+  let sticky = 0, foldy = 0, aggro = 0, vk = 0;
+  for (const vs of villainSeats) {
+    const p = profiles?.get(vs) ?? villainProfile;
+    sticky += p.calldownPct; foldy += p.foldToCbet; aggro += p.betWhenCheckedTo; vk++;
+  }
+  if (vk > 0) { sticky /= vk; foldy /= vk; aggro /= vk; }
+  // Bet bigger ONLY vs genuinely sticky callers (stations). Sizing up vs a
+  // partial-folder loses value (they fold more to bigger bets), so anchor at
+  // 0.5 — LAG/TAG/Nit stay at standard sizing, true stations get sized up.
+  const valueMult = Math.max(1.0, Math.min(1.5, 1 + (sticky - 0.5) * 1.2));
+  // Semi-bluffs win two ways (fold equity + the draw) — fine vs anyone except a
+  // pure station who never folds.
+  const semiBluffOK = foldy > 0.28;
+  // Vs a sticky, value-heavy station (calls everything, never bluffs), fold a
+  // touch more to their bets — their betting range is almost all value.
+  const callCushion = sticky > 0.6 ? 0.05 : 0;
+
   const pct = (n: number) => `${(n * 100).toFixed(0)}%`;
   // Finalize: attach shared context fields to every recommendation.
   const fin = (r: Recommendation): Recommendation => ({
@@ -296,7 +317,7 @@ function postflopRecommend(
         reasoning: `Raise — ${handLabel} (${posTag}), ${pct(eq)} equity vs ${pct(odds)} pot odds${wayTag}`,
       });
     }
-    if (dq > odds) {
+    if (dq > odds + callCushion) {
       return fin({
         action: "call", amount: 0, equity: eq, potOdds: odds,
         ev: { fold: 0, call: evCall, raise: 0 },
@@ -326,9 +347,11 @@ function postflopRecommend(
     });
   }
 
-  // Semi-bluff with draws even at lower equity (stronger in position)
+  // Semi-bluff with draws — only when villains actually fold (fold equity).
+  // Vs a calling station there is no fold equity, so a draw should take the
+  // free card instead of bloating the pot as the worse hand.
   const drawBetThresh = inPos ? 0.28 : 0.34;
-  if ((conn.hasFlushDraw || conn.hasStraightDraw) && dq > drawBetThresh && eqResult && eq < 0.62) {
+  if (semiBluffOK && (conn.hasFlushDraw || conn.hasStraightDraw) && dq > drawBetThresh && eq < 0.62) {
     const frac = Math.min(0.65, 0.50 * texAdj);
     const size = Math.min(pot * frac, heroStack);
     const drawType = conn.hasFlushDraw ? "flush draw" : "straight draw";
@@ -356,9 +379,11 @@ function postflopRecommend(
     });
   }
 
-  // Value-betting tiers (decision equity, texture-adjusted sizing)
+  // Value-betting tiers (decision equity, texture- and opponent-adjusted sizing).
+  // valueMult sizes up vs callers (extract more) and down vs folders.
   if (dq > 0.80) {
-    const frac = Math.min(1.0, (0.80 + (dq - 0.80)) * texAdj);
+    // Monsters can overbet a sticky caller.
+    const frac = Math.min(sticky > 0.6 ? 1.5 : 1.0, (0.80 + (dq - 0.80)) * texAdj * valueMult);
     const size = Math.min(pot * frac, heroStack);
     return fin({
       action: "bet", amount: size, equity: eq, potOdds: 0,
@@ -367,7 +392,7 @@ function postflopRecommend(
     });
   }
   if (dq > 0.60) {
-    const frac = Math.min(0.85, (0.55 + (dq - 0.60)) * texAdj);
+    const frac = Math.min(1.1, (0.55 + (dq - 0.60)) * texAdj * valueMult);
     const size = Math.min(pot * frac, heroStack);
     return fin({
       action: "bet", amount: size, equity: eq, potOdds: 0,
@@ -376,7 +401,7 @@ function postflopRecommend(
     });
   }
   if (dq > VALUE_BET) {
-    const frac = Math.min(0.55, 0.40 * texAdj);
+    const frac = Math.min(0.7, 0.40 * texAdj * valueMult);
     const size = Math.min(pot * frac, heroStack);
     return fin({
       action: "bet", amount: size, equity: eq, potOdds: 0,
@@ -385,7 +410,7 @@ function postflopRecommend(
     });
   }
   if (dq > THIN_VALUE) {
-    const size = Math.min(pot * 0.25, heroStack);
+    const size = Math.min(pot * 0.25 * valueMult, heroStack);
     if (size > 0) {
       return fin({
         action: "bet", amount: size, equity: eq, potOdds: 0,
