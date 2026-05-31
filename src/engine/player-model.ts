@@ -133,3 +133,17 @@ export function playerRead(stats: PlayerStats): string | null {
   if (gap < 0.08 && pfr > 0.15) return "tight-aggressive";
   return "balanced";
 }
+
+// Compact tag for a seat chip during play, shown once a small sample exists.
+// Returns null until there's enough signal.
+export function playerTag(stats: PlayerStats): string | null {
+  if (stats.hands < 5) return null;
+  const vpip = stats.vpipOpps > 0 ? stats.vpipActs / stats.vpipOpps : 0;
+  const pfr = stats.pfrOpps > 0 ? stats.pfrActs / stats.pfrOpps : 0;
+  const gap = vpip - pfr;
+  if (vpip > 0.4 && gap > 0.18) return "STATION";
+  if (vpip > 0.32 && pfr > 0.22) return "LAG";
+  if (vpip < 0.18) return "NIT";
+  if (gap < 0.1 && pfr > 0.14) return "TAG";
+  return "REG";
+}

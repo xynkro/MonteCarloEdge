@@ -247,6 +247,26 @@ body {
 .seat-stack { font-size: 10px; color: var(--muted); margin-top: 1px; }
 .seat-act { font-size: 10px; color: var(--gold); font-weight: 700; margin-top: 2px; }
 
+.seat-tag {
+  position: absolute; top: -9px; left: -4px; z-index: 3;
+  font-size: 8px; font-weight: 900; letter-spacing: .5px;
+  padding: 2px 5px; border-radius: 6px; color: #061018;
+  box-shadow: 0 1px 4px rgba(0,0,0,.5);
+}
+.tag-station { background: var(--rose); color: #fff; }
+.tag-lag { background: var(--gold); }
+.tag-nit { background: #7d8aa0; color: #fff; }
+.tag-tag { background: var(--emerald); }
+.tag-reg { background: var(--surface-2); color: var(--muted); }
+
+.quick-row { display: flex; gap: 8px; padding: 8px 16px 0; }
+.quick-btn {
+  flex: 1; padding: 11px; border: 1px solid var(--line-2); border-radius: var(--radius);
+  background: var(--surface-2); color: var(--muted); font-size: 13px; font-weight: 700;
+  cursor: pointer;
+}
+.quick-btn:active { background: var(--elevate); transform: scale(.97); }
+
 .dealer-btn {
   width: 21px; height: 21px; border-radius: 50%;
   background: radial-gradient(circle at 35% 30%, #fff, #d6dae0); color: #1a1f28;

@@ -16,7 +16,7 @@ import { monteCarloEquityMultiway } from "../engine/equity.js";
 import { settlePots, strengthFromWinners } from "../engine/settle.js";
 import { openRaiseSize, minRaise } from "../engine/sizing.js";
 import { saveHand, getSessionHands, clearHistory, computeStats, type HandRecord, type SessionStats } from "../engine/hand-history.js";
-import { emptyStats, observeHand, blendProfile, playerRead, type PlayerStats } from "../engine/player-model.js";
+import { emptyStats, observeHand, blendProfile, playerRead, playerTag, type PlayerStats } from "../engine/player-model.js";
 import { playSound, setSoundEnabled, isSoundEnabled } from "./sound.js";
 
 const RANKS = "23456789TJQKA";
@@ -901,8 +901,11 @@ function renderGame(): void {
       else actText = lastAct.type;
     }
 
+    const tag = !isHero && S.mode === "live" && S.playerStats.has(i)
+      ? playerTag(S.playerStats.get(i)!) : null;
     return `<div class="${cls}" style="left:${left.toFixed(1)}%;top:${top.toFixed(1)}%">
       ${isDealer ? '<div class="dealer-btn">D</div>' : ""}
+      ${tag ? `<div class="seat-tag tag-${tag.toLowerCase()}">${tag}</div>` : ""}
       <div class="seat-chip" data-seatstack="${i}">
         <div class="seat-pos">${isHero ? "YOU" : pos}</div>
         <div class="seat-stack">${chips(stack)}</div>
@@ -970,7 +973,17 @@ function renderGame(): void {
   const betLabel = recAmt > 0 && S.rec?.action === "bet" ? `Bet ${chipsBet(recAmt)}` : "Bet";
   const raiseLabel = recAmt > 0 && S.rec?.action === "raise" ? `Raise ${chipsBet(recAmt)}` : "Raise";
 
+  // Multiway logging shortcuts: when it's an opponent's turn (live mode), batch
+  // the obvious action for everyone up to the hero.
+  const oppTurn = showActions && S.mode === "live" && next !== S.heroSeat;
+  const quickHtml = oppTurn ? `
+    <div class="quick-row">
+      <button class="quick-btn" id="fold-to-me">⏩ Fold to me</button>
+      ${gs!.currentBet === 0 ? `<button class="quick-btn" id="check-to-me">⏩ Check to me</button>` : ""}
+    </div>` : "";
+
   const actionsHtml = showActions ? `
+    ${quickHtml}
     <div class="action-bar">
       ${legal.includes("fold") ? `<button class="action-btn fold" data-act="fold">Fold</button>` : ""}
       ${legal.includes("check") ? `<button class="action-btn check" data-act="check">Check</button>` : ""}
@@ -1070,6 +1083,8 @@ function renderGame(): void {
   app.querySelectorAll("[data-act]").forEach(btn =>
     btn.addEventListener("click", () => doAction(next!, (btn as HTMLElement).dataset.act as ActionType)),
   );
+  document.getElementById("fold-to-me")?.addEventListener("click", () => advanceOpponents("fold"));
+  document.getElementById("check-to-me")?.addEventListener("click", () => advanceOpponents("check"));
   app.querySelectorAll("[data-open-bet]").forEach(btn =>
     btn.addEventListener("click", () => {
       S.betPadAction = (btn as HTMLElement).dataset.openBet as "bet" | "raise";
@@ -1100,6 +1115,22 @@ function renderGame(): void {
         openNumpad("seatstack");
       }),
     );
+  }
+}
+
+// Batch the obvious action for every opponent up to the hero (live mode).
+function advanceOpponents(action: "fold" | "check"): void {
+  let guard = 12;
+  while (guard-- > 0) {
+    const gs = S.gs;
+    if (!gs || S.handOver) break;
+    const next = gs.nextToAct();
+    if (next === null || next === S.heroSeat) break;
+    const legal = gs.legalActionsFor(next);
+    const act = legal.includes(action) ? action : "fold";
+    if (!legal.includes(act)) break;
+    doAction(next, act);
+    if (S.pickerOpen || S.allInPrompt) break; // a board/all-in step interrupted
   }
 }
 
