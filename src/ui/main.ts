@@ -40,8 +40,11 @@ interface AppState {
   boardCards: Card[];
   allDealt: Set<number>;
   pickerOpen: boolean;
-  pickerTarget: "hero" | "flop" | "turn" | "river" | "villain";
+  pickerTarget: "hero" | "flop" | "turn" | "river" | "villain" | "run";
   pickerVillainSeat: number;
+  // Run-it-twice (all-in): offer the choice, then deal & resolve two runouts.
+  allInPrompt: boolean;
+  rit: { run: number; baseLen: number; ret: number; summary: string[]; awaitWinner: boolean } | null;
   pickerPicked: Card[];
   pickerRank: number | null;
   // Showdown: villain hole cards keyed by the user (seat -> cards)
@@ -96,6 +99,8 @@ const S: AppState = {
   pickerOpen: false,
   pickerTarget: "hero",
   pickerVillainSeat: -1,
+  allInPrompt: false,
+  rit: null,
   pickerPicked: [],
   pickerRank: null,
   showdownCards: new Map(),
@@ -648,6 +653,8 @@ function startHand(): void {
   S.handOver = false;
   S.handResult = "";
   S.showdownCards = new Map();
+  S.allInPrompt = false;
+  S.rit = null;
   S.raiseAmount = 0;
   S.decisionLog = [];
   S.reviewOpen = false;
@@ -703,6 +710,8 @@ function startTrainingHand(): void {
   S.handOver = false;
   S.handResult = "";
   S.showdownCards = new Map();
+  S.allInPrompt = false;
+  S.rit = null;
   S.raiseAmount = 0;
   S.rec = null;
   S.decisionLog = [];
@@ -963,7 +972,7 @@ function renderGame(): void {
         </div>
       </div>
 
-      ${!S.handOver ? `<div class="status-bar ${isHeroTurn ? "your-turn" : ""}">${
+      ${!S.handOver && !S.allInPrompt && !S.rit ? `<div class="status-bar ${isHeroTurn ? "your-turn" : ""}">${
         isHeroTurn ? "<strong>YOUR TURN</strong>" : S.message || ""
       }</div>` : ""}
 
@@ -975,7 +984,9 @@ function renderGame(): void {
         ${canSolveGto() ? `<button class="gto-btn" id="gto-solve">${S.gtoSolving ? "Solving…" : "🧠 Solve GTO"}</button>` : ""}
       </div>
 
-      ${S.handOver ? renderHandResult(positions) : actionsHtml}
+      ${S.allInPrompt ? renderAllInPrompt()
+        : S.rit?.awaitWinner ? renderRunResult()
+        : S.handOver ? renderHandResult(positions) : actionsHtml}
     </div>`;
 
   // ── Events ──
@@ -1020,6 +1031,23 @@ function renderGame(): void {
     const auto = computeShowdown(remaining, S.boardCards.slice(0, 5));
     if (auto) recordShowdownResult(auto.winners, auto.label);
   });
+
+  // Run it once / twice
+  document.getElementById("run-once")?.addEventListener("click", () => {
+    S.allInPrompt = false; openBoardPicker();
+  });
+  document.getElementById("run-twice")?.addEventListener("click", startRunItTwice);
+  // Run-it-twice per-run winner
+  app.querySelectorAll("[data-runwinner]").forEach(btn =>
+    btn.addEventListener("click", () => {
+      const v = (btn as HTMLElement).dataset.runwinner!;
+      if (v === "split") {
+        ritRecordWinner(S.gs!.folded.map((f, i) => f ? -1 : i).filter((i) => i >= 0));
+      } else {
+        ritRecordWinner([+v]);
+      }
+    }),
+  );
 
   app.querySelectorAll("[data-act]").forEach(btn =>
     btn.addEventListener("click", () => doAction(next!, (btn as HTMLElement).dataset.act as ActionType)),
@@ -1090,13 +1118,15 @@ function doAction(seat: number, type: ActionType): void {
     S.handOver = true; S.rec = null; updateMessage(); render(); return;
   }
 
-  // Check if all remaining players are all-in
+  // All players all-in with board still to come → offer run it once or twice.
   const anyCanAct = S.gs.stacks.some((s, i) => !S.gs!.folded[i] && s > 0);
+  if (S.gs.roundComplete() && !anyCanAct && S.boardCards.length < 5) {
+    S.allInPrompt = true; S.rec = null; updateMessage(); render();
+    return;
+  }
   if (S.gs.roundComplete() && !anyCanAct) {
-    S.pickerTarget = S.gs.street === "preflop" ? "flop" : S.gs.street === "flop" ? "turn" : "river";
-    S.pickerPicked = [];
-    S.pickerOpen = true;
-    updateRec(); updateMessage(); render();
+    S.handResult = "showdown"; S.handOver = true; S.rec = null;
+    updateMessage(); render();
     return;
   }
 
@@ -1429,6 +1459,74 @@ function recordShowdownResult(winners: number[], label: string): void {
   render();
 }
 
+// ── Run it twice ──
+function renderAllInPrompt(): string {
+  const gs = S.gs!;
+  const left = 5 - S.boardCards.length;
+  const streets = left >= 5 ? "Flop, turn & river" : left >= 2 ? "Turn & river" : "River";
+  return `<div class="result-panel">
+    <div class="result-title">All in! ${chips(gs.pot)} pot</div>
+    <div class="result-question">${streets} to come — run it…</div>
+    <div class="result-buttons">
+      <button class="result-btn hero" id="run-once">Run it once</button>
+      <button class="result-btn split" id="run-twice">Run it twice</button>
+    </div>
+  </div>`;
+}
+
+function renderRunResult(): string {
+  const gs = S.gs!;
+  const remaining = gs.folded.map((f, i) => f ? -1 : i).filter((i) => i >= 0);
+  const n = S.rit!.run + 1;
+  return `<div class="result-panel">
+    <div class="result-title">Run ${n} of 2 — who won?</div>
+    <div class="result-buttons">
+      ${remaining.map((i) =>
+        `<button class="result-btn ${i === S.heroSeat ? "hero" : ""}" data-runwinner="${i}">${i === S.heroSeat ? "You" : gs.positions[i]} won run ${n}</button>`
+      ).join("")}
+      <button class="result-btn split" data-runwinner="split">Split run ${n}</button>
+    </div>
+  </div>`;
+}
+
+function startRunItTwice(): void {
+  S.allInPrompt = false;
+  S.rit = { run: 0, baseLen: S.boardCards.length, ret: 0, summary: [], awaitWinner: false };
+  S.pickerTarget = "run"; S.pickerPicked = []; S.pickerRank = null; S.pickerOpen = true;
+  render();
+}
+
+function ritBoardEntered(cards: Card[]): void {
+  for (const c of cards) { S.boardCards.push(c); S.allDealt.add(c); }
+  playSound("card");
+  S.rit!.awaitWinner = true;
+  S.pickerOpen = false; S.pickerPicked = []; S.pickerRank = null;
+  document.getElementById("picker-modal")?.remove();
+  render();
+}
+
+function ritRecordWinner(winners: number[]): void {
+  const rit = S.rit!; const gs = S.gs!;
+  const heroWon = winners.includes(S.heroSeat);
+  rit.ret += heroWon ? (gs.pot / 2) / winners.length : 0;
+  const runBoard = S.boardCards.slice(rit.baseLen).map(cardDisplay).join(" ");
+  const who = winners.length > 1 ? "Split" : winners[0] === S.heroSeat ? "You" : gs.positions[winners[0]!]!;
+  rit.summary.push(`Run ${rit.run + 1} (${runBoard}): ${who}`);
+  rit.awaitWinner = false;
+  if (rit.run === 0) {
+    S.boardCards = S.boardCards.slice(0, rit.baseLen); // reset for run 2 (dealt cards stay excluded)
+    rit.run = 1;
+    S.pickerTarget = "run"; S.pickerPicked = []; S.pickerRank = null; S.pickerOpen = true;
+    render();
+  } else {
+    const heroPnl = rit.ret - gs.invested[S.heroSeat]!;
+    S.handResult = `Run it twice — ${rit.summary.join(" · ")}`;
+    saveHandRecord(heroPnl);
+    S.handOver = true; S.rec = null; S.rit = null;
+    render();
+  }
+}
+
 function openBoardPicker(): void {
   if (!S.gs) return;
   const nm: Record<string, "flop" | "turn" | "river"> = { preflop: "flop", flop: "turn", turn: "river" };
@@ -1443,11 +1541,13 @@ function openBoardPicker(): void {
 function renderPicker(): void {
   document.getElementById("picker-modal")?.remove();
 
-  const needed = S.pickerTarget === "hero" || S.pickerTarget === "villain"
-    ? 2 : S.pickerTarget === "flop" ? 3 : 1;
+  const needed = S.pickerTarget === "run" ? Math.max(1, 5 - S.boardCards.length)
+    : (S.pickerTarget === "hero" || S.pickerTarget === "villain") ? 2
+    : S.pickerTarget === "flop" ? 3 : 1;
   const villPos = S.gs?.positions[S.pickerVillainSeat] ?? "opponent";
   const title = S.pickerTarget === "hero" ? "Pick your hole cards"
     : S.pickerTarget === "villain" ? `Enter ${villPos}'s cards`
+    : S.pickerTarget === "run" ? `Run ${(S.rit?.run ?? 0) + 1} — deal the runout`
     : S.pickerTarget === "flop" ? "Deal the flop"
     : S.pickerTarget === "turn" ? "Deal the turn" : "Deal the river";
 
@@ -1542,9 +1642,15 @@ function renderPicker(): void {
 }
 
 function confirmPicker(): void {
-  const needed = S.pickerTarget === "hero" || S.pickerTarget === "villain"
-    ? 2 : S.pickerTarget === "flop" ? 3 : 1;
+  const needed = S.pickerTarget === "run" ? Math.max(1, 5 - S.boardCards.length)
+    : (S.pickerTarget === "hero" || S.pickerTarget === "villain") ? 2
+    : S.pickerTarget === "flop" ? 3 : 1;
   if (S.pickerPicked.length !== needed) return;
+
+  if (S.pickerTarget === "run") {
+    ritBoardEntered([...S.pickerPicked]);
+    return;
+  }
 
   if (S.pickerTarget === "villain") {
     const [a, b] = S.pickerPicked;
