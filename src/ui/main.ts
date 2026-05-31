@@ -8,7 +8,7 @@ import { solveSubgame, type RiverResult } from "../engine/gto/river-solver.js";
 import { solvePushFold, handClassKey, type PushFoldResult } from "../engine/gto/pushfold.js";
 import { allCombos, topSlice } from "../engine/hand-strength.js";
 import { recommend, type Recommendation, type ProfileMap } from "../engine/decision.js";
-import { TAG, LAG, STATION, NIT, type OpponentProfile } from "../engine/opponent.js";
+import { AUTO, TAG, LAG, STATION, NIT, type OpponentProfile } from "../engine/opponent.js";
 import { villainDecision } from "../engine/villain-ai.js";
 import { evaluate } from "../engine/evaluator.js";
 import { describeHand, nutHand } from "../engine/made-hand.js";
@@ -21,7 +21,7 @@ import { playSound, setSoundEnabled, isSoundEnabled } from "./sound.js";
 const RANKS = "23456789TJQKA";
 const SUITS = ["♣", "♦", "♥", "♠"];
 const SUIT_RED = [false, true, true, false];
-const PROFILES: Record<string, OpponentProfile> = { TAG, LAG, Station: STATION, Nit: NIT };
+const PROFILES: Record<string, OpponentProfile> = { Auto: AUTO, TAG, LAG, Station: STATION, Nit: NIT };
 
 interface AppState {
   screen: "setup" | "game" | "stats";
@@ -85,7 +85,7 @@ const S: AppState = {
   heroSeat: 3,
   dealerSeat: -1,
   handNumber: 0,
-  archetype: "Station",
+  archetype: "Auto",
   gs: null,
   heroCards: null,
   boardCards: [],
@@ -484,6 +484,7 @@ function positionTip(pos: string): string {
 }
 
 const ARCH_DESC: Record<string, string> = {
+  Auto: "Don't know the table? Start here. Plays solid, balanced poker and learns each player's real style as you log hands.",
   TAG: "Tight-Aggressive — plays few hands but bets hard. Toughest opponent.",
   LAG: "Loose-Aggressive — plays many hands aggressively. Lots of bluffs.",
   Station: "Calling Station — calls everything, rarely folds. Bet big for value.",
@@ -547,8 +548,8 @@ function renderSetup(): void {
       </div>
 
       <div class="field">
-        <label>Default opponent type</label>
-        <span class="hint">Best match for the table. The app learns each player's real style as you log hands.</span>
+        <label>Opponent type</label>
+        <span class="hint">Don't know the table? Leave it on <strong>Auto</strong> — it plays solid and learns each player as you log hands. Pick a style only if you already know it.</span>
         <select id="arch">
           ${Object.keys(PROFILES).map(k =>
             `<option value="${k}" ${k === S.archetype ? "selected" : ""}>${k}</option>`

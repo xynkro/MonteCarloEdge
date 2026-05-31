@@ -79,6 +79,22 @@ export const NIT: OpponentProfile = {
   calldownPct: 0.2,
 };
 
+// Neutral "average player" prior for when the opponent type is unknown. The
+// adaptive model blends this toward each seat's observed tendencies as hands
+// are logged, so the strategy starts solid/unexploitative and self-corrects.
+export const AUTO: OpponentProfile = {
+  name: "Auto",
+  vpip: 0.25,
+  pfr: 0.18,
+  threeBetPct: 0.06,
+  foldTo3Bet: 0.55,
+  cbetPct: 0.6,
+  foldToCbet: 0.45,
+  betWhenCheckedTo: 0.4,
+  foldToRaise: 0.5,
+  calldownPct: 0.45,
+};
+
 let _pctMap: Map<number, number> | null = null;
 function percentileMap(): Map<number, number> {
   if (!_pctMap) {
