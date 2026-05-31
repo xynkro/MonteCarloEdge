@@ -13,6 +13,7 @@ import { villainDecision } from "../engine/villain-ai.js";
 import { evaluate } from "../engine/evaluator.js";
 import { describeHand, nutHand } from "../engine/made-hand.js";
 import { monteCarloEquityMultiway } from "../engine/equity.js";
+import { settlePots, strengthFromWinners } from "../engine/settle.js";
 import { openRaiseSize, minRaise } from "../engine/sizing.js";
 import { saveHand, getSessionHands, clearHistory, computeStats, type HandRecord, type SessionStats } from "../engine/hand-history.js";
 import { emptyStats, observeHand, blendProfile, playerRead, type PlayerStats } from "../engine/player-model.js";
@@ -34,6 +35,8 @@ interface AppState {
   heroSeat: number;
   dealerSeat: number;
   handNumber: number;
+  // Live mode: running per-seat stacks (bb) carried across the session.
+  seatStacks: number[];
   archetype: string;
   gs: GameState | null;
   heroCards: [Card, Card] | null;
@@ -44,7 +47,7 @@ interface AppState {
   pickerVillainSeat: number;
   // Run-it-twice (all-in): offer the choice, then deal & resolve two runouts.
   allInPrompt: boolean;
-  rit: { run: number; baseLen: number; ret: number; summary: string[]; awaitWinner: boolean } | null;
+  rit: { run: number; baseLen: number; won: number[]; summary: string[]; awaitWinner: boolean } | null;
   pickerPicked: Card[];
   pickerRank: number | null;
   // Showdown: villain hole cards keyed by the user (seat -> cards)
@@ -68,6 +71,7 @@ interface AppState {
   reviewOpen: boolean;
   // Generic numpad (blinds / stack)
   numpadTarget: NumpadTarget | null;
+  numpadSeat: number;
   numpadRaw: string;
   // GTO river/turn solver
   gtoResult: RiverResult | null;
@@ -91,6 +95,7 @@ const S: AppState = {
   heroSeat: 3,
   dealerSeat: -1,
   handNumber: 0,
+  seatStacks: [],
   archetype: "Auto",
   gs: null,
   heroCards: null,
@@ -119,6 +124,7 @@ const S: AppState = {
   decisionLog: [],
   reviewOpen: false,
   numpadTarget: null,
+  numpadSeat: -1,
   numpadRaw: "",
   gtoResult: null,
   gtoSolving: false,
@@ -194,7 +200,7 @@ function fmtMoney(v: number): string {
   return v % 1 === 0 ? String(v) : v.toFixed(2);
 }
 
-type NumpadTarget = "sb" | "bb" | "stack";
+type NumpadTarget = "sb" | "bb" | "stack" | "seatstack";
 
 function render(): void {
   if (S.screen === "setup") renderSetup();
@@ -219,19 +225,21 @@ function renderNumpad(): void {
   const target = S.numpadTarget;
   if (!target) return;
 
-  const titles: Record<NumpadTarget, string> = {
-    sb: "Small Blind ($)", bb: "Big Blind ($)", stack: "Stack (big blinds)",
-  };
-  const current = target === "sb" ? S.sbValue : target === "bb" ? S.bbValue : S.stackBB;
+  const seatPos = S.gs?.positions[S.numpadSeat] ?? "";
+  const title = target === "sb" ? "Small Blind ($)" : target === "bb" ? "Big Blind ($)"
+    : target === "stack" ? "Stack (big blinds)"
+    : `${S.numpadSeat === S.heroSeat ? "Your" : seatPos} stack (bb)`;
+  const current = target === "sb" ? S.sbValue : target === "bb" ? S.bbValue
+    : target === "seatstack" ? (S.seatStacks[S.numpadSeat] ?? S.stackBB) : S.stackBB;
   const display = S.numpadRaw || String(current);
-  const unit = target === "stack" ? "" : "$";
+  const unit = target === "sb" || target === "bb" ? "$" : "";
 
   const overlay = document.createElement("div");
   overlay.className = "modal-backdrop";
   overlay.id = "numpad-modal";
   overlay.innerHTML = `
     <div class="modal-content">
-      <h3>${titles[target]}</h3>
+      <h3>${title}</h3>
       <div class="betpad-display">${unit}${display}</div>
       <div class="betpad-grid">
         ${["1","2","3","4","5","6","7","8","9",".","0","⌫"].map(k =>
@@ -265,7 +273,12 @@ function renderNumpad(): void {
     if (!isNaN(v) && v > 0) {
       if (target === "sb") S.sbValue = v;
       else if (target === "bb") S.bbValue = v;
-      else S.stackBB = Math.max(2, Math.round(v));
+      else if (target === "seatstack") {
+        const seat = S.numpadSeat;
+        S.seatStacks[seat] = v;
+        // Apply to the live hand too (correction / rebuy mid-session).
+        if (S.gs) S.gs.stacks[seat] = Math.max(0, v - S.gs.streetInvested[seat]!);
+      } else S.stackBB = Math.max(2, Math.round(v));
     }
     S.numpadTarget = null; S.numpadRaw = "";
     document.getElementById("numpad-modal")?.remove();
@@ -502,6 +515,9 @@ const ARCH_DESC: Record<string, string> = {
 };
 
 function renderSetup(): void {
+  // Returning to setup starts a fresh session: clear running stacks so they
+  // re-initialise to the (possibly changed) buy-in on the next hand.
+  S.seatStacks = [];
   const positions = getPositions(S.tableSize);
   app.innerHTML = `
     <div class="setup">
@@ -644,6 +660,13 @@ function startHand(): void {
     // First hand — set dealer based on table size
     S.dealerSeat = S.tableSize === 2 ? 0 : n - 3;
   }
+  // Running stacks: initialise on the first hand / table change, otherwise
+  // carry across the session. Auto-rebuy any seat that busted back to buy-in.
+  if (S.seatStacks.length !== n) {
+    S.seatStacks = Array.from({ length: n }, () => S.stackBB);
+  } else {
+    for (let i = 0; i < n; i++) if (S.seatStacks[i]! < 1) S.seatStacks[i] = S.stackBB;
+  }
   S.handNumber++;
   S.heroCards = null;
   S.boardCards = [];
@@ -751,11 +774,14 @@ function startTrainingHand(): void {
 function initGameState(): void {
   if (!S.heroCards) return;
   const positions = getPositions(S.tableSize);
+  if (S.seatStacks.length !== positions.length) {
+    S.seatStacks = positions.map(() => S.stackBB);
+  }
   S.gs = new GameState({
     tableSize: S.tableSize,
     bb: 1,
     sb: S.sbValue / S.bbValue,
-    stacks: positions.map(() => S.stackBB),
+    stacks: S.seatStacks.slice(), // running stacks → correct depth for advice
     positions: [...positions],
     heroSeat: S.heroSeat,
     heroCards: S.heroCards,
@@ -877,7 +903,7 @@ function renderGame(): void {
 
     return `<div class="${cls}" style="left:${left.toFixed(1)}%;top:${top.toFixed(1)}%">
       ${isDealer ? '<div class="dealer-btn">D</div>' : ""}
-      <div class="seat-chip">
+      <div class="seat-chip" data-seatstack="${i}">
         <div class="seat-pos">${isHero ? "YOU" : pos}</div>
         <div class="seat-stack">${chips(stack)}</div>
         ${actText ? `<div class="seat-act">${actText}</div>` : ""}
@@ -995,23 +1021,15 @@ function renderGame(): void {
   document.getElementById("review-hand")?.addEventListener("click", () => { S.reviewOpen = true; renderReview(); });
   document.getElementById("gto-solve")?.addEventListener("click", startGtoSolve);
 
-  // Showdown winner buttons
+  // Showdown winner buttons (manual). Settlement handles side pots / uncalled.
   app.querySelectorAll("[data-winner]").forEach(btn =>
     btn.addEventListener("click", () => {
       const val = (btn as HTMLElement).dataset.winner!;
-      let heroPnl: number;
-      const invested = S.gs!.invested[S.heroSeat]!;
-      if (val === "split") {
-        S.handResult = `Split pot — ${chips(S.gs!.pot / 2)} each`;
-        heroPnl = S.gs!.pot / 2 - invested;
-      } else {
-        const w = +val;
-        const who = w === S.heroSeat ? "You" : S.gs!.positions[w]!;
-        S.handResult = `${who} won ${chips(S.gs!.pot)}`;
-        heroPnl = w === S.heroSeat ? S.gs!.pot - invested : -invested;
-      }
-      saveHandRecord(heroPnl);
-      render();
+      const remaining = S.gs!.folded.map((f, i) => f ? -1 : i).filter((i) => i >= 0);
+      const winners = val === "split" ? remaining : [+val];
+      const who = winners.length > 1 ? "Split pot"
+        : winners[0] === S.heroSeat ? "You won" : `${S.gs!.positions[winners[0]!]!} won`;
+      resolveLive(strengthFromWinners(S.gs!.stacks.length, winners), who);
     }),
   );
 
@@ -1029,7 +1047,7 @@ function renderGame(): void {
   document.getElementById("sd-confirm")?.addEventListener("click", () => {
     const remaining = S.gs!.folded.map((f, i) => f ? -1 : i).filter((i) => i >= 0);
     const auto = computeShowdown(remaining, S.boardCards.slice(0, 5));
-    if (auto) recordShowdownResult(auto.winners, auto.label);
+    if (auto) recordShowdownResult(auto.winners, auto.label, auto.strength);
   });
 
   // Run it once / twice
@@ -1072,6 +1090,17 @@ function renderGame(): void {
   if (needsBoard) {
     document.getElementById("board-area")?.addEventListener("click", openBoardPicker);
   }
+
+  // Tap a seat to set/correct its stack (rebuys) — live mode only.
+  if (S.mode === "live") {
+    app.querySelectorAll("[data-seatstack]").forEach(el =>
+      el.addEventListener("click", () => {
+        S.numpadSeat = +(el as HTMLElement).dataset.seatstack!;
+        S.numpadRaw = "";
+        openNumpad("seatstack");
+      }),
+    );
+  }
 }
 
 function doAction(seat: number, type: ActionType): void {
@@ -1092,13 +1121,18 @@ function doAction(seat: number, type: ActionType): void {
     const winnerSeat = S.gs.folded.findIndex(f => !f);
     const winnerPos = winnerSeat === S.heroSeat ? "You" : S.gs.positions[winnerSeat]!;
     const folderPos = seat === S.heroSeat ? "You" : S.gs.positions[seat]!;
-    S.handResult = `${folderPos} folded — ${winnerPos} won ${chips(S.gs.pot)}`;
-    const heroPnl = winnerSeat === S.heroSeat
-      ? S.gs.pot - S.gs.invested[S.heroSeat]!
-      : -S.gs.invested[S.heroSeat]!;
-    saveHandRecord(heroPnl);
-    S.handOver = true; S.rec = null;
-    updateMessage(); render();
+    const text = `${folderPos} folded — ${winnerPos} won`;
+    if (S.mode === "live") {
+      resolveLive(strengthFromWinners(S.gs.stacks.length, [winnerSeat]), text);
+    } else {
+      const heroPnl = winnerSeat === S.heroSeat
+        ? S.gs.pot - S.gs.invested[S.heroSeat]!
+        : -S.gs.invested[S.heroSeat]!;
+      S.handResult = text;
+      saveHandRecord(heroPnl);
+      S.handOver = true; S.rec = null;
+      updateMessage(); render();
+    }
     return;
   }
 
@@ -1428,35 +1462,45 @@ function saveHandRecord(heroPnl: number): void {
 
 // Determine the winner(s) from keyed cards. Returns winning seats + hand label.
 function computeShowdown(remaining: number[], board5: Card[]):
-  { winners: number[]; label: string } | null {
+  { winners: number[]; label: string; strength: number[] } | null {
   if (!S.heroCards || board5.length < 5) return null;
+  const strength = new Array<number>(S.gs!.stacks.length).fill(0);
   const rankBy = new Map<number, number>();
   for (const i of remaining) {
     const cards = i === S.heroSeat ? S.heroCards : S.showdownCards.get(i);
     if (!cards) return null;
-    rankBy.set(i, evaluate([cards[0], cards[1], ...board5]));
+    const r = evaluate([cards[0], cards[1], ...board5]);
+    rankBy.set(i, r);
+    strength[i] = r;
   }
   const max = Math.max(...rankBy.values());
   const winners = remaining.filter((i) => rankBy.get(i) === max);
   const w = winners[0]!;
   const wc = w === S.heroSeat ? S.heroCards : S.showdownCards.get(w)!;
-  return { winners, label: describeHand(wc, board5).label };
+  return { winners, label: describeHand(wc, board5).label, strength };
 }
 
-function recordShowdownResult(winners: number[], label: string): void {
-  if (!S.gs) return;
-  const pot = S.gs.pot;
-  const invested = S.gs.invested[S.heroSeat]!;
-  const heroWon = winners.includes(S.heroSeat);
-  const heroPnl = (heroWon ? pot / winners.length : 0) - invested;
-  if (winners.length > 1) S.handResult = `Split pot — ${label}`;
-  else {
-    const who = winners[0] === S.heroSeat ? "You" : S.gs.positions[winners[0]!]!;
-    S.handResult = `${who} won ${chips(pot)} — ${label}`;
-  }
+// Settle the pot (side pots / uncalled returns), update running stacks, record.
+function resolveLive(strength: number[], resultText: string): void {
+  const gs = S.gs;
+  if (!gs) return;
+  const won = settlePots(gs.invested, gs.folded.map((f) => !f), strength);
+  for (let i = 0; i < gs.stacks.length; i++) S.seatStacks[i] = gs.stacks[i]! + won[i]!;
+  const heroPnl = won[S.heroSeat]! - gs.invested[S.heroSeat]!;
+  S.handResult = resultText;
   saveHandRecord(heroPnl);
   S.handOver = true; S.rec = null;
   render();
+}
+
+function recordShowdownResult(winners: number[], label: string, strength?: number[]): void {
+  const gs = S.gs;
+  if (!gs) return;
+  const str = strength ?? strengthFromWinners(gs.stacks.length, winners);
+  const who = winners.length > 1 ? "Split pot"
+    : winners[0] === S.heroSeat ? "You" : gs.positions[winners[0]!]!;
+  const text = winners.length > 1 ? `Split pot — ${label}` : `${who} won — ${label}`;
+  resolveLive(str, text);
 }
 
 // ── Run it twice ──
@@ -1491,7 +1535,7 @@ function renderRunResult(): string {
 
 function startRunItTwice(): void {
   S.allInPrompt = false;
-  S.rit = { run: 0, baseLen: S.boardCards.length, ret: 0, summary: [], awaitWinner: false };
+  S.rit = { run: 0, baseLen: S.boardCards.length, won: new Array(S.gs!.stacks.length).fill(0), summary: [], awaitWinner: false };
   S.pickerTarget = "run"; S.pickerPicked = []; S.pickerRank = null; S.pickerOpen = true;
   render();
 }
@@ -1507,8 +1551,9 @@ function ritBoardEntered(cards: Card[]): void {
 
 function ritRecordWinner(winners: number[]): void {
   const rit = S.rit!; const gs = S.gs!;
-  const heroWon = winners.includes(S.heroSeat);
-  rit.ret += heroWon ? (gs.pot / 2) / winners.length : 0;
+  // Each run contests half the pot; settle it (side pots) and accumulate.
+  const runWon = settlePots(gs.invested, gs.folded.map((f) => !f), strengthFromWinners(gs.stacks.length, winners));
+  for (let i = 0; i < gs.stacks.length; i++) rit.won[i]! += runWon[i]! / 2;
   const runBoard = S.boardCards.slice(rit.baseLen).map(cardDisplay).join(" ");
   const who = winners.length > 1 ? "Split" : winners[0] === S.heroSeat ? "You" : gs.positions[winners[0]!]!;
   rit.summary.push(`Run ${rit.run + 1} (${runBoard}): ${who}`);
@@ -1519,7 +1564,8 @@ function ritRecordWinner(winners: number[]): void {
     S.pickerTarget = "run"; S.pickerPicked = []; S.pickerRank = null; S.pickerOpen = true;
     render();
   } else {
-    const heroPnl = rit.ret - gs.invested[S.heroSeat]!;
+    for (let i = 0; i < gs.stacks.length; i++) S.seatStacks[i] = gs.stacks[i]! + rit.won[i]!;
+    const heroPnl = rit.won[S.heroSeat]! - gs.invested[S.heroSeat]!;
     S.handResult = `Run it twice — ${rit.summary.join(" · ")}`;
     saveHandRecord(heroPnl);
     S.handOver = true; S.rec = null; S.rit = null;
