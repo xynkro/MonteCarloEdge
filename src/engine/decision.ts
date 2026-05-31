@@ -9,11 +9,7 @@ import {
   type ActionType,
   type GameState,
 } from "./game-state.js";
-import {
-  openRaiseSize,
-  threeBetSize,
-  recommendSize,
-} from "./sizing.js";
+import { threeBetSize } from "./sizing.js";
 import {
   type OpponentProfile,
   TAG,
