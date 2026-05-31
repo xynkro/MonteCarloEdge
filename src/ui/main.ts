@@ -8,7 +8,8 @@ import { solveSubgame, type RiverResult } from "../engine/gto/river-solver.js";
 import { solvePushFold, handClassKey, type PushFoldResult } from "../engine/gto/pushfold.js";
 import { allCombos, topSlice } from "../engine/hand-strength.js";
 import { recommend, type Recommendation, type ProfileMap } from "../engine/decision.js";
-import { TAG, LAG, STATION, NIT, type OpponentProfile, villainAct } from "../engine/opponent.js";
+import { TAG, LAG, STATION, NIT, type OpponentProfile } from "../engine/opponent.js";
+import { villainDecision } from "../engine/villain-ai.js";
 import { evaluate } from "../engine/evaluator.js";
 import { describeHand, nutHand } from "../engine/made-hand.js";
 import { monteCarloEquityMultiway } from "../engine/equity.js";
@@ -1220,8 +1221,9 @@ function autoPlayVillain(): void {
     if (next === null) break;
     if (next === S.heroSeat) break; // Hero's turn — stop and wait for input
 
-    // Villain acts
-    const vAct = villainAct(S.gs, next, S.villainCards, profile, rng);
+    // Villain acts — tough, non-cheating engine-driven decision, per-seat profile.
+    const seatProfile = buildProfiles().get(next) ?? profile;
+    const vAct = villainDecision(S.gs, next, S.villainCards, seatProfile, rng);
     let action = vAct.type;
     let amount = vAct.amount;
     const legal = S.gs.legalActionsFor(next);
