@@ -434,6 +434,22 @@ body {
   border-top: 1px solid var(--line); padding: 12px 16px 8px;
 }
 
+/* Result/showdown screen has the most content (board read + opponents' reveal
+   + result + buttons). Shrink the table and tighten spacing so it fits without
+   scrolling. */
+.game.hand-over .table-wrap { height: min(30vh, 260px); }
+.game.hand-over .hero-area { padding: 6px 16px 4px; }
+.game.hand-over .hero-cards { margin-bottom: 3px; }
+.game.hand-over .hero-card { width: 46px; height: 64px; font-size: 19px; }
+.game.hand-over .pot-line { margin: 1px 0 4px; }
+.game.hand-over .hand-label { margin-bottom: 4px; }
+.game.hand-over .board-read { margin-bottom: 5px; }
+.game.hand-over .br-item { padding: 5px 5px; }
+.game.hand-over .villain-reveal { padding: 7px; margin-bottom: 6px; }
+.game.hand-over .reveal-rows { gap: 8px; margin-top: 3px; }
+.game.hand-over .result-panel { padding: 9px 14px calc(9px + env(safe-area-inset-bottom)); }
+.game.hand-over .result-title { margin-bottom: 3px; }
+
 /* The table sits in a flex-grow region and centers vertically, so leftover
    space is split above/below it instead of one big gap above the hero area. */
 /* Stage holds the table + the controls region. Portrait = stacked column. */

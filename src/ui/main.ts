@@ -1277,7 +1277,7 @@ function renderGame(): void {
     </div>` : "";
 
   app.innerHTML = `
-    <div class="game">
+    <div class="game ${S.handOver || S.trainingOver ? "hand-over" : ""}">
       <div class="game-topbar">
         <span>Hand #${S.handNumber}${S.mode === "training" ? " · <strong style=\"color:var(--violet)\">TRAINING</strong>" : ""}</span>
         <div class="topbar-btns">
