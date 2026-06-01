@@ -250,6 +250,17 @@ body {
 
 .table-seat { position: absolute; transform: translate(-50%, -50%); z-index: 2; text-align: center; }
 
+/* Player silhouette (training) — sits above the seat chip */
+.seat-avatar {
+  width: 34px; height: 34px; margin: 0 auto 3px; border-radius: 50%;
+  background: radial-gradient(circle at 50% 35%, rgba(255,255,255,.10), rgba(0,0,0,.35));
+  border: 1.5px solid currentColor; padding: 3px;
+  box-shadow: 0 2px 8px rgba(0,0,0,.5);
+}
+.seat-avatar svg { display: block; opacity: .92; }
+.table-seat.folded .seat-avatar { opacity: .3; filter: grayscale(.7); }
+.table-seat.active .seat-avatar { box-shadow: 0 0 12px 1px currentColor; }
+
 .seat-chip {
   min-width: 60px; padding: 6px 8px; border-radius: 12px;
   background: linear-gradient(180deg, rgba(30,38,52,.92), rgba(18,24,34,.95));

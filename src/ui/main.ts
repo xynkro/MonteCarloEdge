@@ -963,6 +963,20 @@ function seatCoord(seatIdx: number): { left: number; top: number } {
   return { left: 50 - 40 * Math.sin(a), top: 50 + 35 * Math.cos(a) };
 }
 
+// A small head-and-shoulders silhouette avatar so opponents read as people, not
+// just labels. Colour varies per seat for distinction; hero is emerald.
+const AVATAR_COLORS = ["#5b8def", "#e0566a", "#f59e0b", "#a78bfa", "#3fd6c4",
+  "#ec4899", "#f97316", "#22c55e", "#eab308", "#38bdf8"];
+function avatarHtml(seat: number, isHero: boolean): string {
+  const color = isHero ? "#00d68f" : AVATAR_COLORS[seat % AVATAR_COLORS.length]!;
+  return `<div class="seat-avatar" style="color:${color}">
+    <svg viewBox="0 0 24 24" width="100%" height="100%" aria-hidden="true">
+      <circle cx="12" cy="8.5" r="4.3" fill="currentColor"/>
+      <path d="M3.5 21c0-4.6 3.8-7.5 8.5-7.5s8.5 2.9 8.5 7.5z" fill="currentColor"/>
+    </svg>
+  </div>`;
+}
+
 function renderGame(): void {
   if (!S.gs && !S.heroCards) {
     app.innerHTML = `<div class="game"><div class="status-bar">Picking cards...</div></div>`;
@@ -1028,9 +1042,11 @@ function renderGame(): void {
         ${(lg.includes("raise") || lg.includes("bet")) ? `<button class="sa-btn raise" data-seatact="betraise" data-seat="${i}">${gs.currentBet > 0 ? "Raise" : "Bet"}</button>` : ""}
       </div>`;
     }
+    const avatar = S.mode === "training" ? avatarHtml(i, isHero) : "";
     return `<div class="${cls} ${oppActor ? "tappable" : ""}" style="left:${left.toFixed(1)}%;top:${top.toFixed(1)}%">
       ${isDealer ? '<div class="dealer-btn">D</div>' : ""}
       ${tag ? `<div class="seat-tag tag-${tag.toLowerCase()}">${tag}</div>` : ""}
+      ${avatar}
       <div class="seat-chip" ${chipAttr}>
         <div class="seat-pos">${isHero ? `YOU <span class="seat-subpos">${pos}</span>` : pos}</div>
         <div class="seat-stack">${chips(stack)}</div>
