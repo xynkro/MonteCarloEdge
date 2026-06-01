@@ -215,7 +215,7 @@ body {
 
 /* ── Poker table ── */
 
-.poker-table { position: relative; width: 100%; aspect-ratio: 1 / 0.92; flex-shrink: 0; }
+.poker-table { position: relative; height: 100%; width: auto; max-width: 100%; aspect-ratio: 1 / 0.92; flex-shrink: 0; margin: 0 auto; }
 
 .felt {
   position: absolute; inset: 8% 4%;
@@ -429,10 +429,21 @@ body {
 
 /* The table sits in a flex-grow region and centers vertically, so leftover
    space is split above/below it instead of one big gap above the hero area. */
+/* Fixed-height table region: pinned so it never resizes/shifts when the
+   recommendation + action buttons appear or disappear below it. */
 .table-wrap {
-  flex: 1 1 auto; min-height: 0;
+  flex: 0 0 auto; height: 42vh; min-height: 0;
   display: flex; align-items: center; justify-content: center;
 }
+/* Everything below the table lives in one fixed region (fills the rest of the
+   screen). Controls appear/disappear INSIDE it without ever moving the table. */
+.below {
+  flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column;
+  overflow: hidden;
+}
+.below .hero-area { flex: 0 0 auto; }
+/* Pin the action / result block to the bottom of the region as one unit. */
+.action-dock { margin-top: auto; flex: 0 0 auto; }
 .hero-cards { display: flex; gap: 9px; justify-content: center; margin-bottom: 7px; }
 
 .hand-label {

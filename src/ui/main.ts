@@ -1279,22 +1279,24 @@ function renderGame(): void {
         </div>
       </div>
 
-      ${!S.handOver && !S.allInPrompt && !S.rit ? `<div class="status-bar ${isHeroTurn ? "your-turn" : ""}">${
-        isHeroTurn ? "<strong>YOUR TURN</strong>" : S.message || ""
-      }</div>` : ""}
+      <div class="below">
+        ${!S.handOver && !S.allInPrompt && !S.rit ? `<div class="status-bar ${isHeroTurn ? "your-turn" : ""}">${
+          isHeroTurn ? "<strong>YOUR TURN</strong>" : S.message || ""
+        }</div>` : ""}
 
-      <div class="hero-area">
-        <div class="hero-cards">${heroHtml}</div>
-        ${handLabelHtml}
-        ${boardReadHtml}
-        ${recHtml}
-        ${canSolveGto() ? `<button class="gto-btn" id="gto-solve">${S.gtoSolving ? "Solving…" : "🧠 Solve GTO"}</button>` : ""}
+        <div class="hero-area">
+          <div class="hero-cards">${heroHtml}</div>
+          ${handLabelHtml}
+          ${boardReadHtml}
+          ${recHtml}
+          ${canSolveGto() ? `<button class="gto-btn" id="gto-solve">${S.gtoSolving ? "Solving…" : "🧠 Solve GTO"}</button>` : ""}
+        </div>
+
+        <div class="action-dock">${S.trainingOver ? renderTrainingOver()
+          : S.allInPrompt ? renderAllInPrompt()
+          : S.rit?.awaitWinner ? renderRunResult()
+          : S.handOver ? renderHandResult(positions) : actionsHtml}</div>
       </div>
-
-      ${S.trainingOver ? renderTrainingOver()
-        : S.allInPrompt ? renderAllInPrompt()
-        : S.rit?.awaitWinner ? renderRunResult()
-        : S.handOver ? renderHandResult(positions) : actionsHtml}
     </div>`;
   S.dealAnim = null; // one-shot: consumed by this render
   S.flashSeat = null;
