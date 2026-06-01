@@ -95,7 +95,7 @@ interface AppState {
   // GTO preflop push/fold readout
   gtoPreflop: { title: string; rows: { label: string; freq: number }[]; note: string } | null;
   // Board read: hero win% vs villain range(s) + the nuts on this board
-  boardRead: { equity: number | null; nuts: string; nutsPct: number | null } | null;
+  boardRead: { equity: number | null; nuts: string; second: string | null; nutsPct: number | null } | null;
   boardReadKey: string;
   message: string;
   // Undo: reversible snapshots of mid-hand state (live mode only).
@@ -837,6 +837,7 @@ function updateBoardRead(): void {
 
   const nut = nutHand(S.gs.board, [S.heroCards[0], S.heroCards[1]]);
   const nuts = nut?.label ?? "—";
+  const second = nut?.second ?? null;
   let equity: number | null = null;
   let nutsPct: number | null = null;
   if (vils.length > 0) {
@@ -862,7 +863,7 @@ function updateBoardRead(): void {
       }
     }
   }
-  S.boardRead = { equity, nuts, nutsPct };
+  S.boardRead = { equity, nuts, second, nutsPct };
 }
 
 // Common one-tap raise/bet sizes for the seat about to act. Facing a bet →
@@ -1011,9 +1012,13 @@ function renderGame(): void {
     const npct = S.boardRead.nutsPct;
     const heldItem = npct === null ? "" :
       `<div class="br-item"><span class="br-label">Nuts out</span><span class="br-val ${npct > 0.15 ? "warn" : ""}">${(npct * 100).toFixed(0)}%</span></div>`;
+    const secondItem = S.boardRead.second
+      ? `<div class="br-item"><span class="br-label">2nd nuts</span><span class="br-val">${S.boardRead.second}</span></div>`
+      : "";
     boardReadHtml = `<div class="board-read">
-      <div class="br-item"><span class="br-label">Win</span><span class="br-val win">${eqStr}</span></div>
+      <div class="br-item"><span class="br-label">Strength</span><span class="br-val win">${eqStr}</span></div>
       <div class="br-item"><span class="br-label">Nuts</span><span class="br-val">${S.boardRead.nuts}</span></div>
+      ${secondItem}
       ${heldItem}
     </div>`;
   }
@@ -1889,12 +1894,13 @@ function confirmPicker(): void {
     initGameState();
   } else {
     pushUndo(`deal ${S.pickerTarget}`);
-    for (const c of S.pickerPicked) { S.boardCards.push(c); S.allDealt.add(c); }
+    const dealt = [...S.pickerPicked]; // capture before clearing
+    for (const c of dealt) { S.boardCards.push(c); S.allDealt.add(c); }
     playSound("card");
     S.pickerOpen = false; S.pickerPicked = []; S.pickerRank = null;
     document.getElementById("picker-modal")?.remove();
     if (S.gs) {
-      S.gs.advanceStreet(S.pickerPicked);
+      S.gs.advanceStreet(dealt); // push the real cards into the game state's board
       const anyCanAct = S.gs.stacks.some((s, i) => !S.gs!.folded[i] && s > 0);
       // Hand finished (river dealt, or all-in runout complete) → go to showdown.
       if (S.gs.isComplete() || (S.gs.street === "river" && S.gs.roundComplete())) {

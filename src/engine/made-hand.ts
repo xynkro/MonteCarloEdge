@@ -63,32 +63,96 @@ function straightDraw(holeRanks: number[], boardRanks: number[]): "oesd" | "guts
 export function nutHand(
   board: readonly Card[],
   dead: readonly Card[] = [],
-): { label: string; combos: [Card, Card][] } | null {
+): { label: string; combos: [Card, Card][]; second: string | null } | null {
   if (board.length < 3) return null;
   const used = new Uint8Array(NUM_CARDS);
   for (const c of board) used[c] = 1;
   for (const c of dead) used[c] = 1;
   let best = -1;
-  const ranks: number[] = [];
-  const combos: [Card, Card][] = [];
   for (let a = 0; a < NUM_CARDS; a++) {
     if (used[a]) continue;
     for (let b = a + 1; b < NUM_CARDS; b++) {
       if (used[b]) continue;
-      ranks.push(evaluate([a, b, ...board]));
+      const r = evaluate([a, b, ...board]);
+      if (r > best) best = r;
     }
   }
-  for (const r of ranks) if (r > best) best = r;
-  // Second pass to collect all combos achieving the top rank.
+  // Collect all combos achieving the top rank, and track the best rank strictly
+  // below it (the "second nuts") with a representative combo for its label.
+  const combos: [Card, Card][] = [];
+  let secondRank = -1;
+  let secondCombo: [Card, Card] | null = null;
   for (let a = 0; a < NUM_CARDS; a++) {
     if (used[a]) continue;
     for (let b = a + 1; b < NUM_CARDS; b++) {
       if (used[b]) continue;
-      if (evaluate([a, b, ...board]) === best) combos.push([a, b]);
+      const r = evaluate([a, b, ...board]);
+      if (r === best) combos.push([a, b]);
+      else if (r > secondRank) { secondRank = r; secondCombo = [a, b]; }
     }
   }
   if (combos.length === 0) return null;
-  return { label: describeHand(combos[0]!, board).label, combos };
+  const second = secondCombo ? nutLabel(secondCombo, board) : null;
+  return { label: nutLabel(combos[0]!, board), combos, second };
+}
+
+// A concise, specific label for a made hand — names the rank so the nuts and
+// the second nuts are distinguishable ("Three Aces" vs "Three Eights").
+export function nutLabel(combo: readonly [Card, Card], board: readonly Card[]): string {
+  const cards = [combo[0], combo[1], ...board];
+  const cat = categoryOf(evaluate(cards));
+  const counts = new Array<number>(13).fill(0);
+  for (const c of cards) counts[rankOf(c)]!++;
+  const atLeast = (n: number): number[] => {
+    const out: number[] = [];
+    for (let r = 12; r >= 0; r--) if (counts[r]! >= n) out.push(r);
+    return out;
+  };
+  const present = new Set(cards.map(rankOf));
+  const straightTop = (): number => {
+    for (let hi = 12; hi >= 4; hi--) {
+      let ok = true;
+      for (let k = 0; k < 5; k++) if (!present.has(hi - k)) { ok = false; break; }
+      if (ok) return hi;
+    }
+    return present.has(12) && [0, 1, 2, 3].every((r) => present.has(r)) ? 3 : -1; // wheel → 5-high
+  };
+  switch (cat) {
+    case CATEGORY.STRAIGHT_FLUSH: {
+      const t = straightTop();
+      return t >= 0 ? `${RANK_WORD[t]}-high straight flush` : "Straight flush";
+    }
+    case CATEGORY.QUADS: return `Quad ${RANK_WORD[atLeast(4)[0]!]}s`;
+    case CATEGORY.FULL_HOUSE: {
+      const trip = atLeast(3)[0]!;
+      const pair = atLeast(2).find((r) => r !== trip);
+      return pair !== undefined ? `${RANK_WORD[trip]}s full of ${RANK_WORD[pair]}s` : `${RANK_WORD[trip]}s full`;
+    }
+    case CATEGORY.FLUSH: {
+      const suitCount = new Array<number>(4).fill(0);
+      for (const c of cards) suitCount[suitOf(c)]!++;
+      let fs = -1;
+      for (let s = 0; s < 4; s++) if (suitCount[s]! >= 5) fs = s;
+      let hi = -1;
+      for (const c of cards) if (suitOf(c) === fs) hi = Math.max(hi, rankOf(c));
+      return `${RANK_WORD[hi]}-high flush`;
+    }
+    case CATEGORY.STRAIGHT: {
+      const t = straightTop();
+      return t >= 0 ? `${RANK_WORD[t]}-high straight` : "Straight";
+    }
+    case CATEGORY.TRIPS: return `Three ${RANK_WORD[atLeast(3)[0]!]}s`;
+    case CATEGORY.TWO_PAIR: {
+      const ps = atLeast(2);
+      return `${RANK_WORD[ps[0]!]}s & ${RANK_WORD[ps[1]!]}s`;
+    }
+    case CATEGORY.PAIR: return `Pair of ${RANK_WORD[atLeast(2)[0]!]}s`;
+    default: {
+      let hi = -1;
+      for (const c of cards) hi = Math.max(hi, rankOf(c));
+      return `${RANK_WORD[hi]} high`;
+    }
+  }
 }
 
 export function describeHand(
