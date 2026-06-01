@@ -449,9 +449,10 @@ body {
   #app { max-width: none; } /* use the full landscape width, not the 480px cap */
   .stage { flex-direction: row; align-items: stretch; }
   .table-wrap {
-    flex: 1 1 56%; min-width: 0; height: 100%; padding: 4px 8px;
+    flex: 1 1 56%; min-width: 0; height: 100%; padding: 6px 30px;
   }
-  .poker-table { height: 100%; width: auto; max-width: 100%; }
+  /* Slightly smaller + centered so the side seats don't graze the screen edge. */
+  .poker-table { height: 90%; width: auto; max-width: 100%; }
   .below {
     flex: 1 1 44%; min-width: 280px; height: 100%; padding: 0 4px;
     border-left: 1px solid var(--line); overflow-y: auto;
