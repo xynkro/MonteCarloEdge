@@ -644,13 +644,13 @@ body {
 .suit-btn:active { transform: scale(.93); }
 .suit-btn.used { opacity: .12; pointer-events: none; }
 
-/* Single-screen picker: ranks on top, suits below */
-.picker-single { max-height: 90dvh; }
+/* Single-screen picker: ranks on top, suits below — fills the screen */
+.picker-single { max-height: 96dvh; }
 .rank-grid.big {
-  grid-template-columns: repeat(7, 1fr); gap: 7px; margin-bottom: 14px;
+  grid-template-columns: repeat(7, 1fr); gap: 8px; margin-bottom: 16px;
 }
 .rank-grid.big .rank-btn {
-  padding: 18px 4px; font-size: 24px; transition: transform .1s, box-shadow .15s, outline .1s;
+  padding: 30px 4px; font-size: 28px; transition: transform .1s, box-shadow .15s, outline .1s;
 }
 .rank-grid.big .rank-btn.sel {
   outline: 3px solid var(--emerald);
@@ -660,7 +660,7 @@ body {
 .suit-row {
   display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 6px;
 }
-.suit-row .suit-btn { padding: 24px 8px; font-size: 38px; }
+.suit-row .suit-btn { padding: 42px 8px; font-size: 48px; }
 
 .back-btn {
   display: block; width: 100%; padding: 11px; margin-bottom: 8px;

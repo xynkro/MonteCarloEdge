@@ -2191,24 +2191,32 @@ function renderPicker(): void {
 
   app.appendChild(overlay);
 
-  // Rank: select (highlight) without leaving the screen.
+  // Rank: highlight in place + enable its suits — NO full re-render (no flash).
   overlay.querySelectorAll(".rank-btn:not(.used)").forEach(btn =>
     btn.addEventListener("click", () => {
-      S.pickerRank = +(btn as HTMLElement).dataset.rank!;
-      renderPicker();
+      const r = +(btn as HTMLElement).dataset.rank!;
+      S.pickerRank = r;
+      overlay.querySelectorAll(".rank-btn").forEach(b => b.classList.toggle("sel", b === btn));
+      overlay.querySelectorAll(".suit-btn").forEach(b => {
+        const s = +(b as HTMLElement).dataset.suit!;
+        b.classList.toggle("used", S.allDealt.has(makeCard(r, s)) || S.pickerPicked.includes(makeCard(r, s)));
+      });
+      const hintEl = overlay.querySelector(".pick-label");
+      if (hintEl) hintEl.textContent = `${RANKS[r]} — now tap the suit`;
     }),
   );
 
-  // Suit: commit the card once a rank is selected.
-  overlay.querySelectorAll(".suit-btn:not(.used)").forEach(btn =>
+  // Suit: commit the card once a rank is selected. Handlers on ALL suit buttons
+  // (they get enabled in place above), guarded by the live "used" state.
+  overlay.querySelectorAll(".suit-btn").forEach(btn =>
     btn.addEventListener("click", () => {
-      if (S.pickerRank === null) return;
+      if (S.pickerRank === null || btn.classList.contains("used")) return;
       const card = makeCard(S.pickerRank, +(btn as HTMLElement).dataset.suit!);
       S.pickerPicked.push(card);
       S.pickerRank = null;
       playSound("card");
       if (S.pickerPicked.length === needed) { confirmPicker(); return; }
-      renderPicker();
+      renderPicker(); // a card was placed — rebuild for the next one
     }),
   );
 
