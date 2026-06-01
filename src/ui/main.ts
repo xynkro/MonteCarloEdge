@@ -540,50 +540,49 @@ function renderSetup(): void {
   const positions = getPositions(S.tableSize);
   app.innerHTML = `
     <div class="setup">
-      <h1>MonteCarloEdge<small>Poker Decision Assistant</small></h1>
-
-      <div class="help-banner" id="help-toggle">
-        <span class="help-icon">?</span> How does this work?
-      </div>
-      <div class="help-body hidden" id="help-body">
-        <p>This app tells you <strong>what to do</strong> at the poker table in real time.</p>
-        <ol>
-          <li>Set up your table below</li>
-          <li>Pick your two hole cards when dealt</li>
-          <li>Tap each opponent's action as it happens (fold / call / raise)</li>
-          <li>When it's <strong>your turn</strong>, the app shows the recommended play with the math behind it</li>
-          <li>After each betting round, tap the board to enter community cards</li>
-        </ol>
+      <div class="brand">
+        <img class="brand-logo" src="${import.meta.env.BASE_URL}logo.png" alt="" onerror="this.style.display='none'" />
+        <h1>MonteCarloEdge<small>Poker Decision Assistant</small></h1>
       </div>
 
-      <div class="field">
-        <label>How many players?</label>
-        <select id="tsize">
-          ${[2, 3, 4, 5, 6, 7, 8, 9, 10].map(n =>
-            `<option value="${n}" ${n === S.tableSize ? "selected" : ""}>${n === 2 ? "2 (Heads-Up)" : n + " players"}</option>`
-          ).join("")}
-        </select>
+      <div class="field-row">
+        <div class="field">
+          <label>Players</label>
+          <select id="tsize">
+            ${[2, 3, 4, 5, 6, 7, 8, 9, 10].map(n =>
+              `<option value="${n}" ${n === S.tableSize ? "selected" : ""}>${n === 2 ? "2 (HU)" : n + " players"}</option>`
+            ).join("")}
+          </select>
+        </div>
+        <div class="field">
+          <label>Opponent type</label>
+          <select id="arch">
+            ${Object.keys(PROFILES).map(k =>
+              `<option value="${k}" ${k === S.archetype ? "selected" : ""}>${k}</option>`
+            ).join("")}
+          </select>
+        </div>
       </div>
+      <span class="hint arch-desc">${ARCH_DESC[S.archetype]}</span>
 
-      <div class="field">
-        <label>Blinds</label>
-        <span class="hint">Tap to set your table's small / big blind. All amounts show in dollars.</span>
-        <div class="blinds-row">
-          <button class="tap-input" data-numpad="sb">$${fmtMoney(S.sbValue)}</button>
-          <span class="blind-slash">/</span>
-          <button class="tap-input" data-numpad="bb">$${fmtMoney(S.bbValue)}</button>
+      <div class="field-row">
+        <div class="field">
+          <label>Blinds</label>
+          <div class="blinds-row">
+            <button class="tap-input" data-numpad="sb">$${fmtMoney(S.sbValue)}</button>
+            <span class="blind-slash">/</span>
+            <button class="tap-input" data-numpad="bb">$${fmtMoney(S.bbValue)}</button>
+          </div>
+        </div>
+        <div class="field">
+          <label>Starting chips</label>
+          <button class="tap-input" data-numpad="stack">${S.stackBB}bb · $${fmtMoney(S.stackBB * S.bbValue)}</button>
         </div>
       </div>
 
       <div class="field">
-        <label>Starting chips per player</label>
-        <span class="hint">In big blinds. Tap to set.</span>
-        <button class="tap-input" data-numpad="stack">${S.stackBB} bb = $${fmtMoney(S.stackBB * S.bbValue)}</button>
-      </div>
-
-      <div class="field">
         <label>Where are you sitting?</label>
-        <span class="hint">Tap your seat. BTN (Dealer) is the best — you act last after the flop.</span>
+        <span class="hint">Tap your seat. BTN (Dealer) is best — you act last after the flop.</span>
         <div class="seat-ring">
           ${positions.map((p, i) =>
             `<button class="seat-btn ${i === S.heroSeat ? "selected" : ""}" data-seat="${i}" title="${positionTip(p)}">${p}</button>`
@@ -593,19 +592,8 @@ function renderSetup(): void {
       </div>
 
       <div class="field">
-        <label>Opponent type</label>
-        <span class="hint">Don't know the table? Leave it on <strong>Auto</strong> — it plays solid and learns each player as you log hands. Pick a style only if you already know it.</span>
-        <select id="arch">
-          ${Object.keys(PROFILES).map(k =>
-            `<option value="${k}" ${k === S.archetype ? "selected" : ""}>${k}</option>`
-          ).join("")}
-        </select>
-        <span class="hint arch-desc">${ARCH_DESC[S.archetype]}</span>
-      </div>
-
-      <div class="field">
         <div class="per-seat-head" id="per-seat-toggle">
-          <label>Customize per seat ▾</label>
+          <label>Customize opponents per seat ▾</label>
         </div>
         <div class="per-seat-body hidden" id="per-seat-body">
           ${positions.map((p, i) => {
@@ -627,6 +615,21 @@ function renderSetup(): void {
       <button class="start-btn" id="start">DEAL HAND</button>
       <button class="start-btn" id="start-training" style="background:linear-gradient(135deg,var(--violet),var(--violet-2));color:#fff;box-shadow:0 8px 22px rgba(124,92,255,.3);margin-top:8px">TRAINING MODE</button>
       <span class="hint" style="text-align:center">Training: practice against the AI. It deals cards, makes villain decisions, reveals hands at showdown.</span>
+
+      <div class="help-banner" id="help-toggle">
+        <span class="help-icon">?</span> How does this work?
+      </div>
+      <div class="help-body hidden" id="help-body">
+        <p>This app tells you <strong>what to do</strong> at the poker table in real time.</p>
+        <ol>
+          <li>Set up your table above</li>
+          <li>Pick your two hole cards when dealt</li>
+          <li>Tap each opponent's action as it happens (fold / call / raise)</li>
+          <li>When it's <strong>your turn</strong>, the app shows the recommended play with the math behind it</li>
+          <li>After each betting round, tap the board to enter community cards</li>
+        </ol>
+      </div>
+
       <div class="setup-footer">
         <button class="hdr-btn" id="view-stats">Session Stats</button>
         <button class="hdr-btn" id="sound-toggle">${isSoundEnabled() ? "🔊 Sound On" : "🔇 Sound Off"}</button>
