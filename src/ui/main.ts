@@ -2,7 +2,7 @@ import { type Card, rankOf, suitOf, makeCard, NUM_CARDS } from "../engine/cards.
 import { type Combo, Range } from "../engine/range.js";
 import { mulberry32 } from "../engine/rng.js";
 import { GameState, type ActionType } from "../engine/game-state.js";
-import { getPositions, getRfiRange, getBbDefenseRange } from "../engine/charts/index.js";
+import { getPositions, positionsForButton, getRfiRange, getBbDefenseRange } from "../engine/charts/index.js";
 import { estimateVillainRange } from "../engine/opponent.js";
 import { solveSubgame, type RiverResult } from "../engine/gto/river-solver.js";
 import { solvePushFold, handClassKey, type PushFoldResult } from "../engine/gto/pushfold.js";
@@ -774,8 +774,8 @@ function startTrainingHand(): void {
   S.boardRead = null;
   S.boardReadKey = "";
 
-  // Create game state
-  const positions = getPositions(S.tableSize);
+  // Create game state — labels rotate with the button.
+  const positions = positionsForButton(S.tableSize, S.dealerSeat);
   S.gs = new GameState({
     tableSize: S.tableSize,
     bb: 1,
@@ -803,7 +803,7 @@ function startTrainingHand(): void {
 
 function initGameState(): void {
   if (!S.heroCards) return;
-  const positions = getPositions(S.tableSize);
+  const positions = positionsForButton(S.tableSize, S.dealerSeat); // labels follow the button
   if (S.seatStacks.length !== positions.length) {
     S.seatStacks = positions.map(() => S.stackBB);
   }
@@ -953,7 +953,10 @@ function renderGame(): void {
   }
   const gs = S.gs;
   updateBoardRead();
-  const positions = getPositions(S.tableSize);
+  // Labels follow the button. Use the live game state's positions when a hand is
+  // running so the board matches exactly what the engine/recommendation use.
+  const positions = gs ? gs.positions
+    : positionsForButton(S.tableSize, S.dealerSeat < 0 ? S.tableSize - 3 : S.dealerSeat);
   const next = gs?.nextToAct() ?? null;
   const needsBoard = gs && gs.roundComplete() && !gs.isComplete() && !S.handOver;
   const isHeroTurn = next === S.heroSeat;
@@ -1004,7 +1007,7 @@ function renderGame(): void {
       ${isDealer ? '<div class="dealer-btn">D</div>' : ""}
       ${tag ? `<div class="seat-tag tag-${tag.toLowerCase()}">${tag}</div>` : ""}
       <div class="seat-chip" ${chipAttr}>
-        <div class="seat-pos">${isHero ? "YOU" : pos}</div>
+        <div class="seat-pos">${isHero ? `YOU <span class="seat-subpos">${pos}</span>` : pos}</div>
         <div class="seat-stack">${chips(stack)}</div>
         ${actText ? `<div class="seat-act">${actText}</div>` : ""}
       </div>

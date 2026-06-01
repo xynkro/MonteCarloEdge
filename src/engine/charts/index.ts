@@ -48,6 +48,20 @@ export function getPositions(tableSize: number): readonly string[] {
   return p;
 }
 
+// Position label for each SEAT given where the dealer button sits, so labels
+// rotate with the button (BTN at `dealerSeat`, SB next, etc.). When
+// `dealerSeat` is the canonical BTN index (tableSize-3) this equals getPositions.
+export function positionsForButton(tableSize: number, dealerSeat: number): string[] {
+  const canon = POSITION_NAMES[tableSize];
+  if (!canon) throw new Error(`Unsupported table size: ${tableSize}`);
+  const n = canon.length;
+  const btnIdx = canon.indexOf("BTN");
+  const ds = ((dealerSeat % n) + n) % n;
+  const out = new Array<string>(n);
+  for (let s = 0; s < n; s++) out[s] = canon[(((s - ds + btnIdx) % n) + n) % n]!;
+  return out;
+}
+
 export function getRfiRange(tableSize: number, position: string): Range {
   const { rfi } = pickChart(tableSize);
   const resolved = resolvePosition(rfi, position);
