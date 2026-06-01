@@ -650,7 +650,7 @@ body {
   grid-template-columns: repeat(7, 1fr); gap: 8px; margin-bottom: 16px;
 }
 .rank-grid.big .rank-btn {
-  padding: 30px 4px; font-size: 28px; transition: transform .1s, box-shadow .15s, outline .1s;
+  padding: 36px 4px; font-size: 30px; transition: transform .1s, box-shadow .15s, outline .1s;
 }
 .rank-grid.big .rank-btn.sel {
   outline: 3px solid var(--emerald);
@@ -660,7 +660,7 @@ body {
 .suit-row {
   display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 6px;
 }
-.suit-row .suit-btn { padding: 42px 8px; font-size: 48px; }
+.suit-row .suit-btn { padding: 50px 8px; font-size: 52px; }
 
 .back-btn {
   display: block; width: 100%; padding: 11px; margin-bottom: 8px;
