@@ -105,6 +105,8 @@ interface AppState {
   seatMenuSeat: number | null;
   // One-shot deal animation: animate only freshly-dealt cards on the next render.
   dealAnim: { kind: "hero" | "board"; from: number } | null;
+  // One-shot: seat that just acted (for an action flash on the next render).
+  flashSeat: number | null;
 }
 
 const S: AppState = {
@@ -159,6 +161,7 @@ const S: AppState = {
   undoStack: [],
   seatMenuSeat: null,
   dealAnim: null,
+  flashSeat: null,
 };
 
 // Cache push/fold solutions by effective-stack depth (equity table is reused).
@@ -542,6 +545,7 @@ const ARCH_DESC: Record<string, string> = {
 };
 
 function renderSetup(): void {
+  cancelVillainTimer();
   // Returning to setup starts a fresh session: clear running stacks so they
   // re-initialise to the (possibly changed) buy-in on the next hand.
   S.seatStacks = [];
@@ -744,6 +748,7 @@ function shuffleDeck(): Card[] {
 }
 
 function startTrainingHand(): void {
+  cancelVillainTimer();
   const n = getPositions(S.tableSize).length;
   if (S.dealerSeat < 0) {
     S.dealerSeat = S.tableSize === 2 ? 0 : n - 3;
@@ -987,7 +992,15 @@ function renderGame(): void {
       isHero ? "hero-seat" : "",
       folded ? "folded" : "",
       active ? "active" : "",
+      S.flashSeat === i ? "flash" : "",
     ].filter(Boolean).join(" ");
+
+    // Chips this player has wagered on the current street, shown on the felt
+    // between the seat and the pot (WSOP-style).
+    const streetBet = gs ? gs.streetInvested[i]! : 0;
+    const betChip = streetBet > 0 && !folded
+      ? `<div class="seat-bet ${top < 50 ? "below" : "above"}"><span class="chip-dot"></span>${chips(streetBet)}</div>`
+      : "";
 
     let actText = "";
     if (lastAct) {
@@ -1023,6 +1036,7 @@ function renderGame(): void {
         <div class="seat-stack">${chips(stack)}</div>
         ${actText ? `<div class="seat-act">${actText}</div>` : ""}
       </div>
+      ${betChip}
       ${seatMenu}
     </div>`;
   }).join("");
@@ -1174,6 +1188,7 @@ function renderGame(): void {
         : S.handOver ? renderHandResult(positions) : actionsHtml}
     </div>`;
   S.dealAnim = null; // one-shot: consumed by this render
+  S.flashSeat = null;
 
   // ── Events ──
   $("#new-hand")?.addEventListener("click", () => { S.screen = "setup"; S.dealerSeat = -1; S.handNumber = 0; render(); });
@@ -1588,87 +1603,94 @@ function renderReview(): void {
   });
 }
 
+// Villain auto-play is STEPPED with a beat between actions so you actually see
+// each opponent fold / call / bet / raise (and the bet chips land), instead of
+// the table jumping straight to your turn.
+let villainTimer: ReturnType<typeof setTimeout> | null = null;
+function cancelVillainTimer(): void {
+  if (villainTimer) { clearTimeout(villainTimer); villainTimer = null; }
+}
+function scheduleVillainStep(delay: number): void {
+  cancelVillainTimer();
+  villainTimer = setTimeout(villainStep, delay);
+}
+
 function autoPlayVillain(): void {
-  if (!S.gs || S.handOver || S.mode !== "training" || S.villainHands.size === 0) return;
+  if (S.mode !== "training") return;
+  scheduleVillainStep(550);
+}
 
-  // Keep playing villain turns until it's hero's turn or hand is over
-  const profile = PROFILES[S.archetype]!;
-  const rng = () => Math.random();
-  let safety = 20;
+function villainStep(): void {
+  villainTimer = null;
+  if (!S.gs || S.handOver || S.mode !== "training" || S.screen !== "game") return;
+  if (S.pickerOpen || S.betPadOpen) { scheduleVillainStep(400); return; } // wait out overlays
 
-  while (safety-- > 0) {
-    if (S.gs.activeSeatCount <= 1 || S.gs.isComplete()) break;
-
-    // If round is complete, deal next street automatically
-    if (S.gs.roundComplete() && !S.gs.isComplete()) {
-      if (S.gs.street === "river") {
-        // Go to showdown
-        trainingShowdown();
-        return;
-      }
-      // Check if anyone can act next street
-      const anyCanAct = S.gs.stacks.some((s, i) => !S.gs!.folded[i] && s > 0);
-      if (!anyCanAct) {
-        // All-in — deal remaining board and showdown
-        S.dealAnim = { kind: "board", from: S.boardCards.length };
-        while (S.gs.street !== "river") {
-          const cards = getNextBoardCards();
-          S.boardCards.push(...cards);
-          S.gs.advanceStreet(cards);
-        }
-        trainingShowdown();
-        return;
-      }
+  // Round done → deal the next street (or go to showdown), then continue.
+  if (S.gs.roundComplete() && !S.gs.isComplete()) {
+    if (S.gs.street === "river") { trainingShowdown(); return; }
+    const anyCanAct = S.gs.stacks.some((s, i) => !S.gs!.folded[i] && s > 0);
+    if (!anyCanAct) {
+      // Everyone all-in — run the board out one street at a time, then showdown.
       S.dealAnim = { kind: "board", from: S.boardCards.length };
       const cards = getNextBoardCards();
       S.boardCards.push(...cards);
       S.gs.advanceStreet(cards);
-    }
-
-    const next = S.gs.nextToAct();
-    if (next === null) break;
-    if (next === S.heroSeat) break; // Hero's turn — stop and wait for input
-
-    // Villain acts — tough, non-cheating engine-driven decision, per-seat profile,
-    // using THIS seat's own dealt hand.
-    const seatProfile = buildProfiles().get(next) ?? profile;
-    const seatCards = S.villainHands.get(next) ?? S.villainCards!;
-    const vAct = villainDecision(S.gs, next, seatCards, seatProfile, rng);
-    let action = vAct.type;
-    let amount = vAct.amount;
-    const legal = S.gs.legalActionsFor(next);
-
-    if (action === "raise" && !legal.includes("raise")) {
-      action = legal.includes("call") ? "call" : "check"; amount = 0;
-    }
-    if (action === "bet" && !legal.includes("bet")) { action = "check"; amount = 0; }
-    if (action === "fold" && !legal.includes("fold")) { action = "check"; amount = 0; }
-
-    S.gs.applyAction({ seat: next, type: action, amount });
-
-    if (S.gs.activeSeatCount <= 1) {
-      // Villain folded
-      const winnerSeat = S.gs.folded.findIndex(f => !f);
-      const winnerPos = winnerSeat === S.heroSeat ? "You" : S.gs.positions[winnerSeat]!;
-      const folderPos = S.gs.positions[next]!;
-      S.handResult = `${folderPos} folded — ${winnerPos} won ${chips(S.gs.pot)}`;
-      const heroPnl = winnerSeat === S.heroSeat
-        ? S.gs.pot - S.gs.invested[S.heroSeat]! : -S.gs.invested[S.heroSeat]!;
-      saveHandRecord(heroPnl);
-      S.handOver = true; S.rec = null;
-      updateMessage(); render();
+      render();
+      scheduleVillainStep(S.gs.street === "river" ? 750 : 650);
       return;
     }
+    S.dealAnim = { kind: "board", from: S.boardCards.length };
+    const cards = getNextBoardCards();
+    S.boardCards.push(...cards);
+    S.gs.advanceStreet(cards);
+    updateRec(); updateMessage(); render();
+    scheduleVillainStep(700);
+    return;
   }
 
-  // After loop: check if hand ended while villain was acting
-  if (S.gs && (S.gs.isComplete() || (S.gs.roundComplete() && S.gs.street === "river"))) {
-    trainingShowdown();
+  const next = S.gs.nextToAct();
+  if (next === null || S.gs.isComplete()) {
+    if (S.gs.isComplete() || (S.gs.roundComplete() && S.gs.street === "river")) trainingShowdown();
+    return;
+  }
+  if (next === S.heroSeat) {
+    updateRec(); updateMessage(); render();
+    if (!S.handOver) playSound("turn");
+    return; // your turn — wait for input
+  }
+
+  // One villain acts, using its own dealt hand and per-seat profile.
+  const seatProfile = buildProfiles().get(next) ?? PROFILES[S.archetype]!;
+  const seatCards = S.villainHands.get(next) ?? S.villainCards!;
+  const vAct = villainDecision(S.gs, next, seatCards, seatProfile, () => Math.random());
+  let action = vAct.type;
+  let amount = vAct.amount;
+  const legal = S.gs.legalActionsFor(next);
+  if (action === "raise" && !legal.includes("raise")) { action = legal.includes("call") ? "call" : "check"; amount = 0; }
+  if (action === "bet" && !legal.includes("bet")) { action = "check"; amount = 0; }
+  if (action === "fold" && !legal.includes("fold")) { action = "check"; amount = 0; }
+
+  S.gs.applyAction({ seat: next, type: action, amount });
+  S.flashSeat = next; // pulse the seat that just acted
+  playSound(action === "fold" ? "fold" : action === "check" ? "check" : "bet");
+
+  // Villain folded everyone else out → hero (or last seat) wins outright.
+  if (S.gs.activeSeatCount <= 1) {
+    const winnerSeat = S.gs.folded.findIndex(f => !f);
+    const winnerPos = winnerSeat === S.heroSeat ? "You" : S.gs.positions[winnerSeat]!;
+    const folderPos = S.gs.positions[next]!;
+    S.handResult = `${folderPos} folded — ${winnerPos} won ${chips(S.gs.pot)}`;
+    const heroPnl = winnerSeat === S.heroSeat
+      ? S.gs.pot - S.gs.invested[S.heroSeat]! : -S.gs.invested[S.heroSeat]!;
+    saveHandRecord(heroPnl);
+    S.handOver = true; S.rec = null;
+    updateMessage(); render();
     return;
   }
 
   updateRec(); updateMessage(); render();
-  if (S.gs && S.gs.nextToAct() === S.heroSeat && !S.handOver) playSound("turn");
+  // Faster after a fold/check, a touch slower after chips go in.
+  scheduleVillainStep(action === "fold" || action === "check" ? 520 : 720);
 }
 
 function getNextBoardCards(): Card[] {

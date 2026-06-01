@@ -317,6 +317,31 @@ body {
 
 .table-seat.tappable .seat-chip { cursor: pointer; }
 
+/* Bet chips on the felt (between seat and pot) */
+.seat-bet {
+  position: absolute; left: 50%; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 4px; white-space: nowrap;
+  background: rgba(6,10,14,.9); border: 1px solid rgba(255,209,102,.45);
+  color: var(--gold); font-size: 10.5px; font-weight: 800;
+  padding: 2px 7px; border-radius: 999px; z-index: 4;
+  animation: betIn .2s ease-out;
+}
+.seat-bet.below { top: calc(100% + 4px); }
+.seat-bet.above { bottom: calc(100% + 4px); }
+.chip-dot {
+  width: 9px; height: 9px; border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #ffe08a, var(--gold));
+  border: 1px solid rgba(0,0,0,.4); box-shadow: 0 0 4px rgba(255,209,102,.5);
+}
+@keyframes betIn { from { transform: translate(-50%, -6px) scale(.7); opacity: 0; } to { transform: translateX(-50%); opacity: 1; } }
+
+/* Brief flash when a seat just acted */
+.table-seat.flash .seat-chip { animation: seatFlash .55s ease-out; }
+@keyframes seatFlash {
+  0% { box-shadow: 0 0 0 2px var(--emerald), 0 0 20px rgba(0,214,143,.7); }
+  100% { box-shadow: none; }
+}
+
 /* Inline action menu anchored to the acting seat (tap-a-seat to log) */
 .seat-actions {
   position: absolute; z-index: 30; display: flex; gap: 6px; white-space: nowrap;
