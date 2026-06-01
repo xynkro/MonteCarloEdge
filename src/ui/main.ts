@@ -1012,7 +1012,9 @@ function updateMessage(): void {
   const n = S.gs.nextToAct();
   if (n === null) { S.message = ""; return; }
   const pos = S.gs.positions[n];
-  S.message = n === S.heroSeat ? `Your turn (${pos})` : `${pos} to act — tap their action below`;
+  if (n === S.heroSeat) { S.message = `Your turn (${pos})`; return; }
+  // Training: the AI plays the villains, so just show who's thinking.
+  S.message = S.mode === "training" ? `${pos} is deciding…` : `${pos} to act — tap their action below`;
 }
 
 function seatCoord(seatIdx: number): { left: number; top: number } {
@@ -1208,7 +1210,10 @@ function renderGame(): void {
 
   // ── Actions ──
   const legal = gs && next !== null ? gs.legalActionsFor(next) : [];
-  const showActions = gs && !S.handOver && next !== null && !needsBoard;
+  // In training the AI auto-plays the villains, so the action controls only
+  // appear on YOUR turn. (In live mode you log every seat, so they show for all.)
+  const showActions = !!gs && !S.handOver && next !== null && !needsBoard
+    && (S.mode === "live" || next === S.heroSeat);
 
   // If there's a rec with amount, show it on the bet/raise button for one-tap action
   const recAmt = S.rec && S.rec.amount > 0 ? roundBet(S.rec.amount) : 0;
