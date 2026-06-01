@@ -107,6 +107,10 @@ interface AppState {
   dealAnim: { kind: "hero" | "board"; from: number } | null;
   // One-shot: seat that just acted (for an action flash on the next render).
   flashSeat: number | null;
+  // Training tournament: end state + the configured starting table size (so
+  // "New Game" can rebuild the full table after players have busted out).
+  trainingOver: "win" | "bust" | null;
+  trainingStartSize: number;
 }
 
 const S: AppState = {
@@ -162,6 +166,8 @@ const S: AppState = {
   seatMenuSeat: null,
   dealAnim: null,
   flashSeat: null,
+  trainingOver: null,
+  trainingStartSize: 6,
 };
 
 // Cache push/fold solutions by effective-stack depth (equity table is reused).
@@ -725,7 +731,15 @@ function renderSetup(): void {
     btn.addEventListener("click", () => { S.heroSeat = +(btn as HTMLElement).dataset.seat!; render(); }),
   );
   $("#start").addEventListener("click", () => { S.mode = "live"; startHand(); });
-  document.getElementById("start-training")?.addEventListener("click", () => { S.mode = "training"; startTrainingHand(); });
+  document.getElementById("start-training")?.addEventListener("click", () => {
+    S.mode = "training";
+    S.trainingOver = null;
+    S.trainingStartSize = S.tableSize;
+    S.dealerSeat = -1;
+    S.handNumber = 0;
+    S.seatStacks = []; // fresh tournament stacks
+    startTrainingHand();
+  });
   document.getElementById("view-stats")?.addEventListener("click", () => {
     S.screen = "stats"; render();
   });
@@ -773,10 +787,10 @@ function startHand(): void {
 }
 
 function nextHand(): void {
+  if (S.mode === "training") { advanceTrainingHand(); return; }
   const n = getPositions(S.tableSize).length;
   S.dealerSeat = (S.dealerSeat + 1) % n;
-  if (S.mode === "training") startTrainingHand();
-  else startHand();
+  startHand();
 }
 
 function shuffleDeck(): Card[] {
@@ -796,6 +810,8 @@ function startTrainingHand(): void {
   if (S.dealerSeat < 0) {
     S.dealerSeat = S.tableSize === 2 ? 0 : n - 3;
   }
+  // Tournament stacks persist across hands; initialise only for a new game.
+  if (S.seatStacks.length !== n) S.seatStacks = Array.from({ length: n }, () => S.stackBB);
   S.handNumber++;
 
   // Shuffle and deal — each seat gets its OWN hand (true multiway).
@@ -840,7 +856,7 @@ function startTrainingHand(): void {
     tableSize: S.tableSize,
     bb: 1,
     sb: S.sbValue / S.bbValue,
-    stacks: positions.map(() => S.stackBB),
+    stacks: S.seatStacks.slice(), // persistent tournament stacks
     positions: [...positions],
     heroSeat: S.heroSeat,
     heroCards: heroCards,
@@ -1043,7 +1059,10 @@ function renderGame(): void {
     const folded = gs?.folded[i] ?? false;
     const active = next === i;
     const lastAct = gs?.actions.filter(a => a.seat === i && a.street === gs.street).at(-1);
-    const stack = gs ? gs.stacks[i]! + gs.streetInvested[i]! : S.stackBB;
+    // Mid-hand: show in-hand stack. After the hand resolves: show the awarded
+    // running stack (so the winner's stack visibly grows).
+    const stack = (S.handOver && S.seatStacks[i] != null) ? S.seatStacks[i]!
+      : gs ? gs.stacks[i]! + gs.streetInvested[i]! : S.stackBB;
     const cls = [
       "table-seat",
       isHero ? "hero-seat" : "",
@@ -1242,7 +1261,8 @@ function renderGame(): void {
         ${canSolveGto() ? `<button class="gto-btn" id="gto-solve">${S.gtoSolving ? "Solving…" : "🧠 Solve GTO"}</button>` : ""}
       </div>
 
-      ${S.allInPrompt ? renderAllInPrompt()
+      ${S.trainingOver ? renderTrainingOver()
+        : S.allInPrompt ? renderAllInPrompt()
         : S.rit?.awaitWinner ? renderRunResult()
         : S.handOver ? renderHandResult(positions) : actionsHtml}
     </div>`;
@@ -1253,6 +1273,17 @@ function renderGame(): void {
   $("#new-hand")?.addEventListener("click", () => { S.screen = "setup"; S.dealerSeat = -1; S.handNumber = 0; render(); });
   document.getElementById("undo-btn")?.addEventListener("click", undo);
   document.getElementById("next-hand")?.addEventListener("click", nextHand);
+  document.getElementById("train-again")?.addEventListener("click", () => {
+    // Restart the tournament with the originally configured table size.
+    S.trainingOver = null;
+    S.tableSize = S.trainingStartSize;
+    if (S.heroSeat >= S.tableSize) S.heroSeat = S.tableSize - 1;
+    S.dealerSeat = -1;
+    S.handNumber = 0;
+    S.seatStacks = [];
+    S.handOver = false;
+    startTrainingHand();
+  });
   document.getElementById("review-hand")?.addEventListener("click", () => { S.reviewOpen = true; renderReview(); });
   document.getElementById("gto-solve")?.addEventListener("click", startGtoSolve);
 
@@ -1475,9 +1506,8 @@ function doAction(seat: number, type: ActionType): void {
     if (S.mode === "live") {
       resolveLive(strengthFromWinners(S.gs.stacks.length, [winnerSeat]), text);
     } else {
-      const heroPnl = winnerSeat === S.heroSeat
-        ? S.gs.pot - S.gs.invested[S.heroSeat]!
-        : -S.gs.invested[S.heroSeat]!;
+      const won = trainingSettle(strengthFromWinners(S.gs.stacks.length, [winnerSeat]));
+      const heroPnl = won[S.heroSeat]! - S.gs.invested[S.heroSeat]!;
       S.handResult = text;
       saveHandRecord(heroPnl);
       S.handOver = true; S.rec = null;
@@ -1738,9 +1768,9 @@ function villainStep(): void {
     const winnerSeat = S.gs.folded.findIndex(f => !f);
     const winnerPos = winnerSeat === S.heroSeat ? "You" : S.gs.positions[winnerSeat]!;
     const folderPos = S.gs.positions[next]!;
-    S.handResult = `${folderPos} folded — ${winnerPos} won ${chips(S.gs.pot)}`;
-    const heroPnl = winnerSeat === S.heroSeat
-      ? S.gs.pot - S.gs.invested[S.heroSeat]! : -S.gs.invested[S.heroSeat]!;
+    const won = trainingSettle(strengthFromWinners(S.gs.stacks.length, [winnerSeat]));
+    S.handResult = `${folderPos} folded — ${winnerPos} won ${chips(won[winnerSeat]!)}`;
+    const heroPnl = won[S.heroSeat]! - S.gs.invested[S.heroSeat]!;
     saveHandRecord(heroPnl);
     S.handOver = true; S.rec = null;
     updateMessage(); render();
@@ -1759,6 +1789,64 @@ function getNextBoardCards(): Card[] {
   if (street === "flop") return [S.trainingBoardCards[3]!];
   if (street === "turn") return [S.trainingBoardCards[4]!];
   return [];
+}
+
+// Settle the current training hand and write the result into the persistent
+// tournament stacks. Returns the per-seat winnings.
+function trainingSettle(strength: number[]): number[] {
+  const gs = S.gs!;
+  const won = settlePots(gs.invested, gs.folded.map((f) => !f), strength);
+  for (let i = 0; i < gs.stacks.length; i++) S.seatStacks[i] = gs.stacks[i]! + won[i]!;
+  return won;
+}
+
+// Drop seats whose players have left/busted (never the hero). Re-indexes the
+// tournament stacks, per-seat maps, hero seat, dealer seat, and table size.
+function dropSeats(seats: number[]): void {
+  const drop = new Set(seats.filter((s) => s !== S.heroSeat));
+  if (drop.size === 0) return;
+  const n = getPositions(S.tableSize).length;
+  const keep: number[] = [];
+  for (let i = 0; i < n; i++) if (!drop.has(i)) keep.push(i);
+  const newIndex = new Map<number, number>();
+  keep.forEach((old, ni) => newIndex.set(old, ni));
+
+  S.seatStacks = keep.map((i) => S.seatStacks[i] ?? S.stackBB);
+  const remap = <T>(m: Map<number, T>): Map<number, T> => {
+    const out = new Map<number, T>();
+    for (const [k, v] of m) if (newIndex.has(k)) out.set(newIndex.get(k)!, v);
+    return out;
+  };
+  S.playerStats = remap(S.playerStats);
+  S.seatTypes = remap(S.seatTypes);
+  S.heroSeat = newIndex.get(S.heroSeat)!;
+  if (newIndex.has(S.dealerSeat)) {
+    S.dealerSeat = newIndex.get(S.dealerSeat)!;
+  } else {
+    // Button seat left — pass it to the next surviving seat.
+    let ds = 0;
+    for (let k = 1; k <= n; k++) {
+      const cand = (S.dealerSeat + k) % n;
+      if (newIndex.has(cand)) { ds = newIndex.get(cand)!; break; }
+    }
+    S.dealerSeat = ds;
+  }
+  S.tableSize = keep.length;
+}
+
+// Training is a last-player-standing game: between hands, bust out anyone at 0
+// chips. Hero busting ends the game; clearing the table wins it.
+function advanceTrainingHand(): void {
+  cancelVillainTimer();
+  if ((S.seatStacks[S.heroSeat] ?? 0) < 1) { S.trainingOver = "bust"; S.handOver = true; render(); return; }
+  const n = getPositions(S.tableSize).length;
+  const busted: number[] = [];
+  for (let i = 0; i < n; i++) if (i !== S.heroSeat && (S.seatStacks[i] ?? 0) < 1) busted.push(i);
+  if (busted.length) dropSeats(busted);
+  if (S.tableSize <= 1) { S.trainingOver = "win"; S.handOver = true; render(); return; }
+  const nn = getPositions(S.tableSize).length;
+  S.dealerSeat = (S.dealerSeat + 1) % nn; // button moves on
+  startTrainingHand();
 }
 
 function trainingShowdown(): void {
@@ -1784,8 +1872,9 @@ function trainingShowdown(): void {
     strength[i] = evaluate([cards[0], cards[1], ...board5]);
   }
 
-  // Settle (handles multiway side pots). Reveal every non-folded villain's hand.
-  const won = settlePots(S.gs.invested, inHand, strength);
+  // Settle (handles multiway side pots) and persist tournament stacks. Reveal
+  // every non-folded villain's hand.
+  const won = trainingSettle(strength);
   for (let i = 0; i < n; i++) {
     if (i !== S.heroSeat && inHand[i] && S.villainHands.has(i)) {
       S.showdownCards.set(i, S.villainHands.get(i)!);
@@ -1895,6 +1984,20 @@ function recordShowdownResult(winners: number[], label: string, strength?: numbe
 }
 
 // ── Run it twice ──
+function renderTrainingOver(): string {
+  const win = S.trainingOver === "win";
+  const stack = chips(S.seatStacks[S.heroSeat] ?? 0);
+  return `<div class="result-panel">
+    <div class="result-title">${win ? "🏆 You won the table!" : "💀 You busted out"}</div>
+    <div class="result-text">${win
+      ? `Every opponent is out of chips after ${S.handNumber} hands. Final stack ${stack}.`
+      : `Your stack hit zero after ${S.handNumber} hands. Grow it next time.`}</div>
+    <div class="action-bar" style="margin-top:12px">
+      <button class="action-btn raise" id="train-again" style="font-size:16px;padding:16px">NEW GAME</button>
+    </div>
+  </div>`;
+}
+
 function renderAllInPrompt(): string {
   const gs = S.gs!;
   const left = 5 - S.boardCards.length;
