@@ -429,6 +429,8 @@ body {
 
 /* The table sits in a flex-grow region and centers vertically, so leftover
    space is split above/below it instead of one big gap above the hero area. */
+/* Stage holds the table + the controls region. Portrait = stacked column. */
+.stage { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
 /* Fixed-height table region: pinned so it never resizes/shifts when the
    recommendation + action buttons appear or disappear below it. */
 .table-wrap {
@@ -440,6 +442,20 @@ body {
 .below {
   flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column;
   overflow: hidden;
+}
+
+/* ── Landscape: table on the left, controls on the right ── */
+@media (orientation: landscape) and (max-height: 600px) {
+  .stage { flex-direction: row; }
+  .table-wrap { flex: 1 1 58%; height: 100%; padding: 4px 0; }
+  .below {
+    flex: 1 1 42%; height: 100%; border-left: 1px solid var(--line);
+    overflow-y: auto;
+  }
+  .below .hero-cards { margin-top: 4px; }
+  .action-dock { margin-top: 8px; }
+  .action-btn { padding: 12px 6px; } /* shorter buttons to fit */
+  .hero-card { width: 48px; height: 67px; font-size: 20px; }
 }
 .below .hero-area { flex: 0 0 auto; }
 /* Pin the action / result block to the bottom of the region as one unit. */

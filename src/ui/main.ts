@@ -1267,6 +1267,7 @@ function renderGame(): void {
         </div>
       </div>
 
+      <div class="stage">
       <div class="table-wrap">
         <div class="poker-table" id="poker-table">
           <div class="felt"></div>
@@ -1296,6 +1297,7 @@ function renderGame(): void {
           : S.allInPrompt ? renderAllInPrompt()
           : S.rit?.awaitWinner ? renderRunResult()
           : S.handOver ? renderHandResult(positions) : actionsHtml}</div>
+      </div>
       </div>
     </div>`;
   S.dealAnim = null; // one-shot: consumed by this render
