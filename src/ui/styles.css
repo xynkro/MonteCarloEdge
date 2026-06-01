@@ -697,6 +697,9 @@ body {
   padding: 14px; margin-bottom: 11px; background: var(--bg); border-radius: var(--radius);
   border: 1px solid var(--line); letter-spacing: -.5px;
 }
+/* Prefilled recommendation = a suggestion; dimmed + dashed until you touch it,
+   and the first keystroke replaces it. */
+.betpad-display.suggested { color: var(--muted); border-style: dashed; opacity: .8; }
 .betpad-presets { display: grid; grid-template-columns: repeat(4, 1fr); gap: 7px; margin-bottom: 11px; }
 .preset-btn {
   padding: 9px 4px; border: 1px solid var(--line-2); border-radius: var(--radius-sm);

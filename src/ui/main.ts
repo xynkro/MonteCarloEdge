@@ -2313,22 +2313,25 @@ function renderBetPad(): void {
   const label = S.betPadAction === "raise" ? "Raise to" : "Bet";
   const needsDecimals = S.sbValue % 1 !== 0;
 
-  const presets = [
-    { label: "Min", bb: minBB },
-    { label: "½ Pot", bb: roundBet(Math.max(minBB, potBB * 0.5)) },
-    { label: "Pot", bb: roundBet(Math.max(minBB, potBB)) },
-    { label: "All-in", bb: maxBB },
+  // Increment buttons ADD to the current amount (tap +Pot to add a pot, +BB to
+  // add a blind). "All-in" sets the max.
+  const incs = [
+    { label: "+ BB", inc: roundBet(gs.bb) },
+    { label: "+ ½ Pot", inc: roundBet(potBB * 0.5) },
+    { label: "+ Pot", inc: roundBet(potBB) },
   ];
 
+  const prefillBB = S.raiseAmount; // the recommended size — a SUGGESTION
   const overlay = document.createElement("div");
   overlay.className = "modal-backdrop";
   overlay.id = "betpad-modal";
   overlay.innerHTML = `
     <div class="modal-content">
       <h3>${label}</h3>
-      <div class="betpad-display" id="bp-display">${display}</div>
+      <div class="betpad-display suggested" id="bp-display">${display}</div>
       <div class="betpad-presets">
-        ${presets.map(p => `<button class="preset-btn" data-bb="${p.bb}">${p.label}<br><span>${chipsBet(p.bb)}</span></button>`).join("")}
+        ${incs.map(p => `<button class="preset-btn" data-inc="${p.inc}">${p.label}<br><span>${chipsBet(p.inc)}</span></button>`).join("")}
+        <button class="preset-btn" data-set="${maxBB}">All-in<br><span>${chipsBet(maxBB)}</span></button>
       </div>
       <div class="betpad-grid">
         ${["1","2","3","4","5","6","7","8","9", needsDecimals ? "." : "","0","⌫"].map(k =>
@@ -2343,32 +2346,47 @@ function renderBetPad(): void {
 
   app.appendChild(overlay);
 
-  let raw = S.raiseAmount > 0 ? String(roundBet(S.raiseAmount) * S.bbValue) : "";
+  let raw = "";          // the user's own entry (dollars); empty until they touch it
+  let touched = false;   // false = still showing the prefilled suggestion
+  const fmt = (d: number) => (d % 1 === 0 ? String(d) : d.toFixed(2));
 
-  function updateDisplay() {
-    const dollars = parseFloat(raw) || 0;
-    S.raiseAmount = roundBet(dollars / S.bbValue);
+  function refresh() {
     const el = document.getElementById("bp-display");
-    if (el) el.textContent = raw ? `$${raw}` : "$0";
+    if (!touched) {
+      S.raiseAmount = prefillBB;
+      if (el) { el.textContent = prefillBB > 0 ? chipsBet(prefillBB) : "$0"; el.classList.add("suggested"); }
+    } else {
+      S.raiseAmount = roundBet((parseFloat(raw) || 0) / S.bbValue);
+      if (el) { el.textContent = raw ? `$${raw}` : "$0"; el.classList.remove("suggested"); }
+    }
   }
+
+  // Current entered dollars (the suggestion is discarded the moment you touch it).
+  const curDollars = () => (touched ? parseFloat(raw) || 0 : 0);
 
   overlay.querySelectorAll(".numpad-btn").forEach(btn =>
     btn.addEventListener("click", () => {
       const k = (btn as HTMLElement).dataset.key!;
-      if (k === "⌫") { raw = raw.slice(0, -1); }
-      else if (k === ".") { if (!raw.includes(".")) raw += "."; }
-      else { raw += k; }
-      updateDisplay();
+      if (!touched) { touched = true; raw = ""; } // first keystroke clears the suggestion
+      if (k === "⌫") raw = raw.slice(0, -1);
+      else if (k === ".") { if (!raw.includes(".")) raw = (raw || "0") + "."; }
+      else raw += k;
+      refresh();
     }),
   );
 
   overlay.querySelectorAll(".preset-btn").forEach(btn =>
     btn.addEventListener("click", () => {
-      const bb = roundBet(+(btn as HTMLElement).dataset.bb!);
-      S.raiseAmount = bb;
-      const dollars = bb * S.bbValue;
-      raw = dollars % 1 === 0 ? String(dollars) : dollars.toFixed(2);
-      updateDisplay();
+      const el = btn as HTMLElement;
+      let dollars: number;
+      if (el.dataset.set !== undefined) {
+        dollars = roundBet(+el.dataset.set!) * S.bbValue; // All-in: set
+      } else {
+        dollars = curDollars() + roundBet(+el.dataset.inc!) * S.bbValue; // add increment
+      }
+      touched = true;
+      raw = fmt(roundBet(dollars / S.bbValue) * S.bbValue);
+      refresh();
     }),
   );
 
