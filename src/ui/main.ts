@@ -1032,10 +1032,11 @@ const AVATAR_COLORS = ["#5b8def", "#e0566a", "#f59e0b", "#a78bfa", "#3fd6c4",
 // chip elements on document.body (so the imminent re-render doesn't kill them),
 // reading live positions from the rendered .seat-bet tokens and the pot.
 function animateChipsToPot(): void {
-  const pot = document.querySelector(".table-pot");
+  // Chips converge to the middle of the felt (the board area).
+  const target = document.querySelector(".board-center") ?? document.querySelector(".poker-table");
   const bets = [...document.querySelectorAll(".seat-bet")] as HTMLElement[];
-  if (!pot || bets.length === 0) return;
-  const pr = pot.getBoundingClientRect();
+  if (!target || bets.length === 0) return;
+  const pr = target.getBoundingClientRect();
   const tx = pr.left + pr.width / 2, ty = pr.top + pr.height / 2;
   for (const b of bets) {
     const r = b.getBoundingClientRect();
@@ -1048,9 +1049,12 @@ function animateChipsToPot(): void {
     setTimeout(() => { chip.style.transform = `translate(${tx - x}px, ${ty - y}px) scale(.45)`; chip.style.opacity = "0.15"; }, 16);
     setTimeout(() => chip.remove(), 460);
   }
-  pot.classList.remove("pot-collect");
-  void (pot as HTMLElement).offsetWidth; // restart the animation
-  pot.classList.add("pot-collect");
+  const potLine = document.querySelector(".pot-line");
+  if (potLine) {
+    potLine.classList.remove("pot-collect");
+    void (potLine as HTMLElement).offsetWidth; // restart the animation
+    potLine.classList.add("pot-collect");
+  }
 }
 
 function avatarHtml(seat: number, isHero: boolean): string {
@@ -1272,21 +1276,18 @@ function renderGame(): void {
         <div class="poker-table" id="poker-table">
           <div class="felt"></div>
           ${seats}
-          <div class="table-info">
-            <div class="table-pot">${gs ? chips(gs.pot) : "$0"}</div>
-            <div class="table-street">${gs?.street ?? ""}</div>
-          </div>
           <div class="board-center" id="board-area">${boardHtml}</div>
         </div>
       </div>
 
-      <div class="below">
+      <div class="controls">
         ${!S.handOver && !S.allInPrompt && !S.rit ? `<div class="status-bar ${isHeroTurn ? "your-turn" : ""}">${
           isHeroTurn ? "<strong>YOUR TURN</strong>" : S.message || ""
         }</div>` : ""}
 
         <div class="hero-area">
           <div class="hero-cards">${heroHtml}</div>
+          ${gs ? `<div class="pot-line"><span class="table-pot">${chips(gs.pot)}</span><span class="pot-street">${gs.street.toUpperCase()}</span></div>` : ""}
           ${handLabelHtml}
           ${boardReadHtml}
           ${recHtml}
