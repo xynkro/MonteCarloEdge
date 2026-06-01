@@ -322,6 +322,13 @@ function postflopRecommend(
   // Vs a sticky, value-heavy station (calls everything, never bluffs), fold a
   // touch more to their bets — their betting range is almost all value.
   const callCushion = sticky > 0.6 ? 0.05 : 0;
+  // Thin value vs sticky callers: a station calls with so many worse hands that
+  // a bet is +value at lower equity than the default tiers assume. Drop the
+  // value thresholds as stickiness rises (toward ~0.50 equity vs a pure station,
+  // i.e. "called by worse more than half the time").
+  const stickyDiscount = sticky > 0.5 ? Math.min(0.10, (sticky - 0.5) * 0.4) : 0;
+  const valueBetT = VALUE_BET - stickyDiscount;
+  const thinValueT = THIN_VALUE - stickyDiscount;
 
   const pct = (n: number) => `${(n * 100).toFixed(0)}%`;
   // Finalize: attach shared context fields to every recommendation.
@@ -435,7 +442,7 @@ function postflopRecommend(
       reasoning: `Bet ${pct(frac)} pot — ${handLabel}, ${pct(eq)} equity on ${texNote}`,
     });
   }
-  if (dq > VALUE_BET) {
+  if (dq > valueBetT) {
     const frac = Math.min(0.7, 0.40 * valueTexAdj * valueMult);
     const size = Math.min(pot * frac, heroStack);
     return fin({
@@ -444,7 +451,7 @@ function postflopRecommend(
       reasoning: `Bet ${pct(frac)} pot — ${handLabel}, ${pct(eq)} equity, thin value on ${texNote}`,
     });
   }
-  if (dq > THIN_VALUE) {
+  if (dq > thinValueT) {
     const size = Math.min(pot * 0.25 * valueMult, heroStack);
     if (size > 0) {
       return fin({
