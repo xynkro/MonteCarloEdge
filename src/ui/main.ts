@@ -102,6 +102,8 @@ interface AppState {
   undoStack: UndoSnapshot[];
   // Tap-a-seat: which seat's inline action menu is open (live mode).
   seatMenuSeat: number | null;
+  // One-shot deal animation: animate only freshly-dealt cards on the next render.
+  dealAnim: { kind: "hero" | "board"; from: number } | null;
 }
 
 const S: AppState = {
@@ -154,6 +156,7 @@ const S: AppState = {
   message: "",
   undoStack: [],
   seatMenuSeat: null,
+  dealAnim: null,
 };
 
 // Cache push/fold solutions by effective-stack depth (equity table is reused).
@@ -786,6 +789,7 @@ function startTrainingHand(): void {
 
   S.screen = "game";
   S.pickerOpen = false;
+  S.dealAnim = { kind: "hero", from: 0 };
   playSound("deal");
   updateRec();
   updateMessage();
@@ -897,6 +901,10 @@ function sizeChips(gs: GameState, seat: number): { label: string; bb: number }[]
         { label: "Pot", bb: clamp(gs.pot) },
         { label: "All in", bb: maxBB },
       ];
+  // Any chip that committed the whole stack IS an all-in — relabel it so the
+  // label never lies (e.g. a short stack where 2× the bet > the stack). Do this
+  // before dedupe so the surviving chip at maxBB reads "All in", not "2×".
+  for (const c of raw) if (c.bb >= maxBB) c.label = "All in";
   // Drop chips that collapsed onto the same amount (e.g. min-raise > 3×).
   const seen = new Set<number>();
   return raw.filter((c) => (seen.has(c.bb) ? false : (seen.add(c.bb), true)));
@@ -1004,19 +1012,27 @@ function renderGame(): void {
     </div>`;
   }).join("");
 
+  // Deal animation: only cards added on this render get the "deal-in" class,
+  // with a stagger, so re-renders during play don't replay the animation.
+  const animBoard = S.dealAnim?.kind === "board" ? S.dealAnim.from : -1;
+  const animHero = S.dealAnim?.kind === "hero";
+
   // ── Board ──
   const boardHtml = [0, 1, 2, 3, 4].map(i => {
     if (i < S.boardCards.length) {
       const c = S.boardCards[i]!;
-      return `<div class="board-card dealt ${isRed(c) ? "red" : ""}">${cardDisplay(c)}</div>`;
+      const anim = animBoard >= 0 && i >= animBoard
+        ? ` deal-in" style="animation-delay:${((i - animBoard) * 90)}ms`
+        : "";
+      return `<div class="board-card dealt ${isRed(c) ? "red" : ""}${anim}">${cardDisplay(c)}</div>`;
     }
     return `<div class="board-card empty"></div>`;
   }).join("");
 
   // ── Hero cards ──
   const heroHtml = S.heroCards
-    ? S.heroCards.map(c =>
-        `<div class="hero-card dealt ${isRed(c) ? "red" : ""}">${cardDisplay(c)}</div>`
+    ? S.heroCards.map((c, i) =>
+        `<div class="hero-card dealt ${isRed(c) ? "red" : ""}${animHero ? ` deal-in" style="animation-delay:${i * 110}ms` : ""}">${cardDisplay(c)}</div>`
       ).join("")
     : `<div class="hero-card empty">?</div><div class="hero-card empty">?</div>`;
 
@@ -1142,6 +1158,7 @@ function renderGame(): void {
         : S.rit?.awaitWinner ? renderRunResult()
         : S.handOver ? renderHandResult(positions) : actionsHtml}
     </div>`;
+  S.dealAnim = null; // one-shot: consumed by this render
 
   // ── Events ──
   $("#new-hand")?.addEventListener("click", () => { S.screen = "setup"; S.dealerSeat = -1; S.handNumber = 0; render(); });
@@ -1570,6 +1587,7 @@ function autoPlayVillain(): void {
       const anyCanAct = S.gs.stacks.some((s, i) => !S.gs!.folded[i] && s > 0);
       if (!anyCanAct) {
         // All-in — deal remaining board and showdown
+        S.dealAnim = { kind: "board", from: S.boardCards.length };
         while (S.gs.street !== "river") {
           const cards = getNextBoardCards();
           S.boardCards.push(...cards);
@@ -1578,6 +1596,7 @@ function autoPlayVillain(): void {
         trainingShowdown();
         return;
       }
+      S.dealAnim = { kind: "board", from: S.boardCards.length };
       const cards = getNextBoardCards();
       S.boardCards.push(...cards);
       S.gs.advanceStreet(cards);
@@ -1942,11 +1961,13 @@ function confirmPicker(): void {
     const [a, b] = S.pickerPicked;
     S.heroCards = a! <= b! ? [a!, b!] : [b!, a!];
     S.allDealt.add(a!); S.allDealt.add(b!);
+    S.dealAnim = { kind: "hero", from: 0 };
     playSound("deal");
     initGameState();
   } else {
     pushUndo(`deal ${S.pickerTarget}`);
     const dealt = [...S.pickerPicked]; // capture before clearing
+    S.dealAnim = { kind: "board", from: S.boardCards.length };
     for (const c of dealt) { S.boardCards.push(c); S.allDealt.add(c); }
     playSound("card");
     S.pickerOpen = false; S.pickerPicked = []; S.pickerRank = null;
