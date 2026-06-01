@@ -1740,7 +1740,7 @@ function scheduleVillainStep(delay: number): void {
 
 function autoPlayVillain(): void {
   if (S.mode !== "training") return;
-  scheduleVillainStep(550);
+  scheduleVillainStep(850);
 }
 
 function villainStep(): void {
@@ -1760,7 +1760,7 @@ function villainStep(): void {
       S.boardCards.push(...cards);
       S.gs.advanceStreet(cards);
       render();
-      scheduleVillainStep(S.gs.street === "river" ? 750 : 650);
+      scheduleVillainStep(S.gs.street === "river" ? 1200 : 1000);
       return;
     }
     S.dealAnim = { kind: "board", from: S.boardCards.length };
@@ -1768,7 +1768,7 @@ function villainStep(): void {
     S.boardCards.push(...cards);
     S.gs.advanceStreet(cards);
     updateRec(); updateMessage(); render();
-    scheduleVillainStep(700);
+    scheduleVillainStep(1150);
     return;
   }
 
@@ -1814,7 +1814,7 @@ function villainStep(): void {
 
   updateRec(); updateMessage(); render();
   // Faster after a fold/check, a touch slower after chips go in.
-  scheduleVillainStep(action === "fold" || action === "check" ? 520 : 720);
+  scheduleVillainStep(action === "fold" || action === "check" ? 1000 : 1400);
 }
 
 function getNextBoardCards(): Card[] {

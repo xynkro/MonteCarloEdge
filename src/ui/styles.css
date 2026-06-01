@@ -444,18 +444,24 @@ body {
   overflow: hidden;
 }
 
-/* ── Landscape: table on the left, controls on the right ── */
+/* ── Landscape (short screens, i.e. phones): table left, controls right ── */
 @media (orientation: landscape) and (max-height: 600px) {
-  .stage { flex-direction: row; }
-  .table-wrap { flex: 1 1 58%; height: 100%; padding: 4px 0; }
-  .below {
-    flex: 1 1 42%; height: 100%; border-left: 1px solid var(--line);
-    overflow-y: auto;
+  #app { max-width: none; } /* use the full landscape width, not the 480px cap */
+  .stage { flex-direction: row; align-items: stretch; }
+  .table-wrap {
+    flex: 1 1 56%; min-width: 0; height: 100%; padding: 4px 8px;
   }
-  .below .hero-cards { margin-top: 4px; }
+  .poker-table { height: 100%; width: auto; max-width: 100%; }
+  .below {
+    flex: 1 1 44%; min-width: 280px; height: 100%; padding: 0 4px;
+    border-left: 1px solid var(--line); overflow-y: auto;
+  }
+  .below .hero-area { padding: 8px 12px 4px; }
+  .below .hero-cards { margin-top: 2px; }
+  .hero-card { width: 46px; height: 64px; font-size: 19px; }
   .action-dock { margin-top: 8px; }
-  .action-btn { padding: 12px 6px; } /* shorter buttons to fit */
-  .hero-card { width: 48px; height: 67px; font-size: 20px; }
+  .action-bar { padding: 10px 12px calc(10px + env(safe-area-inset-bottom)); }
+  .action-btn { padding: 13px 4px; font-size: 13px; }
 }
 .below .hero-area { flex: 0 0 auto; }
 /* Pin the action / result block to the bottom of the region as one unit. */
