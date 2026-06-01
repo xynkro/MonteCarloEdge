@@ -495,6 +495,10 @@ body {
 .br-val { font-size: 14px; font-weight: 800; color: var(--text); }
 .br-val.win { color: var(--gold); }
 .br-val.warn { color: var(--rose); }
+/* Nut cards: white pips with red suits, plus a tiny hand-name subtitle */
+.br-cards { font-size: 15px; font-weight: 800; color: #f2f5f8; white-space: nowrap; }
+.br-cards .rc { color: var(--card-red); }
+.br-sub { font-size: 9px; font-weight: 600; color: var(--muted); text-align: center; line-height: 1.1; }
 
 .hero-card {
   width: 56px; height: 78px; border-radius: 10px;

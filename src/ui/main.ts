@@ -96,7 +96,7 @@ interface AppState {
   // GTO preflop push/fold readout
   gtoPreflop: { title: string; rows: { label: string; freq: number }[]; note: string } | null;
   // Board read: hero win% vs villain range(s) + the nuts on this board
-  boardRead: { equity: number | null; nuts: string; second: string | null; nutsPct: number | null } | null;
+  boardRead: { equity: number | null; nuts: string; nutsCards: [Card, Card] | null; second: string | null; secondCards: [Card, Card] | null; nutsPct: number | null } | null;
   boardReadKey: string;
   message: string;
   // Undo: reversible snapshots of mid-hand state (live mode only).
@@ -924,6 +924,8 @@ function updateBoardRead(): void {
   const nut = nutHand(S.gs.board, [S.heroCards[0], S.heroCards[1]]);
   const nuts = nut?.label ?? "—";
   const second = nut?.second ?? null;
+  const nutsCards = nut?.combos[0] ?? null;
+  const secondCards = nut?.secondCombo ?? null;
   let equity: number | null = null;
   let nutsPct: number | null = null;
   if (vils.length > 0) {
@@ -949,7 +951,7 @@ function updateBoardRead(): void {
       }
     }
   }
-  S.boardRead = { equity, nuts, second, nutsPct };
+  S.boardRead = { equity, nuts, nutsCards, second, secondCards, nutsPct };
 }
 
 // Common one-tap raise/bet sizes for the seat about to act. Facing a bet →
@@ -1192,12 +1194,25 @@ function renderGame(): void {
     const npct = S.boardRead.nutsPct;
     const heldItem = npct === null ? "" :
       `<div class="br-item"><span class="br-label">Nuts out</span><span class="br-val ${npct > 0.15 ? "warn" : ""}">${(npct * 100).toFixed(0)}%</span></div>`;
+    // Show the actual two cards that make the nuts, with the hand name beneath.
+    const cardsMini = (combo: [Card, Card] | null): string => combo
+      ? combo.map(c => `<span class="${isRed(c) ? "rc" : ""}">${cardDisplay(c)}</span>`).join(" ")
+      : "—";
+    const nutsItem = `<div class="br-item">
+      <span class="br-label">Nuts</span>
+      <span class="br-val br-cards">${cardsMini(S.boardRead.nutsCards)}</span>
+      <span class="br-sub">${S.boardRead.nuts}</span>
+    </div>`;
     const secondItem = S.boardRead.second
-      ? `<div class="br-item"><span class="br-label">2nd nuts</span><span class="br-val">${S.boardRead.second}</span></div>`
+      ? `<div class="br-item">
+          <span class="br-label">2nd nuts</span>
+          <span class="br-val br-cards">${cardsMini(S.boardRead.secondCards)}</span>
+          <span class="br-sub">${S.boardRead.second}</span>
+        </div>`
       : "";
     boardReadHtml = `<div class="board-read">
       <div class="br-item"><span class="br-label">Strength</span><span class="br-val win">${eqStr}</span></div>
-      <div class="br-item"><span class="br-label">Nuts</span><span class="br-val">${S.boardRead.nuts}</span></div>
+      ${nutsItem}
       ${secondItem}
       ${heldItem}
     </div>`;
@@ -1791,7 +1806,14 @@ function villainStep(): void {
   const seatCards = S.villainHands.get(next) ?? S.villainCards!;
   const vAct = villainDecision(S.gs, next, seatCards, seatProfile, () => Math.random());
   let action = vAct.type;
-  let amount = vAct.amount;
+  // Round bet/raise sizes to clean chips (no fractional-cent bets), capped at
+  // the stack and floored at a min-raise over the current bet.
+  let amount = action === "bet" || action === "raise" ? roundBet(vAct.amount) : 0;
+  if ((action === "bet" || action === "raise") && amount > 0) {
+    const max = S.gs.stacks[next]! + S.gs.streetInvested[next]!;
+    if (amount > max) amount = max;
+    if (amount <= S.gs.currentBet) amount = Math.min(roundBet(S.gs.currentBet) + Math.max(1, roundBet(S.gs.bb)), max);
+  }
   const legal = S.gs.legalActionsFor(next);
   if (action === "raise" && !legal.includes("raise")) { action = legal.includes("call") ? "call" : "check"; amount = 0; }
   if (action === "bet" && !legal.includes("bet")) { action = "check"; amount = 0; }

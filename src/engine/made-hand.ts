@@ -63,7 +63,7 @@ function straightDraw(holeRanks: number[], boardRanks: number[]): "oesd" | "guts
 export function nutHand(
   board: readonly Card[],
   dead: readonly Card[] = [],
-): { label: string; combos: [Card, Card][]; second: string | null } | null {
+): { label: string; combos: [Card, Card][]; second: string | null; secondCombo: [Card, Card] | null } | null {
   if (board.length < 3) return null;
   const used = new Uint8Array(NUM_CARDS);
   for (const c of board) used[c] = 1;
@@ -93,7 +93,7 @@ export function nutHand(
   }
   if (combos.length === 0) return null;
   const second = secondCombo ? nutLabel(secondCombo, board) : null;
-  return { label: nutLabel(combos[0]!, board), combos, second };
+  return { label: nutLabel(combos[0]!, board), combos, second, secondCombo };
 }
 
 // A concise, specific label for a made hand — names the rank so the nuts and
