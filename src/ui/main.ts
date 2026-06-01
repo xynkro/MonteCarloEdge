@@ -100,6 +100,8 @@ interface AppState {
   message: string;
   // Undo: reversible snapshots of mid-hand state (live mode only).
   undoStack: UndoSnapshot[];
+  // Tap-a-seat: which seat's inline action menu is open (live mode).
+  seatMenuSeat: number | null;
 }
 
 const S: AppState = {
@@ -151,6 +153,7 @@ const S: AppState = {
   boardReadKey: "",
   message: "",
   undoStack: [],
+  seatMenuSeat: null,
 };
 
 // Cache push/fold solutions by effective-stack depth (equity table is reused).
@@ -972,14 +975,32 @@ function renderGame(): void {
 
     const tag = !isHero && S.mode === "live" && S.playerStats.has(i)
       ? playerTag(S.playerStats.get(i)!) : null;
-    return `<div class="${cls}" style="left:${left.toFixed(1)}%;top:${top.toFixed(1)}%">
+
+    // Tap-a-seat: when it's this opponent's turn (live), tapping the chip opens
+    // an inline action menu right at the seat instead of the stack editor.
+    const oppActor = active && !isHero && S.mode === "live" && !!gs && !S.handOver && !needsBoard;
+    const chipAttr = oppActor ? `data-actmenu="${i}"` : `data-seatstack="${i}"`;
+    let seatMenu = "";
+    if (oppActor && S.seatMenuSeat === i && gs) {
+      const lg = gs.legalActionsFor(i);
+      const dir = top < 50 ? "below" : "above"; // open away from the table edge
+      const hp = left < 30 ? "hleft" : left > 70 ? "hright" : "hcenter"; // keep in-bounds
+      seatMenu = `<div class="seat-actions ${dir} ${hp}">
+        ${lg.includes("fold") ? `<button class="sa-btn fold" data-seatact="fold" data-seat="${i}">Fold</button>` : ""}
+        ${lg.includes("check") ? `<button class="sa-btn check" data-seatact="check" data-seat="${i}">Check</button>` : ""}
+        ${lg.includes("call") ? `<button class="sa-btn call" data-seatact="call" data-seat="${i}">Call ${chips(gs.toCall(i))}</button>` : ""}
+        ${(lg.includes("raise") || lg.includes("bet")) ? `<button class="sa-btn raise" data-seatact="betraise" data-seat="${i}">${gs.currentBet > 0 ? "Raise" : "Bet"}</button>` : ""}
+      </div>`;
+    }
+    return `<div class="${cls} ${oppActor ? "tappable" : ""}" style="left:${left.toFixed(1)}%;top:${top.toFixed(1)}%">
       ${isDealer ? '<div class="dealer-btn">D</div>' : ""}
       ${tag ? `<div class="seat-tag tag-${tag.toLowerCase()}">${tag}</div>` : ""}
-      <div class="seat-chip" data-seatstack="${i}">
+      <div class="seat-chip" ${chipAttr}>
         <div class="seat-pos">${isHero ? "YOU" : pos}</div>
         <div class="seat-stack">${chips(stack)}</div>
         ${actText ? `<div class="seat-act">${actText}</div>` : ""}
       </div>
+      ${seatMenu}
     </div>`;
   }).join("");
 
@@ -1232,6 +1253,33 @@ function renderGame(): void {
         openNumpad("seatstack");
       }),
     );
+    // Tap the acting opponent's seat → toggle its inline action menu.
+    app.querySelectorAll("[data-actmenu]").forEach(el =>
+      el.addEventListener("click", () => {
+        const seat = +(el as HTMLElement).dataset.actmenu!;
+        S.seatMenuSeat = S.seatMenuSeat === seat ? null : seat;
+        render();
+      }),
+    );
+    // Pick an action from the inline seat menu.
+    app.querySelectorAll("[data-seatact]").forEach(el =>
+      el.addEventListener("click", () => {
+        const seat = +(el as HTMLElement).dataset.seat!;
+        const act = (el as HTMLElement).dataset.seatact!;
+        const who = gs?.positions[seat] ?? "";
+        S.seatMenuSeat = null;
+        if (act === "betraise") {
+          S.betPadAction = S.gs!.currentBet > 0 ? "raise" : "bet";
+          S.betPadSeat = seat;
+          S.raiseAmount = 0; // blank — enter the opponent's actual size
+          S.betPadOpen = true;
+          renderBetPad();
+          return;
+        }
+        pushUndo(`${who} ${act}`);
+        doAction(seat, act as ActionType);
+      }),
+    );
   }
 }
 
@@ -1300,6 +1348,7 @@ function undo(): void {
 
 function doAction(seat: number, type: ActionType): void {
   if (!S.gs) return;
+  S.seatMenuSeat = null; // any action closes an open inline seat menu
   const amount = type === "bet" || type === "raise" ? S.raiseAmount : 0;
 
   // Log hero's decision against the recommendation for post-hand review.

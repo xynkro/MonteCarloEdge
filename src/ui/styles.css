@@ -314,6 +314,29 @@ body {
 }
 .hero-seat .seat-pos { color: #b9ffe6; }
 
+.table-seat.tappable .seat-chip { cursor: pointer; }
+
+/* Inline action menu anchored to the acting seat (tap-a-seat to log) */
+.seat-actions {
+  position: absolute; z-index: 30; display: flex; gap: 6px; white-space: nowrap;
+  background: rgba(8,12,18,.97); border: 1px solid var(--line-2); border-radius: 12px;
+  padding: 6px; box-shadow: 0 10px 28px rgba(0,0,0,.65);
+}
+.seat-actions.below { top: calc(100% + 8px); }
+.seat-actions.above { bottom: calc(100% + 8px); }
+.seat-actions.hcenter { left: 50%; transform: translateX(-50%); }
+.seat-actions.hleft { left: 0; }
+.seat-actions.hright { right: 0; }
+.sa-btn {
+  padding: 9px 12px; border-radius: 9px; border: none; cursor: pointer;
+  font-size: 13px; font-weight: 800; color: #07120c;
+}
+.sa-btn.fold { background: #e0566a; color: #fff; }
+.sa-btn.check { background: linear-gradient(135deg, #3fd6c4, #2bb5a6); }
+.sa-btn.call { background: linear-gradient(135deg, #46d39a, #34b27f); }
+.sa-btn.raise { background: linear-gradient(135deg, #7c5cff, #a78bfa); color: #fff; }
+.sa-btn:active { transform: scale(.96); }
+
 .table-seat.folded .seat-chip { opacity: .32; filter: grayscale(.5); }
 .table-seat.active .seat-chip {
   border-color: var(--gold);
