@@ -81,7 +81,7 @@ body {
 
 .brand { display: flex; align-items: center; gap: 13px; justify-content: center; }
 .brand-logo {
-  width: 56px; height: 56px; border-radius: 14px; flex-shrink: 0;
+  width: 60px; height: 60px; border-radius: 23%; flex-shrink: 0;
   box-shadow: 0 6px 18px rgba(0,0,0,.45);
 }
 .brand h1 { text-align: left; }
