@@ -180,6 +180,67 @@ describe("legal actions", () => {
   });
 });
 
+describe("all-in edge cases", () => {
+  // Regression: a blind posted all-in for less than the blind must not leave
+  // the round unable to complete (it has no legal action and zero stack).
+  it("does not deadlock when the BB is all-in for less than a full blind", () => {
+    const gs = new GameState({
+      tableSize: 3,
+      bb: 10,
+      stacks: [1000, 1000, 4], // seat 2 = BB with only 4 chips
+      positions: ["UTG", "SB", "BB"],
+      heroSeat: 0,
+      heroCards: [makeCard(12, 0), makeCard(11, 0)],
+      dealerSeat: 0, // SB = seat 1, BB = seat 2
+    });
+    expect(gs.stacks[2]).toBe(0); // posted all-in
+    expect(gs.legalActionsFor(2)).toEqual([]); // can't act
+    // BTN (UTG, seat 0) calls, SB completes — the round must now close.
+    gs.applyAction({ seat: 0, type: "call", amount: 0 });
+    gs.applyAction({ seat: 1, type: "call", amount: 0 });
+    expect(gs.nextToAct()).toBe(null);
+    expect(gs.roundComplete()).toBe(true);
+  });
+
+  // Regression: a short all-in (less than a full raise) must not reopen the
+  // betting — a player who already acted may only call or fold, not re-raise.
+  it("short all-in does not reopen re-raising for an already-acted player", () => {
+    const gs = new GameState({
+      tableSize: 3,
+      bb: 2,
+      stacks: [200, 200, 130],
+      positions: ["UTG", "SB", "BB"],
+      heroSeat: 0,
+      heroCards: [makeCard(12, 0), makeCard(11, 0)],
+      dealerSeat: 0,
+    });
+    gs.advanceStreet([makeCard(0, 0), makeCard(1, 1), makeCard(2, 2)]); // to flop
+    gs.applyAction({ seat: 1, type: "bet", amount: 100 });   // SB bets 100 (full)
+    gs.applyAction({ seat: 2, type: "raise", amount: 130 }); // BB all-in to 130 (+30, short)
+    const legal = gs.legalActionsFor(1); // SB already acted, faces +30
+    expect(legal).toContain("call");
+    expect(legal).toContain("fold");
+    expect(legal).not.toContain("raise"); // must NOT be offered a re-raise
+  });
+
+  // A FULL raise still reopens normally.
+  it("a full raise reopens re-raising as expected", () => {
+    const gs = new GameState({
+      tableSize: 3,
+      bb: 2,
+      stacks: [200, 200, 200],
+      positions: ["UTG", "SB", "BB"],
+      heroSeat: 0,
+      heroCards: [makeCard(12, 0), makeCard(11, 0)],
+      dealerSeat: 0,
+    });
+    gs.advanceStreet([makeCard(0, 0), makeCard(1, 1), makeCard(2, 2)]);
+    gs.applyAction({ seat: 1, type: "bet", amount: 20 });    // bet 20
+    gs.applyAction({ seat: 2, type: "raise", amount: 60 });  // raise to 60 (+40, full)
+    expect(gs.legalActionsFor(1)).toContain("raise"); // SB may re-raise
+  });
+});
+
 describe("clone", () => {
   it("produces independent copy", () => {
     const gs = huState();

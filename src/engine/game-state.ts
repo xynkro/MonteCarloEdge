@@ -48,6 +48,14 @@ export class GameState {
 
   private _needsAct: Set<number>;
   private _lastActor = -1;
+  // Min-raise / reopening tracking. `_lastRaiseSize` is the increment of the
+  // last *full* bet/raise; `_raiseReopened` is whether a facing player may
+  // re-raise at the current bet level (a short all-in does not reopen it);
+  // `_actedThisStreet` is who has voluntarily acted this street (a not-yet-acted
+  // player keeps full raise rights even after a short all-in).
+  private _lastRaiseSize = 0;
+  private _raiseReopened = true;
+  private _actedThisStreet = new Set<number>();
 
   constructor(config: GameConfig) {
     this.tableSize = config.tableSize;
@@ -81,7 +89,12 @@ export class GameState {
     this._invest(sbSeat, this.sb);
     this._invest(bbSeat, this.bb);
     this.currentBet = this.bb;
-    for (let i = 0; i < n; i++) this._needsAct.add(i);
+    this._lastRaiseSize = this.bb; // the BB is the standing raise increment preflop
+    this._raiseReopened = true;
+    // Only seats that can still act enter the queue — a blind posted all-in for
+    // less than the blind has a 0 stack and must NOT be left "to act" (that
+    // would deadlock the round, since it has no legal action).
+    for (let i = 0; i < n; i++) if (this.stacks[i]! > 0) this._needsAct.add(i);
   }
 
   private _invest(seat: number, amount: number): void {
@@ -159,7 +172,11 @@ export class GameState {
     const tc = this.toCall(seat);
     if (tc > 0) {
       const a: ActionType[] = ["fold", "call"];
-      if (this.stacks[seat]! > tc) a.push("raise");
+      // Raising is allowed only if the action was reopened by a full raise, or
+      // this seat hasn't yet acted this street (a short all-in doesn't let an
+      // already-acted player re-raise — they may only call or fold).
+      const mayReraise = this._raiseReopened || !this._actedThisStreet.has(seat);
+      if (this.stacks[seat]! > tc && mayReraise) a.push("raise");
       return a;
     }
     const a: ActionType[] = ["check"];
@@ -174,7 +191,9 @@ export class GameState {
       this._lastActor >= 0 ? (this._lastActor + 1) % n : this._roundStart();
     for (let i = 0; i < n; i++) {
       const seat = (start + i) % n;
-      if (this._needsAct.has(seat)) return seat;
+      // Defensive: never return a seat that can't actually act.
+      if (this._needsAct.has(seat) && !this.folded[seat] && this.stacks[seat]! > 0)
+        return seat;
     }
     return null;
   }
@@ -191,6 +210,7 @@ export class GameState {
     const { seat, type } = input;
     this._needsAct.delete(seat);
     this._lastActor = seat;
+    this._actedThisStreet.add(seat);
 
     switch (type) {
       case "fold":
@@ -203,12 +223,31 @@ export class GameState {
         break;
       case "bet":
       case "raise": {
+        const prevBet = this.currentBet;
         const additional = input.amount - this.streetInvested[seat]!;
         if (additional > 0) this._invest(seat, additional);
-        this.currentBet = this.streetInvested[seat]!;
-        for (let i = 0; i < this.stacks.length; i++) {
-          if (i !== seat && !this.folded[i] && this.stacks[i]! > 0)
-            this._needsAct.add(i);
+        const newBet = this.streetInvested[seat]!;
+        const increment = newBet - prevBet;
+        if (increment <= 0) break; // no-op (e.g. amount ≤ current bet) — don't reopen
+        this.currentBet = newBet;
+        const opening = prevBet === 0;
+        // A full raise increases the bet by at least the last raise size; a
+        // short all-in (smaller increment) does NOT reopen the betting.
+        const fullRaise = opening || increment >= this._lastRaiseSize - 1e-9;
+        if (fullRaise) {
+          this._lastRaiseSize = opening ? newBet : increment;
+          this._raiseReopened = true;
+          for (let i = 0; i < this.stacks.length; i++) {
+            if (i !== seat && !this.folded[i] && this.stacks[i]! > 0) this._needsAct.add(i);
+          }
+        } else {
+          // Short all-in: only players who still owe chips act again (call/fold),
+          // and the action is not reopened for re-raising.
+          this._raiseReopened = false;
+          for (let i = 0; i < this.stacks.length; i++) {
+            if (i !== seat && !this.folded[i] && this.stacks[i]! > 0 && this.toCall(i) > 0)
+              this._needsAct.add(i);
+          }
         }
         break;
       }
@@ -227,6 +266,9 @@ export class GameState {
     this.street = next[this.street]!;
     this.currentBet = 0;
     this._lastActor = -1;
+    this._lastRaiseSize = this.bb; // min bet/raise resets to one BB each street
+    this._raiseReopened = true;
+    this._actedThisStreet.clear();
     for (let i = 0; i < this.streetInvested.length; i++)
       this.streetInvested[i] = 0;
     this._needsAct.clear();
@@ -256,6 +298,9 @@ export class GameState {
       actions: this.actions.map((a) => ({ ...a })),
       _needsAct: new Set(this._needsAct),
       _lastActor: this._lastActor,
+      _lastRaiseSize: this._lastRaiseSize,
+      _raiseReopened: this._raiseReopened,
+      _actedThisStreet: new Set(this._actedThisStreet),
     });
     return gs;
   }
