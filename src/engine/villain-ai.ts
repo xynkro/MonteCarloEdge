@@ -60,6 +60,16 @@ export function villainDecision(
   const n = profile.name.replace("*", "");
   const preflop = state.street === "preflop";
 
+  // Anti-exploit defense floor: a player who folds too often to bets gets
+  // bluffed relentlessly. The engine assumes an honest (TAG) bettor, so it
+  // over-folds against a human who over-bluffs. If we'd fold but our equity is
+  // within a bluff-catch cushion of the price, call instead. Nit still folds.
+  if (!preflop && facing && type === "fold") {
+    const odds = state.potOdds(seat); // equity needed to call
+    const cushion = n === "Station" ? 0.22 : n === "Nit" ? 0.0 : n === "LAG" ? 0.14 : 0.12;
+    if (eq + cushion >= odds && state.stacks[seat]! > 0) { type = "call"; amount = 0; }
+  }
+
   if (!preflop) {
     if (n === "Station") {
       // Calls down light, rarely folds, plays passively (flats instead of raising).

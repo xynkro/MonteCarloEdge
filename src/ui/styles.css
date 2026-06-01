@@ -502,6 +502,10 @@ body {
   text-align: center; margin-bottom: 10px; padding: 11px;
   background: var(--surface); border-radius: var(--radius); border: 1px solid var(--line);
 }
+.reveal-rows { display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; margin-top: 6px; }
+.reveal-row { display: flex; flex-direction: column; align-items: center; gap: 3px; }
+.reveal-pos { font-size: 10px; font-weight: 800; color: var(--muted); letter-spacing: .5px; }
+.reveal-cards { display: flex; gap: 4px; }
 
 /* ═══════ Modals ═══════ */
 

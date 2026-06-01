@@ -11,7 +11,7 @@ import { recommend, type Recommendation, type ProfileMap } from "../engine/decis
 import { AUTO, TAG, LAG, STATION, NIT, type OpponentProfile } from "../engine/opponent.js";
 import { villainDecision } from "../engine/villain-ai.js";
 import { evaluate } from "../engine/evaluator.js";
-import { describeHand, nutHand } from "../engine/made-hand.js";
+import { describeHand, nutHand, nutLabel } from "../engine/made-hand.js";
 import { monteCarloEquityMultiway } from "../engine/equity.js";
 import { settlePots, strengthFromWinners } from "../engine/settle.js";
 import { openRaiseSize, minRaise } from "../engine/sizing.js";
@@ -76,7 +76,8 @@ interface AppState {
   betPadAction: "bet" | "raise";
   betPadSeat: number;
   // Training mode
-  villainCards: [Card, Card] | null;
+  villainCards: [Card, Card] | null; // legacy single-villain (kept for compat)
+  villainHands: Map<number, [Card, Card]>; // training: distinct hand per opponent seat
   trainingDeck: Card[];
   trainingBoardCards: Card[];
   // Per-seat opponent types + adaptive modeling
@@ -139,6 +140,7 @@ const S: AppState = {
   betPadAction: "bet",
   betPadSeat: 0,
   villainCards: null,
+  villainHands: new Map(),
   trainingDeck: [],
   trainingBoardCards: [],
   seatTypes: new Map(),
@@ -748,17 +750,27 @@ function startTrainingHand(): void {
   }
   S.handNumber++;
 
-  // Shuffle and deal
+  // Shuffle and deal — each seat gets its OWN hand (true multiway).
   const deck = shuffleDeck();
-  const heroCards: [Card, Card] = deck[0]! <= deck[1]! ? [deck[0]!, deck[1]!] : [deck[1]!, deck[0]!];
-  const villCards: [Card, Card] = deck[2]! <= deck[3]! ? [deck[2]!, deck[3]!] : [deck[3]!, deck[2]!];
-  const boardCards = [deck[4]!, deck[5]!, deck[6]!, deck[7]!, deck[8]!];
+  let d = 0;
+  const draw2 = (): [Card, Card] => {
+    const a = deck[d++]!, b = deck[d++]!;
+    return a <= b ? [a, b] : [b, a];
+  };
+  const seatCount = getPositions(S.tableSize).length;
+  const heroCards = draw2();
+  const villainHands = new Map<number, [Card, Card]>();
+  for (let i = 0; i < seatCount; i++) if (i !== S.heroSeat) villainHands.set(i, draw2());
+  const boardCards = [deck[d++]!, deck[d++]!, deck[d++]!, deck[d++]!, deck[d++]!];
 
   S.heroCards = heroCards;
-  S.villainCards = villCards;
+  S.villainHands = villainHands;
+  S.villainCards = villainHands.values().next().value ?? null; // legacy/back-compat
   S.trainingBoardCards = boardCards;
   S.boardCards = [];
-  S.allDealt = new Set([heroCards[0], heroCards[1], villCards[0], villCards[1], ...boardCards]);
+  const dealt: Card[] = [heroCards[0], heroCards[1], ...boardCards];
+  for (const h of villainHands.values()) dealt.push(h[0], h[1]);
+  S.allDealt = new Set(dealt);
   S.handOver = false;
   S.handResult = "";
   S.showdownCards = new Map();
@@ -1496,13 +1508,21 @@ function renderHandResult(positions: readonly string[]): string {
       </div>`;
   }
 
-  // Training showdown or fold — show villain cards + result
-  const villainReveal = S.mode === "training" && S.villainCards && S.handOver
+  // Training showdown — reveal every opponent who was still in the hand.
+  const shown = S.mode === "training" && S.handOver
+    ? [...S.showdownCards.entries()].filter(([i]) => !S.gs!.folded[i])
+    : [];
+  const villainReveal = shown.length
     ? `<div class="villain-reveal">
-        <span class="hint">Opponent's hand:</span>
-        <div class="hero-cards" style="margin-top:4px">
-          <div class="hero-card dealt ${isRed(S.villainCards[0]) ? "red" : ""}" style="width:44px;height:60px;font-size:17px">${cardDisplay(S.villainCards[0])}</div>
-          <div class="hero-card dealt ${isRed(S.villainCards[1]) ? "red" : ""}" style="width:44px;height:60px;font-size:17px">${cardDisplay(S.villainCards[1])}</div>
+        <span class="hint">Opponents' hands:</span>
+        <div class="reveal-rows">
+          ${shown.map(([i, c]) => `<div class="reveal-row">
+            <span class="reveal-pos">${positions[i] ?? S.gs!.positions[i]}</span>
+            <div class="reveal-cards">
+              <div class="hero-card dealt ${isRed(c[0]) ? "red" : ""}" style="width:36px;height:50px;font-size:15px">${cardDisplay(c[0])}</div>
+              <div class="hero-card dealt ${isRed(c[1]) ? "red" : ""}" style="width:36px;height:50px;font-size:15px">${cardDisplay(c[1])}</div>
+            </div>
+          </div>`).join("")}
         </div>
       </div>`
     : "";
@@ -1569,7 +1589,7 @@ function renderReview(): void {
 }
 
 function autoPlayVillain(): void {
-  if (!S.gs || S.handOver || S.mode !== "training" || !S.villainCards) return;
+  if (!S.gs || S.handOver || S.mode !== "training" || S.villainHands.size === 0) return;
 
   // Keep playing villain turns until it's hero's turn or hand is over
   const profile = PROFILES[S.archetype]!;
@@ -1609,9 +1629,11 @@ function autoPlayVillain(): void {
     if (next === null) break;
     if (next === S.heroSeat) break; // Hero's turn — stop and wait for input
 
-    // Villain acts — tough, non-cheating engine-driven decision, per-seat profile.
+    // Villain acts — tough, non-cheating engine-driven decision, per-seat profile,
+    // using THIS seat's own dealt hand.
     const seatProfile = buildProfiles().get(next) ?? profile;
-    const vAct = villainDecision(S.gs, next, S.villainCards, seatProfile, rng);
+    const seatCards = S.villainHands.get(next) ?? S.villainCards!;
+    const vAct = villainDecision(S.gs, next, seatCards, seatProfile, rng);
     let action = vAct.type;
     let amount = vAct.amount;
     const legal = S.gs.legalActionsFor(next);
@@ -1659,7 +1681,7 @@ function getNextBoardCards(): Card[] {
 }
 
 function trainingShowdown(): void {
-  if (!S.gs || !S.heroCards || !S.villainCards) return;
+  if (!S.gs || !S.heroCards) return;
   // Make sure full board is dealt
   while (S.boardCards.length < 5) {
     const cards = getNextBoardCards();
@@ -1669,22 +1691,41 @@ function trainingShowdown(): void {
   }
 
   const board5 = S.boardCards.slice(0, 5);
-  const heroRank = evaluate([S.heroCards[0], S.heroCards[1], ...board5]);
-  const villRank = evaluate([S.villainCards[0], S.villainCards[1], ...board5]);
+  const n = S.gs.stacks.length;
+  const inHand = S.gs.folded.map((f) => !f);
 
-  const invested = S.gs.invested[S.heroSeat]!;
-  let heroPnl: number;
-  const villPos = S.gs.positions.find((_, i) => i !== S.heroSeat && !S.gs!.folded[i]) ?? "Villain";
+  // Rank every seat still in the hand on the final board (true multiway).
+  const strength = new Array<number>(n).fill(-1);
+  for (let i = 0; i < n; i++) {
+    if (!inHand[i]) continue;
+    const cards = i === S.heroSeat ? S.heroCards : S.villainHands.get(i);
+    if (!cards) continue;
+    strength[i] = evaluate([cards[0], cards[1], ...board5]);
+  }
 
-  if (heroRank > villRank) {
-    S.handResult = `You won ${chips(S.gs.pot)} at showdown`;
-    heroPnl = S.gs.pot - invested;
-  } else if (heroRank === villRank) {
-    S.handResult = `Split pot — ${chips(S.gs.pot / 2)} each`;
-    heroPnl = S.gs.pot / 2 - invested;
+  // Settle (handles multiway side pots). Reveal every non-folded villain's hand.
+  const won = settlePots(S.gs.invested, inHand, strength);
+  for (let i = 0; i < n; i++) {
+    if (i !== S.heroSeat && inHand[i] && S.villainHands.has(i)) {
+      S.showdownCards.set(i, S.villainHands.get(i)!);
+    }
+  }
+  const heroPnl = won[S.heroSeat]! - S.gs.invested[S.heroSeat]!;
+
+  // Winner readout among contesting seats.
+  let best = -1;
+  for (let i = 0; i < n; i++) if (inHand[i] && strength[i]! > best) best = strength[i]!;
+  const winners = [];
+  for (let i = 0; i < n; i++) if (inHand[i] && strength[i] === best) winners.push(i);
+  const label = best >= 0 ? nutLabel(
+    (winners[0] === S.heroSeat ? S.heroCards : S.villainHands.get(winners[0]!))!, board5,
+  ) : "";
+  if (winners.length > 1) {
+    S.handResult = `Split pot — ${label}`;
+  } else if (winners[0] === S.heroSeat) {
+    S.handResult = `You won ${chips(won[S.heroSeat]!)} — ${label}`;
   } else {
-    S.handResult = `${villPos} won ${chips(S.gs.pot)} at showdown`;
-    heroPnl = -invested;
+    S.handResult = `${S.gs.positions[winners[0]!]} won ${chips(won[winners[0]!]!)} — ${label}`;
   }
 
   saveHandRecord(heroPnl);
