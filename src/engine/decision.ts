@@ -366,7 +366,11 @@ function postflopRecommend(
   const pot = state.pot;
   const tex = analyzeBoard(state.board);
   const conn = heroConnection(hero, state.board);
+  // For polarized BETS (bluffs/semi-bluffs), a dry board lets you size up. For
+  // made-VALUE bets it's the opposite: size up on WET/dynamic boards to charge
+  // draws, smaller on dry/static boards where villain has fewer calling hands.
   const texAdj = tex.dry ? 1.15 : tex.wet ? 0.85 : 1.0;
+  const valueTexAdj = tex.wet ? 1.2 : tex.dry ? 0.9 : 1.0;
   const texNote = tex.desc;
 
   // Shove if short-stacked
@@ -414,7 +418,7 @@ function postflopRecommend(
   // valueMult sizes up vs callers (extract more) and down vs folders.
   if (dq > 0.80) {
     // Monsters can overbet a sticky caller.
-    const frac = Math.min(sticky > 0.6 ? 1.5 : 1.0, (0.80 + (dq - 0.80)) * texAdj * valueMult);
+    const frac = Math.min(sticky > 0.6 ? 1.5 : 1.0, (0.80 + (dq - 0.80)) * valueTexAdj * valueMult);
     const size = Math.min(pot * frac, heroStack);
     return fin({
       action: "bet", amount: size, equity: eq, potOdds: 0,
@@ -423,7 +427,7 @@ function postflopRecommend(
     });
   }
   if (dq > 0.60) {
-    const frac = Math.min(1.1, (0.55 + (dq - 0.60)) * texAdj * valueMult);
+    const frac = Math.min(1.1, (0.55 + (dq - 0.60)) * valueTexAdj * valueMult);
     const size = Math.min(pot * frac, heroStack);
     return fin({
       action: "bet", amount: size, equity: eq, potOdds: 0,
@@ -432,7 +436,7 @@ function postflopRecommend(
     });
   }
   if (dq > VALUE_BET) {
-    const frac = Math.min(0.7, 0.40 * texAdj * valueMult);
+    const frac = Math.min(0.7, 0.40 * valueTexAdj * valueMult);
     const size = Math.min(pot * frac, heroStack);
     return fin({
       action: "bet", amount: size, equity: eq, potOdds: 0,

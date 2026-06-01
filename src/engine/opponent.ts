@@ -7,6 +7,7 @@ import {
   sortedCombos,
   comboScore,
   topSlice,
+  middleSlice,
 } from "./hand-strength.js";
 import {
   type ActionInput,
@@ -150,6 +151,21 @@ export function estimateVillainRange(
   const villainCalled = state.actions.some(
     (a) => a.seat === villainSeat && a.type === "call",
   );
+  const raisedPreflop = state.actions.some(
+    (a) => a.street === "preflop" && (a.type === "raise" || a.type === "bet"),
+  );
+
+  // A LIMP/CHECK range: wide AND capped. Crucially it EXCLUDES the top ~pfr% of
+  // hands (the premiums a player would have RAISED) and keeps the next band down
+  // to ~vpip+0.5. Using the *top* slice here (as before) front-loads aces/pairs
+  // and massively overstates how often a passive limper holds a board-pairing
+  // card — which understated hero's equity in multiway limped pots and made the
+  // engine check the near-nuts.
+  const limpBand = (): Range => {
+    const top = Math.min(0.04, profile.pfr * 0.25); // a few premiums slow-play / trap
+    const bottom = Math.min(0.92, Math.max(profile.vpip + 0.5, 0.55));
+    return middleSlice(allCombos(), top, bottom);
+  };
 
   let range: Range;
 
@@ -174,17 +190,17 @@ export function estimateVillainRange(
         range = topSlice(allCombos(), profile.vpip);
       }
     } else {
-      // BB checked its option in an unraised pot → literally any two cards.
-      range = topSlice(allCombos(), 0.95);
+      // BB checked its option in an unraised pot → essentially any two cards.
+      range = topSlice(allCombos(), 0.97);
     }
-  } else if (villainCalled) {
+  } else if (villainCalled && raisedPreflop) {
+    // Called a preflop RAISE → a genuine (tighter) continuing range.
     range = topSlice(allCombos(), profile.vpip);
   } else {
-    // Never raised, bet, or called — i.e. limped / checked along in an unraised
-    // pot. That is a WIDE, weak, capped range. The top-vpip% slice (pair- and
-    // ace-heavy) badly overstates how often they hold board-pairing cards and so
-    // wildly understates hero's equity in multiway limped pots. Widen it.
-    range = topSlice(allCombos(), Math.min(0.9, profile.vpip + 0.5));
+    // Limped (called the BB) or checked in an UNRAISED pot — both are passive
+    // limp/check ranges. (Real limpers reach here via villainCalled, which is
+    // why the previous fix on the bare `else` was dead code.)
+    range = limpBand();
   }
 
   return range.filter(dead);
