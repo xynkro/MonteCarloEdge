@@ -185,10 +185,23 @@ export function describeHand(
   let label = "";
   const isPocket = holeRanks[0] === holeRanks[1];
 
+  // Ranks (high→low) held with at least n of a kind across hole+board.
+  const atLeast = (n: number): number[] => {
+    const out: number[] = [];
+    for (let r = 12; r >= 0; r--) if (counts[r]! >= n) out.push(r);
+    return out;
+  };
+
   switch (cat) {
     case CATEGORY.STRAIGHT_FLUSH: label = "Straight Flush"; break;
-    case CATEGORY.QUADS: label = "Four of a Kind"; break;
-    case CATEGORY.FULL_HOUSE: label = "Full House"; break;
+    case CATEGORY.QUADS: label = `Quad ${RANK_WORD[atLeast(4)[0]!]}s`; break;
+    case CATEGORY.FULL_HOUSE: {
+      // Name it (e.g. "Kings full of Aces") so a WEAK full house is obvious.
+      const trip = atLeast(3)[0]!;
+      const pair = atLeast(2).find((r) => r !== trip);
+      label = pair !== undefined ? `${RANK_WORD[trip]}s full of ${RANK_WORD[pair]}s` : `${RANK_WORD[trip]}s full`;
+      break;
+    }
     case CATEGORY.FLUSH: label = "Flush"; break;
     case CATEGORY.STRAIGHT: label = "Straight"; break;
     case CATEGORY.TRIPS: {

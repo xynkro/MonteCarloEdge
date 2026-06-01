@@ -174,12 +174,17 @@ export function estimateVillainRange(
         range = topSlice(allCombos(), profile.vpip);
       }
     } else {
-      range = topSlice(allCombos(), profile.vpip);
+      // BB checked its option in an unraised pot → literally any two cards.
+      range = topSlice(allCombos(), 0.95);
     }
   } else if (villainCalled) {
     range = topSlice(allCombos(), profile.vpip);
   } else {
-    range = topSlice(allCombos(), profile.vpip);
+    // Never raised, bet, or called — i.e. limped / checked along in an unraised
+    // pot. That is a WIDE, weak, capped range. The top-vpip% slice (pair- and
+    // ace-heavy) badly overstates how often they hold board-pairing cards and so
+    // wildly understates hero's equity in multiway limped pots. Widen it.
+    range = topSlice(allCombos(), Math.min(0.9, profile.vpip + 0.5));
   }
 
   return range.filter(dead);
