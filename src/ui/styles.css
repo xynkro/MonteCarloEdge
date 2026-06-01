@@ -645,6 +645,12 @@ body {
 }
 .confirm-btn { background: linear-gradient(135deg, var(--emerald), var(--emerald-2)); color: #042018; }
 .cancel-btn { background: var(--surface-2); color: var(--muted) !important; border: 1px solid var(--line-2) !important; }
+.remove-player-btn {
+  width: 100%; margin: 4px 0 10px; padding: 11px; border-radius: var(--radius);
+  background: rgba(224,86,106,.12); border: 1px solid rgba(224,86,106,.45);
+  color: #ff8a99; font-size: 13px; font-weight: 700; cursor: pointer;
+}
+.remove-player-btn:active { background: rgba(224,86,106,.22); transform: scale(.98); }
 
 /* ═══════ Stats ═══════ */
 .stats-card {

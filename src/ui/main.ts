@@ -276,12 +276,21 @@ function renderNumpad(): void {
           `<button class="numpad-btn" data-key="${k}">${k}</button>`
         ).join("")}
       </div>
+      ${target === "seatstack" && S.mode === "live" && S.numpadSeat !== S.heroSeat && getPositions(S.tableSize).length > 2
+        ? `<button class="remove-player-btn" id="np-remove">🚪 Remove ${seatPos} (left table)</button>` : ""}
       <div class="modal-actions">
         <button class="cancel-btn" id="np-cancel">Cancel</button>
         <button class="confirm-btn" id="np-confirm">Set</button>
       </div>
     </div>`;
   app.appendChild(overlay);
+
+  document.getElementById("np-remove")?.addEventListener("click", () => {
+    const seat = S.numpadSeat;
+    S.numpadTarget = null; S.numpadRaw = "";
+    document.getElementById("numpad-modal")?.remove();
+    removePlayer(seat);
+  });
 
   overlay.querySelectorAll(".numpad-btn").forEach(btn =>
     btn.addEventListener("click", () => {
@@ -314,6 +323,40 @@ function renderNumpad(): void {
     document.getElementById("numpad-modal")?.remove();
     render();
   });
+}
+
+// Remove a player from the live table mid-session (they busted / left). Shrinks
+// the table by one and re-indexes everything keyed by seat — running stacks,
+// per-seat stats & types, hero seat, dealer seat — then deals the next hand.
+function removePlayer(seat: number): void {
+  if (S.mode !== "live") return;
+  const n = getPositions(S.tableSize).length;
+  if (n <= 2 || seat === S.heroSeat) return; // can't go below heads-up or remove yourself
+  const newN = n - 1;
+  const shift = (idx: number) => (idx > seat ? idx - 1 : idx); // for idx !== seat
+
+  // Running stacks: drop the leaving seat, keep the rest in order.
+  const newStacks: number[] = [];
+  for (let i = 0; i < n; i++) if (i !== seat) newStacks.push(S.seatStacks[i] ?? S.stackBB);
+  S.seatStacks = newStacks;
+
+  // Per-seat maps: drop the seat, shift higher indices down.
+  const remapMap = <T>(m: Map<number, T>): Map<number, T> => {
+    const out = new Map<number, T>();
+    for (const [k, v] of m) if (k !== seat) out.set(shift(k), v);
+    return out;
+  };
+  S.playerStats = remapMap(S.playerStats);
+  S.seatTypes = remapMap(S.seatTypes);
+
+  if (S.heroSeat > seat) S.heroSeat -= 1;
+  // If the button was the leaving seat, it passes to the next player (now at
+  // index `seat`); otherwise shift it down if it was above the removed seat.
+  S.dealerSeat = S.dealerSeat === seat ? seat % newN : (S.dealerSeat > seat ? S.dealerSeat - 1 : S.dealerSeat);
+  S.tableSize = newN;
+
+  // Start the next hand fresh on the smaller table.
+  startHand();
 }
 
 /* ═══════════════════ GTO RIVER SOLVER ═══════════════════ */
