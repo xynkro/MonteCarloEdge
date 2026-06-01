@@ -243,6 +243,20 @@ body {
   font-size: 23px; font-weight: 800; color: var(--gold); letter-spacing: -.3px;
   text-shadow: 0 2px 10px rgba(0,0,0,.55);
 }
+.table-pot.pot-collect { animation: potCollect .42s ease-out; }
+@keyframes potCollect {
+  0% { transform: scale(1); }
+  55% { transform: scale(1.22); text-shadow: 0 0 18px rgba(255,209,102,.8); }
+  100% { transform: scale(1); }
+}
+/* Transient chips that fly from each seat into the pot */
+.fly-chip {
+  position: fixed; width: 16px; height: 16px; margin: -8px 0 0 -8px; border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #ffe08a, var(--gold));
+  border: 1px solid rgba(0,0,0,.5); box-shadow: 0 0 7px rgba(255,209,102,.75);
+  z-index: 9999; pointer-events: none;
+  transition: transform .42s cubic-bezier(.4,.55,.3,1), opacity .42s ease-in;
+}
 .table-street {
   font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 2px;
   color: rgba(255,255,255,.55); margin-top: 3px;

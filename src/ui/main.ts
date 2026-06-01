@@ -1026,6 +1026,31 @@ function seatCoord(seatIdx: number): { left: number; top: number } {
 // just labels. Colour varies per seat for distinction; hero is emerald.
 const AVATAR_COLORS = ["#5b8def", "#e0566a", "#f59e0b", "#a78bfa", "#3fd6c4",
   "#ec4899", "#f97316", "#22c55e", "#eab308", "#38bdf8"];
+// Animate the current street's bet chips sliding into the pot. Spawns transient
+// chip elements on document.body (so the imminent re-render doesn't kill them),
+// reading live positions from the rendered .seat-bet tokens and the pot.
+function animateChipsToPot(): void {
+  const pot = document.querySelector(".table-pot");
+  const bets = [...document.querySelectorAll(".seat-bet")] as HTMLElement[];
+  if (!pot || bets.length === 0) return;
+  const pr = pot.getBoundingClientRect();
+  const tx = pr.left + pr.width / 2, ty = pr.top + pr.height / 2;
+  for (const b of bets) {
+    const r = b.getBoundingClientRect();
+    const x = r.left + r.width / 2, y = r.top + r.height / 2;
+    const chip = document.createElement("div");
+    chip.className = "fly-chip";
+    chip.style.left = `${x}px`;
+    chip.style.top = `${y}px`;
+    document.body.appendChild(chip);
+    setTimeout(() => { chip.style.transform = `translate(${tx - x}px, ${ty - y}px) scale(.45)`; chip.style.opacity = "0.15"; }, 16);
+    setTimeout(() => chip.remove(), 460);
+  }
+  pot.classList.remove("pot-collect");
+  void (pot as HTMLElement).offsetWidth; // restart the animation
+  pot.classList.add("pot-collect");
+}
+
 function avatarHtml(seat: number, isHero: boolean): string {
   const color = isHero ? "#00d68f" : AVATAR_COLORS[seat % AVATAR_COLORS.length]!;
   return `<div class="seat-avatar" style="color:${color}">
@@ -1716,6 +1741,7 @@ function villainStep(): void {
 
   // Round done → deal the next street (or go to showdown), then continue.
   if (S.gs.roundComplete() && !S.gs.isComplete()) {
+    animateChipsToPot(); // collect this street's bets into the pot
     if (S.gs.street === "river") { trainingShowdown(); return; }
     const anyCanAct = S.gs.stacks.some((s, i) => !S.gs!.folded[i] && s > 0);
     if (!anyCanAct) {
@@ -2200,6 +2226,7 @@ function confirmPicker(): void {
     playSound("card");
     S.pickerOpen = false; S.pickerPicked = []; S.pickerRank = null;
     document.getElementById("picker-modal")?.remove();
+    animateChipsToPot(); // collect the prior street's bets into the pot
     if (S.gs) {
       S.gs.advanceStreet(dealt); // push the real cards into the game state's board
       const anyCanAct = S.gs.stacks.some((s, i) => !S.gs!.folded[i] && s > 0);
