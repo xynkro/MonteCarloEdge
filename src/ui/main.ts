@@ -1021,7 +1021,9 @@ function seatCoord(seatIdx: number): { left: number; top: number } {
   const n = getPositions(S.tableSize).length;
   const vis = (seatIdx - S.heroSeat + n) % n;
   const a = (vis * 2 * Math.PI) / n;
-  return { left: 50 - 40 * Math.sin(a), top: 50 + 35 * Math.cos(a) };
+  // Push seats out toward the rim of the felt (wider horizontally; vertically
+  // capped so the top seat clears the header).
+  return { left: 50 - 47 * Math.sin(a), top: 50 + 38 * Math.cos(a) };
 }
 
 // A small head-and-shoulders silhouette avatar so opponents read as people, not
