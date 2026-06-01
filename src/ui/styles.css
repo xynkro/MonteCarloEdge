@@ -441,25 +441,25 @@ body {
 /* Fixed-height table region: pinned so it never resizes/shifts when the
    recommendation + action buttons appear or disappear below it. */
 .table-wrap {
-  flex: 0 0 auto; height: 42vh; min-height: 0;
+  flex: 0 0 auto; height: min(42vh, 360px); min-height: 0;
   display: flex; align-items: center; justify-content: center;
 }
-/* Everything below the table lives in one fixed region (fills the rest of the
-   screen). Controls appear/disappear INSIDE it without ever moving the table. */
+/* Below the table: a scrollable body (cards / read / rec) + an action dock that
+   stays pinned and visible so the buttons are NEVER cut off on tall phones. */
 .controls {
-  flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column;
-  overflow: hidden;
+  flex: 1 1 auto; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch;
 }
+.controls-body { } /* contents flow naturally; .controls scrolls if they overflow */
 
 /* ── Landscape (short screens, i.e. phones): table left, controls right ── */
 @media (orientation: landscape) and (max-height: 600px) {
   #app { max-width: none; } /* use the full landscape width, not the 480px cap */
   .stage { flex-direction: row; align-items: stretch; }
   .table-wrap {
-    flex: 1 1 56%; min-width: 0; height: 100%; padding: 6px 30px;
+    flex: 1 1 56%; min-width: 0; height: 100%; padding: 14px 30px;
   }
-  /* Slightly smaller + centered so the side seats don't graze the screen edge. */
-  .poker-table { height: 90%; width: auto; max-width: 100%; }
+  /* Smaller + centered so the top/side seats clear the header and screen edges. */
+  .poker-table { height: 78%; width: auto; max-width: 100%; }
   .controls {
     flex: 1 1 44%; min-width: 280px; height: 100%; padding: 0 4px;
     border-left: 1px solid var(--line); overflow-y: auto;
@@ -472,8 +472,8 @@ body {
   .action-btn { padding: 13px 4px; font-size: 13px; }
 }
 .controls .hero-area { flex: 0 0 auto; }
-/* Controls sit directly under the cards/recommendation (no big mid gap).
-   Any leftover space falls at the very bottom of the screen. */
+/* Action/result block sits directly under the cards/recommendation — contiguous
+   (no mid gap). The .controls scroll handles tall content so nothing is cut. */
 .action-dock { flex: 0 0 auto; }
 .hero-cards { display: flex; gap: 9px; justify-content: center; margin-bottom: 7px; }
 

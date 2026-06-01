@@ -1298,17 +1298,19 @@ function renderGame(): void {
       </div>
 
       <div class="controls">
-        ${!S.handOver && !S.allInPrompt && !S.rit ? `<div class="status-bar ${isHeroTurn ? "your-turn" : ""}">${
-          isHeroTurn ? "<strong>YOUR TURN</strong>" : S.message || ""
-        }</div>` : ""}
+        <div class="controls-body">
+          ${!S.handOver && !S.allInPrompt && !S.rit ? `<div class="status-bar ${isHeroTurn ? "your-turn" : ""}">${
+            isHeroTurn ? "<strong>YOUR TURN</strong>" : S.message || ""
+          }</div>` : ""}
 
-        <div class="hero-area">
-          <div class="hero-cards">${heroHtml}</div>
-          ${gs ? `<div class="pot-line"><span class="table-pot">${chips(gs.pot)}</span><span class="pot-street">${gs.street.toUpperCase()}</span></div>` : ""}
-          ${handLabelHtml}
-          ${boardReadHtml}
-          ${recHtml}
-          ${canSolveGto() ? `<button class="gto-btn" id="gto-solve">${S.gtoSolving ? "Solving…" : "🧠 Solve GTO"}</button>` : ""}
+          <div class="hero-area">
+            <div class="hero-cards">${heroHtml}</div>
+            ${gs ? `<div class="pot-line"><span class="table-pot">${chips(gs.pot)}</span><span class="pot-street">${gs.street.toUpperCase()}</span></div>` : ""}
+            ${handLabelHtml}
+            ${boardReadHtml}
+            ${recHtml}
+            ${canSolveGto() ? `<button class="gto-btn" id="gto-solve">${S.gtoSolving ? "Solving…" : "🧠 Solve GTO"}</button>` : ""}
+          </div>
         </div>
 
         <div class="action-dock">${S.trainingOver ? renderTrainingOver()
