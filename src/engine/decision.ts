@@ -451,6 +451,28 @@ function postflopRecommend(
     }
   }
 
+  // ── Represent / bluff ──
+  // With a hand that has no showdown value, checking just gives up. If the
+  // opponent folds often enough, BETTING to represent a strong hand prints
+  // money (fold equity). Only heads-up (multiway someone calls too often), only
+  // with true air (no showdown value, no draw — draws are the semi-bluff above),
+  // and only when the estimated fold% clears the bet's break-even with margin.
+  // Never vs a calling station (low foldy) — that's where bluffs go to die.
+  const bluffOK = villainSeats.length === 1 && eq < 0.34 && dq < THIN_VALUE
+    && !conn.hasFlushDraw && !conn.hasStraightDraw;
+  if (bluffOK) {
+    const frac = tex.dry ? 0.5 : tex.wet ? 0.75 : 0.6; // size to credibly represent
+    const breakeven = frac / (1 + frac);               // fold% needed to break even
+    if (foldy > breakeven + 0.06 && heroStack > pot * frac) {
+      const size = Math.min(pot * frac, heroStack);
+      return fin({
+        action: "bet", amount: size, equity: eq, potOdds: 0,
+        ev: { fold: foldy * pot, call: 0, raise: foldy * pot - (1 - foldy) * size },
+        reasoning: `Bluff — represent strength on ${texNote}, opp folds ~${pct(foldy)} (${posTag})`,
+      });
+    }
+  }
+
   return fin({
     action: "check", amount: 0, equity: eq, potOdds: 0,
     ev: { fold: 0, call: 0, raise: -0.5 },
