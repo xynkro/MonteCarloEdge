@@ -1217,10 +1217,13 @@ function renderGame(): void {
   }
 
   // ── Recommendation ──
+  // The reason text leads with "Fold — …" / "Raise — …" etc, which just repeats
+  // the big action label above it. Strip that leading "<action> — " prefix.
+  const recReason = S.rec ? S.rec.reasoning.replace(/^\s*[A-Za-z][A-Za-z\s/-]*\s—\s/, "") : "";
   const recHtml = S.rec ? `
     <div class="rec-panel">
       <div class="rec-action">${S.rec.action}${S.rec.amount > 0 ? ` ${chipsBet(S.rec.amount)}` : ""}</div>
-      <div class="rec-reason">${S.rec.reasoning}</div>
+      <div class="rec-reason">${recReason}</div>
     </div>` : "";
 
   // ── Actions ──
