@@ -11,7 +11,7 @@ import { recommend, type Recommendation, type ProfileMap } from "../engine/decis
 import { AUTO, TAG, LAG, STATION, NIT, type OpponentProfile } from "../engine/opponent.js";
 import { villainDecision } from "../engine/villain-ai.js";
 import { evaluate } from "../engine/evaluator.js";
-import { describeHand, nutHand, nutLabel, handsThatBeat, type Threat } from "../engine/made-hand.js";
+import { describeHand, nutLabel, readThreats, type Threat } from "../engine/made-hand.js";
 import { monteCarloEquityMultiway } from "../engine/equity.js";
 import { settlePots, strengthFromWinners } from "../engine/settle.js";
 import { openRaiseSize, minRaise } from "../engine/sizing.js";
@@ -96,7 +96,7 @@ interface AppState {
   // GTO preflop push/fold readout
   gtoPreflop: { title: string; rows: { label: string; freq: number }[]; note: string } | null;
   // Board read: hero win% vs villain range(s) + the nuts on this board
-  boardRead: { equity: number | null; nuts: string; nutsCards: [Card, Card] | null; second: string | null; secondCards: [Card, Card] | null; nutsPct: number | null; threats: Threat[] } | null;
+  boardRead: { equity: number | null; made: Threat[]; draws: Threat[] } | null;
   boardReadKey: string;
   message: string;
   // Undo: reversible snapshots of mid-hand state (live mode only).
@@ -921,16 +921,12 @@ function updateBoardRead(): void {
   if (key === S.boardReadKey && S.boardRead) return;
   S.boardReadKey = key;
 
-  const nut = nutHand(S.gs.board, [S.heroCards[0], S.heroCards[1]]);
-  const nuts = nut?.label ?? "—";
-  // What an opponent could be holding that beats hero RIGHT NOW on this board.
-  const beat = handsThatBeat([S.heroCards[0], S.heroCards[1]], S.gs.board);
-  const threats = beat.threats.slice(0, 3);
-  const second = nut?.second ?? null;
-  const nutsCards = nut?.combos[0] ?? null;
-  const secondCards = nut?.secondCombo ?? null;
   let equity: number | null = null;
-  let nutsPct: number | null = null;
+  // Range-aware read of the threats hero faces. Use the active villains' actual
+  // estimated ranges so only realistic holdings count (junk combos like 34o that
+  // technically make a wheel don't alarm you). With no villains, fall back to the
+  // full universe of holdings so the read still renders.
+  let rangeCombos: ReadonlyArray<readonly [Card, Card]> = allCombos().combos;
   if (vils.length > 0) {
     const prof = buildProfiles();
     const ranges = vils
@@ -941,20 +937,13 @@ function updateBoardRead(): void {
         hero: S.heroCards, villainRanges: ranges, board: S.gs.board,
         iterations: 4000, rng: mulberry32(0x1234),
       }).equity;
-      // P(at least one villain holds a nut combo) = 1 - Π(1 - p_i).
-      if (nut && nut.combos.length > 0) {
-        let pNone = 1;
-        for (const r of ranges) {
-          let held = 0;
-          for (const c of nut.combos) if (r.has(c)) held++;
-          const p = r.size > 0 ? held / r.size : 0;
-          pNone *= (1 - p);
-        }
-        nutsPct = 1 - pNone;
-      }
+      rangeCombos = ranges.flatMap(r => r.combos);
     }
   }
-  S.boardRead = { equity, nuts, nutsCards, second, secondCards, nutsPct, threats };
+  const read = readThreats([S.heroCards[0], S.heroCards[1]], S.gs.board, rangeCombos);
+  // Made threats: top 3 by likelihood. Draws: show all types (≤4: flush/straight/
+  // set/overcards) so a flush or straight draw is never hidden behind overcards.
+  S.boardRead = { equity, made: read.made.slice(0, 3), draws: read.draws.slice(0, 4) };
 }
 
 // Common one-tap raise/bet sizes for the seat about to act. Facing a bet →
@@ -1206,49 +1195,25 @@ function renderGame(): void {
     </div>`;
   }
 
-  // ── Board read: the nuts (strength now lives in the hand summary above) ──
+  // ── Board read: the two reads that actually drive a call/bet — what an opponent
+  // (within a realistic range) could hold that BEATS YOU now, and what's DRAWING
+  // to beat you on the next card. Draws die automatically when no card completes
+  // them and on the river. Replaces the old nuts / 2nd-nuts / nuts-out grid. ──
   let boardReadHtml = "";
-  if (S.boardRead) {
-    const npct = S.boardRead.nutsPct;
-    const heldItem = npct === null ? "" :
-      `<div class="br-item"><span class="br-label">Nuts out</span><span class="br-val ${npct > 0.15 ? "warn" : ""}">${(npct * 100).toFixed(0)}%</span></div>`;
-    // Show the actual two cards that make the nuts, with the hand name beneath.
-    const cardsMini = (combo: [Card, Card] | null): string => combo
-      ? combo.map(c => `<span class="${isRed(c) ? "rc" : ""}">${cardDisplay(c)}</span>`).join(" ")
-      : "—";
-    const nutsItem = `<div class="br-item">
-      <span class="br-label">Nuts</span>
-      <span class="br-val br-cards">${cardsMini(S.boardRead.nutsCards)}</span>
-      <span class="br-sub">${S.boardRead.nuts}</span>
-    </div>`;
-    const secondItem = S.boardRead.second
-      ? `<div class="br-item">
-          <span class="br-label">2nd nuts</span>
-          <span class="br-val br-cards">${cardsMini(S.boardRead.secondCards)}</span>
-          <span class="br-sub">${S.boardRead.second}</span>
-        </div>`
-      : "";
-    // "What beats you" — the single most important read before calling/betting.
-    // Lists the hand types an opponent could hold that beat your made hand, with
-    // how many such holdings exist. Empty list ⇒ you hold the (current) nuts.
-    const threats = S.boardRead.threats;
-    let beatsHtml = "";
-    if (threats.length === 0) {
-      beatsHtml = `<div class="beats-you nuts">🔒 Nothing beats you — you have the nuts</div>`;
+  if (S.boardRead && !S.handOver && !S.trainingOver) {
+    const made = S.boardRead.made;
+    const draws = S.boardRead.draws;
+    const chip = (t: Threat) => `<span class="threat">${t.label}</span>`;
+    let beatsRow: string;
+    if (made.length === 0) {
+      beatsRow = `<div class="read-row nuts"><span class="read-lead">You're ahead</span><span class="threat ok">Nothing beats you yet</span></div>`;
     } else {
-      const chips = threats
-        .map(t => `<span class="threat">${t.label}<small>${t.combos}</small></span>`)
-        .join("");
-      beatsHtml = `<div class="beats-you"><span class="beats-lead">Beats you</span>${chips}</div>`;
+      beatsRow = `<div class="read-row beats"><span class="read-lead">Beats you</span>${made.map(chip).join("")}</div>`;
     }
-    boardReadHtml = `<div class="board-read-wrap">
-      ${beatsHtml}
-      <div class="board-read">
-        ${nutsItem}
-        ${secondItem}
-        ${heldItem}
-      </div>
-    </div>`;
+    const drawsRow = draws.length
+      ? `<div class="read-row draws"><span class="read-lead">Drawing</span>${draws.map(chip).join("")}</div>`
+      : "";
+    boardReadHtml = `<div class="read-panel">${beatsRow}${drawsRow}</div>`;
   }
 
   // ── Recommendation ──

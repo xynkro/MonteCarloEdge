@@ -447,7 +447,7 @@ body {
 
 .hero-area {
   background: linear-gradient(180deg, var(--surface), var(--bg));
-  border-top: 1px solid var(--line); padding: 12px 16px 8px;
+  border-top: 1px solid var(--line); padding: 6px 16px 6px;
 }
 
 /* No per-state size overrides: the table, hero cards and spacing stay one
@@ -501,12 +501,12 @@ body {
 /* Action/result block sits directly under the cards/recommendation — contiguous
    (no mid gap). The .controls scroll handles tall content so nothing is cut. */
 .action-dock { flex: 0 0 auto; }
-.hero-cards { display: flex; gap: 9px; justify-content: center; margin-bottom: 7px; }
+.hero-cards { display: flex; gap: 9px; justify-content: center; margin-bottom: 5px; }
 
 /* Hand summary row: what you have + win% — above the hole cards */
 .hand-summary {
   display: flex; align-items: center; justify-content: center; gap: 10px;
-  margin: 2px 0 7px; flex-wrap: wrap;
+  margin: 1px 0 5px; flex-wrap: wrap;
 }
 .hand-strength, .hand-odds {
   font-size: 12px; font-weight: 700; color: var(--muted); white-space: nowrap;
@@ -520,52 +520,37 @@ body {
 .hand-summary .hand-label { margin: 0; }
 .hand-label.strong { color: var(--gold); text-shadow: 0 0 16px rgba(255,209,102,.3); }
 
-.board-read-wrap { margin-bottom: 8px; }
-/* "What beats you" — the headline read before acting. */
-.beats-you {
-  display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
-  padding: 8px 10px; margin-bottom: 8px;
-  background: rgba(239,71,111,.10); border: 1px solid rgba(239,71,111,.35);
-  border-radius: var(--radius-sm); font-size: 12px;
+/* Threat read: "Beats you" (made hands ahead of you) + "Drawing" (hands with live
+   outs to pass you next card). Compact two-row block — the key pre-action read. */
+.read-panel {
+  display: flex; flex-direction: column; gap: 5px; margin-bottom: 7px;
 }
-.beats-you.nuts {
-  background: rgba(6,214,160,.10); border-color: rgba(6,214,160,.40);
-  color: var(--green, #06d6a0); font-weight: 800; justify-content: center;
+.read-row {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px;
+  padding: 5px 9px; border-radius: var(--radius-sm); font-size: 12px;
 }
-.beats-lead {
-  font-size: 10px; text-transform: uppercase; letter-spacing: 1px;
-  color: var(--rose); font-weight: 800;
+.read-row.beats { background: rgba(239,71,111,.10); border: 1px solid rgba(239,71,111,.32); }
+.read-row.draws { background: rgba(255,209,102,.09); border: 1px solid rgba(255,209,102,.30); }
+.read-row.nuts  { background: rgba(6,214,160,.10); border: 1px solid rgba(6,214,160,.36); }
+.read-lead {
+  font-size: 10px; text-transform: uppercase; letter-spacing: 1px; font-weight: 800;
 }
+.read-row.beats .read-lead { color: var(--rose); }
+.read-row.draws .read-lead { color: var(--gold); }
+.read-row.nuts  .read-lead { color: var(--emerald); }
 .threat {
-  display: inline-flex; align-items: center; gap: 4px;
-  padding: 3px 8px; border-radius: 999px;
-  background: rgba(239,71,111,.18); color: var(--text); font-weight: 700;
+  display: inline-flex; align-items: center;
+  padding: 2px 9px; border-radius: 999px; font-weight: 700; font-size: 12px;
+  background: rgba(255,255,255,.07); color: var(--text);
 }
-.threat small {
-  font-size: 9px; font-weight: 800; color: var(--muted);
-  background: rgba(0,0,0,.25); border-radius: 999px; padding: 1px 5px;
-}
-.board-read {
-  display: flex; gap: 9px; margin-bottom: 0;
-}
-.br-item {
-  flex: 1; display: flex; flex-direction: column; align-items: center; gap: 1px;
-  padding: 7px 6px; background: var(--surface); border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
-}
-.br-label { font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); font-weight: 700; }
-.br-val { font-size: 14px; font-weight: 800; color: var(--text); }
-.br-val.win { color: var(--gold); }
-.br-val.warn { color: var(--rose); }
-/* Nut cards: white pips with red suits, plus a tiny hand-name subtitle */
-.br-cards { font-size: 15px; font-weight: 800; color: #f2f5f8; white-space: nowrap; }
-.br-cards .rc { color: var(--card-red); }
-.br-sub { font-size: 9px; font-weight: 600; color: var(--muted); text-align: center; line-height: 1.1; }
+.read-row.beats .threat { background: rgba(239,71,111,.18); }
+.read-row.draws .threat { background: rgba(255,209,102,.16); }
+.threat.ok { background: rgba(6,214,160,.16); color: var(--emerald); }
 
 .hero-card {
-  width: 56px; height: 78px; border-radius: 10px;
+  width: 52px; height: 72px; border-radius: 10px;
   display: flex; align-items: center; justify-content: center;
-  font-size: 24px; font-weight: 800;
+  font-size: 22px; font-weight: 800;
 }
 .hero-card.empty {
   border: 2px dashed var(--emerald); background: rgba(0,214,143,.06);
@@ -581,7 +566,7 @@ body {
 .rec-panel {
   background: linear-gradient(135deg, rgba(0,214,143,.16), rgba(4,32,24,.5));
   border: 1px solid rgba(0,214,143,.4); border-radius: var(--radius);
-  padding: 10px 13px; margin: 4px 0; animation: slideUp .25s ease-out;
+  padding: 8px 13px; margin: 3px 0; animation: slideUp .25s ease-out;
   box-shadow: 0 0 24px rgba(0,214,143,.1);
 }
 @keyframes slideUp { from { transform: translateY(10px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
@@ -595,7 +580,7 @@ body {
 .rec-reason { margin-top: 5px; font-size: 12px; color: var(--muted); font-style: italic; line-height: 1.4; }
 
 .gto-btn {
-  width: 100%; margin-top: 9px; padding: 13px;
+  width: 100%; margin-top: 6px; padding: 10px;
   background: linear-gradient(135deg, var(--violet), var(--violet-2));
   border: none; border-radius: var(--radius);
   color: #fff; font-size: 14px; font-weight: 800; cursor: pointer; letter-spacing: .4px;
@@ -608,7 +593,7 @@ body {
 
 .action-bar { display: flex; gap: 9px; padding: 10px 14px calc(10px + env(safe-area-inset-bottom)); background: var(--bg); border-top: 1px solid var(--line); }
 .action-btn {
-  flex: 1; padding: 13px 6px; border: none; border-radius: var(--radius);
+  flex: 1; padding: 12px 6px; border: none; border-radius: var(--radius);
   font-size: 13px; font-weight: 800; cursor: pointer; color: #fff; letter-spacing: .3px;
   transition: transform .1s, filter .1s; box-shadow: var(--shadow-2), inset 0 1px 0 rgba(255,255,255,.18);
 }
@@ -619,7 +604,7 @@ body {
 .action-btn:disabled { opacity: .3; pointer-events: none; }
 
 .status-bar {
-  text-align: center; padding: 6px 12px; font-size: 12px; color: var(--muted);
+  text-align: center; padding: 3px 12px; font-size: 12px; color: var(--muted);
   background: transparent; font-weight: 600;
 }
 .status-bar.your-turn { background: rgba(255,209,102,.08); }

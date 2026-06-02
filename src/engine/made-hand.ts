@@ -178,55 +178,92 @@ export interface Threat {
   combos: number; // how many 2-card holdings make this and beat hero
 }
 
-// Every two-card holding an opponent could have that BEATS hero's current hand
-// on this board, grouped into plain-English threats and ranked strongest-first.
-// Card-removal aware (excludes hero's cards, the board, and any dead cards).
-// `total` = all possible villain holdings; `beating` = how many of them beat hero.
-export function handsThatBeat(
+// A RANGE-AWARE read of the danger you face: split into hands that beat
+// you RIGHT NOW (made) and hands currently behind that are DRAWING to beat you on
+// the next card (draws). Only holdings in `rangeCombos` are considered, so junk
+// an opponent would never play (e.g. 34o making a wheel) doesn't show up, and a
+// draw correctly disappears once no remaining card can complete it (and on the
+// river, where there are no cards to come).
+export interface ReadThreats {
+  made: Threat[]; // made hands in-range that beat hero now (most-likely first)
+  draws: Threat[]; // in-range hands drawing to beat hero on the next card
+}
+
+export function readThreats(
   hero: readonly [Card, Card],
   board: readonly Card[],
+  rangeCombos: ReadonlyArray<readonly [Card, Card]>,
   dead: readonly Card[] = [],
-): { threats: Threat[]; total: number; beating: number } {
-  if (board.length < 3) return { threats: [], total: 0, beating: 0 };
-  const heroRank = evaluate([hero[0], hero[1], ...board]);
-  const heroCat = categoryOf(heroRank);
-  const used = new Uint8Array(NUM_CARDS);
-  used[hero[0]] = 1;
-  used[hero[1]] = 1;
-  for (const c of board) used[c] = 1;
-  for (const c of dead) used[c] = 1;
+): ReadThreats {
+  if (board.length < 3) return { made: [], draws: [] };
+  const heroNow = evaluate([hero[0], hero[1], ...board]);
+  const heroCat = categoryOf(heroNow);
+  const blocked = new Uint8Array(NUM_CARDS);
+  blocked[hero[0]] = 1;
+  blocked[hero[1]] = 1;
+  for (const c of board) blocked[c] = 1;
+  for (const c of dead) blocked[c] = 1;
+  const cardsToCome = 5 - board.length; // 2 on flop, 1 on turn, 0 on river
 
-  const groups = new Map<number, { combos: number; bestRank: number }>();
-  let total = 0;
-  let beating = 0;
-  for (let a = 0; a < NUM_CARDS; a++) {
-    if (used[a]) continue;
-    for (let b = a + 1; b < NUM_CARDS; b++) {
-      if (used[b]) continue;
-      total++;
-      const r = evaluate([a, b, ...board]);
-      if (r <= heroRank) continue; // ties chop, not beat
-      beating++;
-      const cat = categoryOf(r);
-      const g = groups.get(cat) ?? { combos: 0, bestRank: r };
+  const madeGroups = new Map<number, { combos: number; best: number }>();
+  const drawGroups = new Map<string, { combos: number; order: number }>();
+  const seen = new Set<number>();
+
+  for (const c of rangeCombos) {
+    const a = c[0], b = c[1];
+    if (blocked[a] || blocked[b]) continue; // can't be held — hero/board/dead
+    const key = a < b ? a * 52 + b : b * 52 + a;
+    if (seen.has(key)) continue; // a combo is a threat once, not per villain
+    seen.add(key);
+
+    const rNow = evaluate([a, b, ...board]);
+    if (rNow > heroNow) {
+      const cat = categoryOf(rNow);
+      const g = madeGroups.get(cat) ?? { combos: 0, best: rNow };
       g.combos++;
-      if (r > g.bestRank) g.bestRank = r;
-      groups.set(cat, g);
+      if (rNow > g.best) g.best = rNow;
+      madeGroups.set(cat, g);
+      continue;
     }
+    // Behind/tied now — does any single next card make it beat hero?
+    if (cardsToCome <= 0) continue; // river: nothing left to draw to
+    let bestOutCat = -1;
+    for (let d = 0; d < NUM_CARDS; d++) {
+      if (blocked[d] || d === a || d === b) continue;
+      const vFut = evaluate([a, b, ...board, d]);
+      const hFut = evaluate([hero[0], hero[1], ...board, d]);
+      if (vFut > hFut) {
+        const fc = categoryOf(vFut);
+        if (fc > bestOutCat) bestOutCat = fc;
+      }
+    }
+    if (bestOutCat < 0) continue; // no live outs — not a draw
+    const label =
+      bestOutCat === CATEGORY.FLUSH || bestOutCat === CATEGORY.STRAIGHT_FLUSH ? "Flush draw"
+      : bestOutCat === CATEGORY.STRAIGHT ? "Straight draw"
+      : bestOutCat >= CATEGORY.TRIPS ? "Set draw"
+      : "Overcards";
+    const g = drawGroups.get(label) ?? { combos: 0, order: bestOutCat };
+    g.combos++;
+    if (bestOutCat > g.order) g.order = bestOutCat;
+    drawGroups.set(label, g);
   }
 
-  const threats: Threat[] = [...groups.entries()]
+  const made: Threat[] = [...madeGroups.entries()]
     .map(([cat, g]) => ({
-      // A threat in the SAME category as hero is a bigger version of his hand.
       label: cat === heroCat ? `Higher ${THREAT_NAME[cat]!.toLowerCase()}` : THREAT_NAME[cat]!,
       category: cat,
       combos: g.combos,
     }))
-    // Most-likely threat first (by number of combos), tie-break to the stronger
-    // hand — so "the main way you're beaten" leads the list.
     .sort((x, y) => y.combos - x.combos || y.category - x.category);
 
-  return { threats, total, beating };
+  // Draws ranked by DANGER (flush > straight > set > overcards) rather than by
+  // combo count, so the scary draws lead and aren't crowded out by overcards.
+  const draws: Threat[] = [...drawGroups.entries()]
+    .map(([label, g]) => ({ label, category: g.order, combos: g.combos }))
+    .sort((x, y) => y.category - x.category || y.combos - x.combos);
+
+  return { made, draws };
 }
 
 export function describeHand(
