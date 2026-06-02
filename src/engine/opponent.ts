@@ -1,6 +1,8 @@
-import { type Card, rankOf } from "./cards.js";
+import { type Card, rankOf, suitOf } from "./cards.js";
 import { type Combo, Range } from "./range.js";
 import { type Rng } from "./rng.js";
+import { evaluate, categoryOf, CATEGORY } from "./evaluator.js";
+import { describeHand } from "./made-hand.js";
 import { getRfiRange, getBbDefenseRange } from "./charts/index.js";
 import {
   allCombos,
@@ -137,6 +139,87 @@ export function handConnection(
   return "air";
 }
 
+// A combo's strength on the current board: its made-hand rank, with a bump for
+// strong draws (flush draw / OESD) so semi-bluffs rank alongside weak made hands
+// rather than getting dumped into the fold tail of a betting range.
+function boardStrength(c: Combo, board: readonly Card[]): number {
+  let r = evaluate([c[0], c[1], ...board]);
+  if (board.length < 5 && categoryOf(r) <= CATEGORY.PAIR) {
+    const d = describeHand([c[0], c[1]], board);
+    if (d.draws.includes("Flush draw") || d.draws.includes("Open-ended straight draw")) {
+      r = Math.max(r, CATEGORY.PAIR << 20); // ~ a weak pair: survives a value slice
+    }
+  }
+  return r;
+}
+
+// THE FROZEN-RANGE FIX. The preflop continuing range is the same whether the
+// villain then check-folds or fires three barrels — which makes hero's equity
+// (and all the postflop advice) systematically too optimistic against aggression.
+// Here we condition the range on the villain's POSTFLOP line and bet sizing:
+//   raised      → strong, polar (top of range)
+//   bet big     → polarized: nutty value + a thin bluff tail, middle removed
+//   bet small   → merged: the top/continuing portion
+//   called      → condensed: a medium band (too weak to raise, too strong to fold)
+//   only checked → capped: the strong value that would bet is removed
+// This is a tractable stand-in for true range-vs-range (GTO Wizard range
+// morphology), and the precondition for the later solver work.
+function narrowPostflop(
+  state: GameState,
+  villainSeat: number,
+  range: Range,
+  profile: OpponentProfile,
+): Range {
+  const board = state.board;
+  if (board.length < 3 || range.size === 0) return range;
+
+  const post = state.actions.filter(
+    (a) => a.seat === villainSeat && a.street !== "preflop",
+  );
+  if (post.length === 0) return range; // villain hasn't acted postflop yet
+
+  const raised = post.some((a) => a.type === "raise");
+  const aggressed = raised || post.some((a) => a.type === "bet");
+  const called = post.some((a) => a.type === "call");
+  const onlyChecked = post.every((a) => a.type === "check");
+
+  // Largest villain bet/raise as a fraction of the pot → polarization degree.
+  let betFrac = 0;
+  for (const a of post) {
+    if ((a.type === "bet" || a.type === "raise") && a.amount > 0) {
+      betFrac = Math.max(betFrac, a.amount / Math.max(1, state.pot));
+    }
+  }
+
+  const scored = range.combos
+    .map((c) => [c, boardStrength(c, board)] as [Combo, number])
+    .sort((x, y) => y[1] - x[1]);
+  const n = scored.length;
+  const slice = (lo: number, hi: number): Combo[] =>
+    scored.slice(Math.floor(lo * n), Math.max(Math.floor(lo * n) + 1, Math.ceil(hi * n))).map((s) => s[0]);
+
+  let combos: Combo[];
+  if (raised) {
+    combos = slice(0, 0.30); // raises are strong
+  } else if (aggressed && betFrac >= 0.66) {
+    // Polarized big bet: top value + a thin bluff tail, drop the middle.
+    combos = [...slice(0, 0.26), ...scored.slice(Math.floor(0.88 * n)).map((s) => s[0])];
+  } else if (aggressed) {
+    // Merged bet: top/continuing portion (foldy fields bet a touch wider).
+    combos = slice(0, profile.betWhenCheckedTo > 0.5 ? 0.62 : 0.5);
+  } else if (called) {
+    combos = slice(0.10, 0.65); // condensed medium band
+  } else if (onlyChecked) {
+    // Capped: a passive station checks everything, so cap less.
+    combos = slice(profile.betWhenCheckedTo > 0.45 ? 0.08 : 0.22, 1);
+  } else {
+    return range;
+  }
+
+  const narrowed = Range.fromCombos(combos);
+  return narrowed.size > 0 ? narrowed : range;
+}
+
 export function estimateVillainRange(
   state: GameState,
   villainSeat: number,
@@ -203,7 +286,9 @@ export function estimateVillainRange(
     range = limpBand();
   }
 
-  return range.filter(dead);
+  // Postflop: condition the continuing range on the villain's line + sizing so
+  // hero's equity reflects who's actually represented (no more frozen range).
+  return narrowPostflop(state, villainSeat, range.filter(dead), profile);
 }
 
 export function villainAct(
