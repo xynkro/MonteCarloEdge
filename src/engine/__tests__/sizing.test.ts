@@ -9,11 +9,19 @@ import {
 } from "../sizing.js";
 
 describe("geometricSize", () => {
-  it("reasonable bet on flop with 100bb stack, 6bb pot", () => {
-    const bet = geometricSize(6, 97, 2); // 2 streets left
-    // Should be between ⅓ pot and pot
-    expect(bet).toBeGreaterThanOrEqual(2);
-    expect(bet).toBeLessThanOrEqual(6);
+  it("OVERBETS when deep relative to the pot (geometric stack-off)", () => {
+    const bet = geometricSize(6, 97, 2); // tiny pot, deep stack, 2 streets left
+    // To get all-in by the river from a 6 pot with 97 behind you MUST overbet —
+    // the size exceeds the pot but never the stack.
+    expect(bet).toBeGreaterThan(6); // overbet (the old min(pot,…) cap was a bug)
+    expect(bet).toBeLessThanOrEqual(97); // never more than the stack
+  });
+
+  it("never exceeds the stack (and floors near ⅓ pot when affordable)", () => {
+    expect(geometricSize(100, 10, 3)).toBeLessThanOrEqual(10); // stack < ⅓ pot → capped to stack
+    const deep = geometricSize(10, 200, 2);
+    expect(deep).toBeGreaterThanOrEqual(10 / 3); // ⅓-pot floor when the stack allows
+    expect(deep).toBeLessThanOrEqual(200);
   });
 
   it("returns 0 with 0 streets left", () => {
@@ -22,12 +30,6 @@ describe("geometricSize", () => {
 
   it("returns 0 with 0 stack", () => {
     expect(geometricSize(10, 0, 2)).toBe(0);
-  });
-
-  it("clamps to at least ⅓ pot", () => {
-    // Very deep: stack >> pot, geometric wants small bet
-    const bet = geometricSize(100, 10, 3);
-    expect(bet).toBeGreaterThanOrEqual(100 / 3);
   });
 });
 

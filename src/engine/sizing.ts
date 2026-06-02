@@ -8,7 +8,10 @@ export function geometricSize(
   if (streetsLeft <= 0 || pot <= 0 || stack <= 0) return 0;
   const ratio = (pot + stack) / pot;
   const bet = pot * (Math.pow(ratio, 1 / streetsLeft) - 1);
-  return Math.max(pot / 3, Math.min(pot, bet));
+  // Clamp to [pot/3, stack] — NOT to pot. Geometric sizing is frequently larger
+  // than pot (an overbet) when stacks are deep relative to the pot; the old
+  // min(pot, …) cap silently killed every overbet the math called for.
+  return Math.min(stack, Math.max(pot / 3, bet));
 }
 
 export function recommendSize(

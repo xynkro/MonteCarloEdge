@@ -1,4 +1,4 @@
-import { cardToString } from "./cards.js";
+import { cardToString, rankOf, suitOf } from "./cards.js";
 import { type Rng, mulberry32 } from "./rng.js";
 import { monteCarloEquityVsRange, monteCarloEquityMultiway } from "./equity.js";
 import { getRfiRange, getBbDefenseRange } from "./charts/index.js";
@@ -9,7 +9,7 @@ import {
   type ActionType,
   type GameState,
 } from "./game-state.js";
-import { threeBetSize } from "./sizing.js";
+import { threeBetSize, fourBetSize, recommendSize } from "./sizing.js";
 import { handClassKey } from "./gto/pushfold.js";
 import { classJams } from "./gto/pushfold-chart.js";
 import {
@@ -137,6 +137,63 @@ function realizationFactor(
   return Math.max(0.85, Math.min(1.12, f));
 }
 
+// A2s–A5s: the canonical suited-ace BLOCKER bluff hands for 4-betting (they
+// block AA/AK and play OK if called). Used to add bluffs to the 4-bet range.
+function isWheelAceSuited(hero: readonly [number, number]): boolean {
+  const suited = suitOf(hero[0]) === suitOf(hero[1]);
+  const hi = Math.max(rankOf(hero[0]), rankOf(hero[1]));
+  const lo = Math.min(rankOf(hero[0]), rankOf(hero[1]));
+  return suited && hi === 12 && lo <= 3; // A + {2,3,4,5}
+}
+
+// Facing a 3-bet (raiseCount 2) or a 4-bet+ (raiseCount >= 3) at a playable
+// depth. Percentile cutoffs approximate the 6-max consensus polar ranges:
+//   5-bet jam ≈ KK+/AKs (~1.3%) · 4-bet value ≈ QQ+/AK (~2.6%) + Axs blockers
+//   flat-3bet ≈ JJ-99/AQ/suited broadways (IP wider than OOP).
+function reRaiseDecision(
+  state: GameState,
+  hero: readonly [number, number],
+  seat: number,
+  raiseCount: number,
+  heroRaisedPre: boolean,
+  heroTotal: number,
+  label: string,
+): Recommendation {
+  const p = comboPercentile([hero[0], hero[1]]);
+  const ip = state.isInPosition(seat);
+  const odds = state.potOdds(seat);
+
+  if (raiseCount >= 3) {
+    // Facing a 4-bet: 5-bet jam premiums; flat QQ/AKo only when deep; else fold.
+    if (p < 0.013) {
+      return { action: "raise", amount: heroTotal, equity: 0.6, potOdds: odds,
+        ev: { fold: 0, call: 0.5, raise: 2 }, reasoning: `5-bet jam — ${label}, premium vs 4-bet` };
+    }
+    if (p < 0.022 && heroTotal / state.bb > 40) {
+      return { action: "call", amount: 0, equity: 0.45, potOdds: odds,
+        ev: { fold: 0, call: 0.2, raise: 0 }, reasoning: `Call the 4-bet — ${label} (deep)` };
+    }
+    return { action: "fold", amount: 0, equity: 0, potOdds: odds,
+      ev: { fold: 0, call: -1, raise: -1 }, reasoning: `Fold — ${label} vs 4-bet` };
+  }
+
+  // Facing a 3-bet.
+  const blockerBluff = isWheelAceSuited(hero) && heroRaisedPre && ip;
+  if (p < 0.026 || blockerBluff) {
+    const amt = Math.min(fourBetSize(state.currentBet), heroTotal);
+    const kind = p < 0.026 ? "value" : "blocker bluff";
+    return { action: "raise", amount: amt, equity: 0.58, potOdds: odds,
+      ev: { fold: 0, call: 0.5, raise: 1.8 }, reasoning: `4-bet — ${label} (${kind})` };
+  }
+  const flatCut = ip ? 0.075 : 0.045; // JJ-99/AQ/suited broadways IP, tighter OOP
+  if (p < flatCut) {
+    return { action: "call", amount: 0, equity: 0.45, potOdds: odds,
+      ev: { fold: 0, call: 0.3, raise: 0 }, reasoning: `Call the 3-bet — ${label}` };
+  }
+  return { action: "fold", amount: 0, equity: 0, potOdds: odds,
+    ev: { fold: 0, call: -0.4, raise: -1 }, reasoning: `Fold — ${label} vs 3-bet` };
+}
+
 function preflopRecommend(
   state: GameState,
   villainProfile: OpponentProfile = TAG,
@@ -147,12 +204,17 @@ function preflopRecommend(
   const pos = state.positions[seat]!;
   const label = `${cardToString(hero[0])}${cardToString(hero[1])}`;
 
-  const facingRaise = state.actions.some(
-    (a) =>
-      a.seat !== seat &&
-      (a.type === "raise" || a.type === "bet") &&
-      a.street === "preflop",
+  // Raise DEPTH this preflop: 0 = unopened, 1 = a single open, 2 = a 3-bet is
+  // out, 3+ = a 4-bet+ is out. Drives the open / 3-bet / 4-bet / 5-bet tree.
+  const preRaises = state.actions.filter(
+    (a) => a.street === "preflop" && (a.type === "raise" || a.type === "bet"),
   );
+  const raiseCount = preRaises.length;
+  const heroRaisedPre = preRaises.some((a) => a.seat === seat);
+  const callersBeforeHero = state.actions.filter(
+    (a) => a.street === "preflop" && a.type === "call" && a.seat !== seat,
+  ).length;
+  const facingRaise = preRaises.some((a) => a.seat !== seat);
 
   const heroTotal = state.stacks[seat]! + state.streetInvested[seat]!;
   const heroBB = heroStackBB(state);
@@ -230,6 +292,11 @@ function preflopRecommend(
         };
       }
     }
+    // BB facing a 3-bet+ (cold): the defense charts are vs a single opener, not a
+    // 3-bet, so route to the polar re-raise tree (tight: 4-bet KK+/AKs, flat QQ/AK).
+    if (raiseCount >= 2) {
+      return reRaiseDecision(state, hero, seat, raiseCount, heroRaisedPre, heroTotal, label);
+    }
     if (opener) {
       const openerPos = state.positions[opener.seat]!;
       try {
@@ -295,6 +362,38 @@ function preflopRecommend(
       ev: { fold: 0, call: -0.5, raise: -1 },
       reasoning: `Fold — ${label}, short stack vs raise (jam-or-fold)`,
     };
+  }
+
+  // Facing a 3-bet (we opened) or a 4-bet+ → the polar re-raise tree.
+  if (raiseCount >= 2) {
+    return reRaiseDecision(state, hero, seat, raiseCount, heroRaisedPre, heroTotal, label);
+  }
+
+  // Facing a single open with caller(s) in between → SQUEEZE (tighter value, a
+  // larger size to charge the dead money), rather than flatting multiway OOP.
+  if (raiseCount === 1 && callersBeforeHero > 0) {
+    const p = comboPercentile([hero[0], hero[1]]);
+    const ip = state.isInPosition(seat);
+    if (p < 0.05) {
+      const amt = Math.min(
+        threeBetSize(state.currentBet, ip) + callersBeforeHero * state.currentBet,
+        heroTotal,
+      );
+      return {
+        action: "raise", amount: amt, equity: 0.58, potOdds: state.potOdds(seat),
+        ev: { fold: 0, call: 0.5, raise: 1.8 },
+        reasoning: `Squeeze — ${label} vs open + ${callersBeforeHero} caller${callersBeforeHero > 1 ? "s" : ""}`,
+      };
+    }
+    if (p < 0.09 && ip) {
+      return {
+        action: "call", amount: 0, equity: 0.45, potOdds: state.potOdds(seat),
+        ev: { fold: 0, call: 0.2, raise: 0 }, reasoning: `Overcall — ${label} in position`,
+      };
+    }
+    return {
+      action: "fold", amount: 0, equity: 0, potOdds: state.potOdds(seat),
+      ev: { fold: 0, call: -0.3, raise: -1 }, reasoning: `Fold — ${label} multiway` };
   }
 
   // Scale 3-bet and calling thresholds by table size
@@ -522,9 +621,12 @@ function postflopRecommend(
   // Value-betting tiers (decision equity, texture- and opponent-adjusted sizing).
   // valueMult sizes up vs callers (extract more) and down vs folders.
   if (dq > 0.80) {
-    // Monsters can overbet a sticky caller.
-    const frac = Math.min(sticky > 0.6 ? 1.5 : 1.0, (0.80 + (dq - 0.80)) * valueTexAdj * valueMult);
-    const size = Math.min(pot * frac, betCap);
+    // Big value plays for STACKS: size geometrically so the bet/turn/river chain
+    // gets all-in by the river given the SPR (and naturally overbets when deep),
+    // rather than a one-off pot-fraction. Nudge up a touch vs a sticky station.
+    const geo = recommendSize(pot, betCap, state.street);
+    const size = Math.min(betCap, Math.max(geo, pot * 0.5) * (sticky > 0.6 ? 1.1 : 1.0));
+    const frac = pot > 0 ? size / pot : 1;
     return fin({
       action: "bet", amount: size, equity: eq, potOdds: 0,
       ev: { fold: 0, call: 0, raise: 1 },
