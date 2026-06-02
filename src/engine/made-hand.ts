@@ -10,6 +10,10 @@ export interface HandDescription {
 
 const RANK_WORD = ["Two", "Three", "Four", "Five", "Six", "Seven", "Eight",
   "Nine", "Ten", "Jack", "Queen", "King", "Ace"];
+// Plural rank names ("Six" → "Sixes", not "Sixs").
+const RANK_PLURAL = ["Twos", "Threes", "Fours", "Fives", "Sixes", "Sevens",
+  "Eights", "Nines", "Tens", "Jacks", "Queens", "Kings", "Aces"];
+const plur = (r: number): string => RANK_PLURAL[r]!;
 
 // Does this set of ranks contain 5 consecutive (incl. wheel A-5)?
 function hasStraight(ranks: Set<number>): boolean {
@@ -122,11 +126,11 @@ export function nutLabel(combo: readonly [Card, Card], board: readonly Card[]): 
       const t = straightTop();
       return t >= 0 ? `${RANK_WORD[t]}-high straight flush` : "Straight flush";
     }
-    case CATEGORY.QUADS: return `Quad ${RANK_WORD[atLeast(4)[0]!]}s`;
+    case CATEGORY.QUADS: return `Quad ${plur(atLeast(4)[0]!)}`;
     case CATEGORY.FULL_HOUSE: {
       const trip = atLeast(3)[0]!;
       const pair = atLeast(2).find((r) => r !== trip);
-      return pair !== undefined ? `${RANK_WORD[trip]}s full of ${RANK_WORD[pair]}s` : `${RANK_WORD[trip]}s full`;
+      return pair !== undefined ? `${plur(trip)} full of ${plur(pair)}` : `${plur(trip)} full`;
     }
     case CATEGORY.FLUSH: {
       const suitCount = new Array<number>(4).fill(0);
@@ -141,12 +145,12 @@ export function nutLabel(combo: readonly [Card, Card], board: readonly Card[]): 
       const t = straightTop();
       return t >= 0 ? `${RANK_WORD[t]}-high straight` : "Straight";
     }
-    case CATEGORY.TRIPS: return `Three ${RANK_WORD[atLeast(3)[0]!]}s`;
+    case CATEGORY.TRIPS: return `Three ${plur(atLeast(3)[0]!)}`;
     case CATEGORY.TWO_PAIR: {
       const ps = atLeast(2);
-      return `${RANK_WORD[ps[0]!]}s & ${RANK_WORD[ps[1]!]}s`;
+      return `${plur(ps[0]!)} & ${plur(ps[1]!)}`;
     }
-    case CATEGORY.PAIR: return `Pair of ${RANK_WORD[atLeast(2)[0]!]}s`;
+    case CATEGORY.PAIR: return `Pair of ${plur(atLeast(2)[0]!)}`;
     default: {
       let hi = -1;
       for (const c of cards) hi = Math.max(hi, rankOf(c));
@@ -167,7 +171,7 @@ export function describeHand(
     const hi = Math.max(holeRanks[0]!, holeRanks[1]!);
     const lo = Math.min(holeRanks[0]!, holeRanks[1]!);
     const suited = suitOf(hero[0]) === suitOf(hero[1]);
-    if (hi === lo) return { category: CATEGORY.PAIR, label: `Pocket ${RANK_WORD[hi]}s`, draws: [], strong: hi >= 8 };
+    if (hi === lo) return { category: CATEGORY.PAIR, label: `Pocket ${plur(hi)}`, draws: [], strong: hi >= 8 };
     const label = `${RANK_CHARS[hi]}${RANK_CHARS[lo]}${suited ? "s" : "o"}`;
     return { category: CATEGORY.HIGH_CARD, label, draws: [], strong: false };
   }
@@ -194,12 +198,12 @@ export function describeHand(
 
   switch (cat) {
     case CATEGORY.STRAIGHT_FLUSH: label = "Straight Flush"; break;
-    case CATEGORY.QUADS: label = `Quad ${RANK_WORD[atLeast(4)[0]!]}s`; break;
+    case CATEGORY.QUADS: label = `Quad ${plur(atLeast(4)[0]!)}`; break;
     case CATEGORY.FULL_HOUSE: {
       // Name it (e.g. "Kings full of Aces") so a WEAK full house is obvious.
       const trip = atLeast(3)[0]!;
       const pair = atLeast(2).find((r) => r !== trip);
-      label = pair !== undefined ? `${RANK_WORD[trip]}s full of ${RANK_WORD[pair]}s` : `${RANK_WORD[trip]}s full`;
+      label = pair !== undefined ? `${plur(trip)} full of ${plur(pair)}` : `${plur(trip)} full`;
       break;
     }
     case CATEGORY.FLUSH: label = "Flush"; break;
@@ -217,7 +221,7 @@ export function describeHand(
       for (let r = 12; r >= 0; r--) if (counts[r]! >= 2) { pairedRank = r; break; }
       if (isPocket && holeRanks[0] === pairedRank) {
         if (pairedRank > maxBoard) label = "Overpair";
-        else label = `Pocket ${RANK_WORD[pairedRank]}s`;
+        else label = `Pocket ${plur(pairedRank)}`;
       } else {
         // Paired a board card with a hole card.
         const kicker = holeRanks[0] === pairedRank ? holeRanks[1]! : holeRanks[0]!;

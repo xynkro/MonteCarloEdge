@@ -360,6 +360,22 @@ body {
 }
 .seat-bet.below { top: calc(100% + 4px); }
 .seat-bet.above { bottom: calc(100% + 4px); }
+
+/* Revealed opponent hole cards shown at their seat at showdown */
+.seat-cards {
+  position: absolute; left: 50%; transform: translateX(-50%);
+  display: flex; gap: 3px; z-index: 5;
+}
+.seat-cards.below { top: calc(100% + 3px); }
+.seat-cards.above { bottom: calc(100% + 3px); }
+.seat-hole {
+  width: 26px; height: 36px; border-radius: 5px;
+  background: linear-gradient(170deg, #fff, #e9edf2); color: var(--card-black);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 15px; font-weight: 800; box-shadow: 0 2px 7px rgba(0,0,0,.55);
+  animation: dealCard .3s cubic-bezier(.2,.8,.3,1.1) both;
+}
+.seat-hole.red { color: var(--card-red); }
 .chip-dot {
   width: 9px; height: 9px; border-radius: 50%;
   background: radial-gradient(circle at 35% 30%, #ffe08a, var(--gold));
@@ -501,10 +517,11 @@ body {
   display: flex; align-items: center; justify-content: center; gap: 10px;
   margin: 2px 0 7px; flex-wrap: wrap;
 }
-.hand-strength {
+.hand-strength, .hand-odds {
   font-size: 12px; font-weight: 700; color: var(--muted); white-space: nowrap;
 }
 .hand-strength strong { color: var(--gold); font-size: 14px; font-weight: 900; }
+.hand-odds strong { color: var(--text); font-size: 14px; font-weight: 900; }
 .hand-label {
   text-align: center; font-size: 13px; font-weight: 800; color: var(--muted);
   letter-spacing: .3px; text-transform: uppercase;

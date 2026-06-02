@@ -1140,6 +1140,14 @@ function renderGame(): void {
       </div>`;
     }
     const avatar = S.mode === "training" ? avatarHtml(i, isHero) : "";
+    // At showdown, show each revealed opponent's hole cards right at their seat
+    // (instead of a separate box below). Above the chip for bottom-half seats.
+    const sdc = !isHero && !folded ? S.showdownCards.get(i) : undefined;
+    const showCards = (S.handOver || S.trainingOver) && sdc;
+    const holeCards = showCards
+      ? `<div class="seat-cards ${top < 50 ? "below" : "above"}">${sdc!.map(c =>
+          `<span class="seat-hole ${isRed(c) ? "red" : ""}">${cardDisplay(c)}</span>`).join("")}</div>`
+      : "";
     return `<div class="${cls} ${oppActor ? "tappable" : ""}" style="left:${left.toFixed(1)}%;top:${top.toFixed(1)}%">
       ${isDealer ? '<div class="dealer-btn">D</div>' : ""}
       ${tag ? `<div class="seat-tag tag-${tag.toLowerCase()}">${tag}</div>` : ""}
@@ -1149,6 +1157,7 @@ function renderGame(): void {
         <div class="seat-stack">${chips(stack)}</div>
         ${actText ? `<div class="seat-act">${actText}</div>` : ""}
       </div>
+      ${holeCards}
       ${betChip}
       ${seatMenu}
     </div>`;
@@ -1185,9 +1194,12 @@ function renderGame(): void {
     const draws = d.draws.length ? ` + ${d.draws.join(" + ")}` : "";
     const eq = S.boardRead?.equity ?? S.rec?.equity ?? null;
     const eqStr = eq === null ? "" : `${(eq * 100).toFixed(0)}%`;
+    // Pot odds = the equity you NEED to call profitably (only when facing a bet).
+    const odds = S.rec?.potOdds ?? 0;
     handSummaryHtml = `<div class="hand-summary">
       <span class="hand-label ${d.strong ? "strong" : ""}">${d.label}${draws}</span>
       ${eqStr ? `<span class="hand-strength"><strong>${eqStr}</strong> win</span>` : ""}
+      ${odds > 0 ? `<span class="hand-odds"><strong>${(odds * 100).toFixed(0)}%</strong> to call</span>` : ""}
     </div>`;
   }
 
@@ -1224,10 +1236,6 @@ function renderGame(): void {
   const recHtml = S.rec ? `
     <div class="rec-panel">
       <div class="rec-action">${S.rec.action}${S.rec.amount > 0 ? ` ${chipsBet(S.rec.amount)}` : ""}</div>
-      <div class="rec-details">
-        <span>Equity: <strong>${(S.rec.equity * 100).toFixed(0)}%</strong></span>
-        ${S.rec.potOdds > 0 ? `<span>Odds: <strong>${(S.rec.potOdds * 100).toFixed(0)}%</strong></span>` : ""}
-      </div>
       <div class="rec-reason">${S.rec.reasoning}</div>
     </div>` : "";
 
@@ -1672,32 +1680,13 @@ function renderHandResult(positions: readonly string[]): string {
       </div>`;
   }
 
-  // Training showdown — reveal every opponent who was still in the hand.
-  const shown = S.mode === "training" && S.handOver
-    ? [...S.showdownCards.entries()].filter(([i]) => !S.gs!.folded[i])
-    : [];
-  const villainReveal = shown.length
-    ? `<div class="villain-reveal">
-        <span class="hint">Opponents' hands:</span>
-        <div class="reveal-rows">
-          ${shown.map(([i, c]) => `<div class="reveal-row">
-            <span class="reveal-pos">${positions[i] ?? S.gs!.positions[i]}</span>
-            <div class="reveal-cards">
-              <div class="hero-card dealt ${isRed(c[0]) ? "red" : ""}" style="width:36px;height:50px;font-size:15px">${cardDisplay(c[0])}</div>
-              <div class="hero-card dealt ${isRed(c[1]) ? "red" : ""}" style="width:36px;height:50px;font-size:15px">${cardDisplay(c[1])}</div>
-            </div>
-          </div>`).join("")}
-        </div>
-      </div>`
-    : "";
-
+  // (Opponents' hands are shown at their seats on the table at showdown.)
   const reviewBtn = S.decisionLog.length
     ? `<button class="action-btn check" id="review-hand" style="flex:0 0 auto;padding:16px 14px">📋 Review</button>`
     : "";
 
   return `
     <div class="result-panel">
-      ${villainReveal}
       <div class="result-text">${S.handResult}</div>
       <div class="action-bar" style="margin-top:10px">
         ${reviewBtn}
