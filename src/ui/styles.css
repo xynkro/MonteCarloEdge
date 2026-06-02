@@ -450,24 +450,11 @@ body {
   border-top: 1px solid var(--line); padding: 12px 16px 8px;
 }
 
-/* Result/showdown screen has the most content (board read + opponents' reveal
-   + result + buttons). Tighten the spacing so it fits without scrolling. The
-   table keeps its normal size on tall phones (no jarring shrink); only short
-   screens shrink it to make room. */
-@media (max-height: 760px) {
-  .game.hand-over .table-wrap { height: min(30vh, 240px); }
-}
-.game.hand-over .hero-area { padding: 6px 16px 4px; }
-.game.hand-over .hero-cards { margin-bottom: 3px; }
-.game.hand-over .hero-card { width: 46px; height: 64px; font-size: 19px; }
-.game.hand-over .pot-line { margin: 1px 0 4px; }
-.game.hand-over .hand-label { margin-bottom: 4px; }
-.game.hand-over .board-read { margin-bottom: 5px; }
-.game.hand-over .br-item { padding: 5px 5px; }
-.game.hand-over .villain-reveal { padding: 7px; margin-bottom: 6px; }
-.game.hand-over .reveal-rows { gap: 8px; margin-top: 3px; }
-.game.hand-over .result-panel { padding: 9px 14px calc(9px + env(safe-area-inset-bottom)); }
-.game.hand-over .result-title { margin-bottom: 3px; }
+/* No per-state size overrides: the table, hero cards and spacing stay one
+   consistent size whether it's the hero's turn, a villain's turn, or showdown,
+   so nothing ever resizes or shifts. The opponents' reveal now renders on the
+   table (not in a box below), so the result panel is short enough to fit at
+   full size; if a very short phone can't fit it, .controls scrolls. */
 
 /* The table sits in a flex-grow region and centers vertically, so leftover
    space is split above/below it instead of one big gap above the hero area. */
@@ -479,12 +466,14 @@ body {
   flex: 0 0 auto; height: min(48vh, 410px); min-height: 0;
   display: flex; align-items: center; justify-content: center;
 }
-/* Below the table: a scrollable region whose content is centred in the leftover
-   space (sits a bit lower, not jammed under the table). "safe center" falls back
-   to top-aligned if the content is taller than the space, so nothing clips. */
+/* Below the table: a scrollable region. Content is TOP-anchored (with a small
+   fixed offset so it's not jammed under the felt) and grows downward — it never
+   re-centres, so the cards/recommendation stay put when the action area appears
+   or the result panel renders. No size jumps between states. */
 .controls {
   flex: 1 1 auto; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch;
-  display: flex; flex-direction: column; justify-content: safe center;
+  display: flex; flex-direction: column; justify-content: flex-start;
+  padding-top: 10px;
 }
 .controls-body { } /* contents flow naturally; .controls scrolls if they overflow */
 
