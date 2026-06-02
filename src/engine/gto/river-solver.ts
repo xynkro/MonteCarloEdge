@@ -20,6 +20,10 @@ export interface RiverSpot {
   maxRaises?: number;
   iterations?: number;
   rng?: Rng;
+  // Force equity-leaf mode (single betting street, then award by all-in equity
+  // over the runout). Default: flop only. Set true to make turn solves fast
+  // enough for live use (approximates a check-down after this street).
+  equityLeaf?: boolean;
 }
 
 export interface ActionFreq {
@@ -79,7 +83,13 @@ interface St {
 
 function round1(x: number): number { return Math.round(x * 10) / 10; }
 function curPot(ctx: Ctx, s: St): number { return ctx.pot + s.inv[0] + s.inv[1]; }
-function comboId(c: Combo): number { return c[0] * 52 + c[1]; }
+// Order-independent combo id. Range.combos yields canonical [lo,hi] but callers
+// pass heroHand in arbitrary order; without normalizing, the root info-set key
+// built from the passed hand misses the key accumulated during traversal and
+// average() falls back to a uniform strategy (the solver appears not to solve).
+function comboId(c: Combo): number {
+  return c[0] <= c[1] ? c[0] * 52 + c[1] : c[1] * 52 + c[0];
+}
 function conflict(a: Combo, b: Combo): boolean {
   return a[0] === b[0] || a[0] === b[1] || a[1] === b[0] || a[1] === b[1];
 }
@@ -292,7 +302,7 @@ export function solveSubgame(spot: RiverSpot, heroHand: Combo): RiverResult {
     rng: spot.rng ?? mulberry32(0x5001),
     info: new InfoSets(),
     initialLen: spot.board.length,
-    equityLeaf: flop, // flop: single betting street + all-in-equity leaves
+    equityLeaf: spot.equityLeaf ?? flop, // flop default; opt-in for fast turn solves
     eqCache: new Map(),
     leafSamples: 160,
   };

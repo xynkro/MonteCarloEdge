@@ -589,6 +589,27 @@ body {
 }
 .gto-btn:active { transform: scale(.98); filter: brightness(1.1); }
 
+/* Recommendation header: action + a source badge (honest provenance). */
+.rec-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.rec-src {
+  font-size: 9px; font-weight: 800; text-transform: uppercase; letter-spacing: .6px;
+  padding: 3px 8px; border-radius: 999px; white-space: nowrap;
+  background: rgba(255,255,255,.07); color: var(--muted);
+}
+.rec-src.src-solver { background: rgba(124,92,255,.22); color: #c9bcff; }
+.rec-src.src-nash   { background: rgba(6,214,160,.18); color: var(--emerald); }
+.rec-src.src-chart  { background: rgba(255,209,102,.16); color: var(--gold); }
+.rec-src.src-solving { background: rgba(124,92,255,.14); color: #b3a4ff; animation: pulseSrc 1s ease-in-out infinite; }
+@keyframes pulseSrc { 0%,100% { opacity: .55; } 50% { opacity: 1; } }
+
+/* Mixed-strategy bars from the solver. */
+.rec-mix { margin-top: 7px; display: flex; flex-direction: column; gap: 4px; }
+.mix-row { display: flex; align-items: center; gap: 8px; font-size: 11px; }
+.mix-act { flex: 0 0 86px; font-weight: 700; color: var(--text); }
+.mix-bar { flex: 1; height: 6px; background: rgba(255,255,255,.08); border-radius: 999px; overflow: hidden; }
+.mix-fill { height: 100%; background: linear-gradient(90deg, var(--violet), var(--violet-2)); border-radius: 999px; }
+.mix-pct { flex: 0 0 34px; text-align: right; font-weight: 800; color: var(--muted); }
+
 /* ── Actions ── */
 
 .action-bar { display: flex; gap: 9px; padding: 10px 14px calc(10px + env(safe-area-inset-bottom)); background: var(--bg); border-top: 1px solid var(--line); }

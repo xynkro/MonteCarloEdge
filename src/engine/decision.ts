@@ -58,6 +58,13 @@ export interface Recommendation {
   inPosition?: boolean;
   ev: { fold: number; call: number; raise: number };
   reasoning: string;
+  // Provenance of this recommendation, so the UI can be honest about whether the
+  // advice is solver-grounded or a heuristic:
+  //   "solver" = CFR subgame solve · "nash" = push/fold Nash chart
+  //   "chart"  = hand-authored preflop range · "heuristic" = MC-equity + rules
+  source?: "solver" | "nash" | "chart" | "heuristic";
+  // Mixed strategy (per-action frequencies) when known — populated by the solver.
+  mix?: { action: ActionType; amount: number; freq: number }[];
 }
 
 // Per-seat opponent profiles (optional). Falls back to `defaultProfile`.
@@ -69,13 +76,18 @@ export function recommend(
   rng?: Rng,
   profiles?: ProfileMap,
 ): Recommendation {
-  if (state.street === "preflop") return preflopRecommend(state, villainProfile ?? TAG, profiles);
-  return postflopRecommend(
-    state,
-    villainProfile ?? TAG,
-    rng ?? mulberry32(0xdec1de),
-    profiles,
-  );
+  const r = state.street === "preflop"
+    ? preflopRecommend(state, villainProfile ?? TAG, profiles)
+    : postflopRecommend(state, villainProfile ?? TAG, rng ?? mulberry32(0xdec1de), profiles);
+  // Tag provenance: preflop is the Nash push/fold chart when short (its reasoning
+  // says "jam"/"all-in") else a hand-authored chart; postflop is MC-equity
+  // heuristics (the live CFR solver is layered on in the UI for solvable spots).
+  if (!r.source) {
+    r.source = state.street === "preflop"
+      ? (/jam|all-in/i.test(r.reasoning) ? "nash" : "chart")
+      : "heuristic";
+  }
+  return r;
 }
 
 // Open-raise size (in chips) adapted to the table. Standard ~2.5-3bb, but vs a

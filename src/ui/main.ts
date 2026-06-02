@@ -4,7 +4,7 @@ import { mulberry32 } from "../engine/rng.js";
 import { GameState, type ActionType } from "../engine/game-state.js";
 import { getPositions, positionsForButton, getRfiRange, getBbDefenseRange } from "../engine/charts/index.js";
 import { estimateVillainRange } from "../engine/opponent.js";
-import { solveSubgame, type RiverResult } from "../engine/gto/river-solver.js";
+import { solveSubgame, type RiverResult, type ActionFreq } from "../engine/gto/river-solver.js";
 import { solvePushFold, handClassKey, type PushFoldResult } from "../engine/gto/pushfold.js";
 import { allCombos, topSlice } from "../engine/hand-strength.js";
 import { recommend, type Recommendation, type ProfileMap } from "../engine/decision.js";
@@ -172,6 +172,12 @@ const S: AppState = {
 
 // Cache push/fold solutions by effective-stack depth (equity table is reused).
 const pushFoldCache = new Map<number, PushFoldResult>();
+
+// Cache live CFR subgame solves by spot signature so each spot is solved once
+// and reused across renders (the solve is too slow to run every frame).
+const liveSolveCache = new Map<string, RiverResult>();
+// Spot key currently being solved in the background (avoids duplicate solves).
+let liveSolveInFlight: string | null = null;
 
 // ── Adaptive modeling: persist per-seat stats in localStorage ──
 const STATS_KEY = "mce-player-stats";
@@ -411,6 +417,92 @@ function heroRangeEstimate(): Range {
   r = r.filter([...gs.board]);
   // Guarantee hero's actual hand is in their own range.
   return r.union(Range.fromCombos([S.heroCards!]));
+}
+
+// ── Live CFR solver on the recommendation path ──
+// For the spots the subgame solver actually models well — heads-up, postflop,
+// hero FIRST TO ACT (the check/bet decision) — we solve in the background and let
+// the result DRIVE the recommendation (labeled "solver"), with the MC-equity
+// heuristic as the instant fallback shown until the solve lands. Facing a bet,
+// multiway, and preflop stay on their own sources (heuristic/chart/nash).
+function liveSolverSpot(): string | null {
+  const gs = S.gs;
+  if (!gs || !S.heroCards || S.handOver || S.trainingOver) return null;
+  if (gs.nextToAct() !== S.heroSeat) return null;
+  if (activeVillains().length !== 1) return null;
+  // RIVER ONLY: the river is a single exact subgame that converges well at ~12k
+  // iterations in ~300ms — fast AND accurate. Flop/turn need 20k-80k iters
+  // (seconds) to converge; solving them live at low iters yields noisy near-
+  // uniform mixes that would be dishonest to label "GTO solved". They stay on the
+  // heuristic until a precomputed blueprint stage. (The manual "Solve GTO" button
+  // still solves flop/turn on demand, where a longer "Solving…" wait is fine.)
+  if (gs.street !== "river") return null;
+  if (gs.toCall(S.heroSeat) > 0.0001) return null; // solver models hero leading
+  const eff = Math.min(gs.stacks[S.heroSeat]!, gs.stacks[activeVillains()[0]!]!);
+  return `${gs.street}|${gs.board.join(",")}|${S.heroCards[0]},${S.heroCards[1]}|p${Math.round(gs.pot)}|s${Math.round(eff)}`;
+}
+
+function ensureLiveSolve(key: string): void {
+  if (liveSolveCache.has(key) || liveSolveInFlight === key) return;
+  liveSolveInFlight = key;
+  // Yield so the heuristic paints first; the CFR run is synchronous.
+  setTimeout(() => runLiveSolve(key), 20);
+}
+
+function runLiveSolve(key: string): void {
+  const gs = S.gs;
+  // The spot may have advanced while this was queued — only solve if still current.
+  if (!gs || !S.heroCards || liveSolverSpot() !== key) {
+    if (liveSolveInFlight === key) liveSolveInFlight = null;
+    return;
+  }
+  const villainSeat = activeVillains()[0]!;
+  const profile = buildProfiles().get(villainSeat) ?? PROFILES[S.archetype]!;
+  const heroRange = heroRangeEstimate();
+  const villainRange = estimateVillainRange(gs, villainSeat, profile);
+  const eff = Math.min(gs.stacks[S.heroSeat]!, gs.stacks[villainSeat]!);
+  try {
+    const res = solveSubgame({
+      heroRange,
+      villainRange: villainRange.size > 0 ? villainRange : topSlice(allCombos(), 0.4).filter([...gs.board]),
+      board: gs.board,
+      pot: gs.pot,
+      stack: Math.max(eff, gs.pot * 0.5),
+      iterations: 15000, // river only — converges well, ~0.4s
+      rng: mulberry32(0x9e3a),
+    }, [S.heroCards[0], S.heroCards[1]]);
+    // Always cache (even an empty strategy) so a failed/degenerate solve isn't
+    // retried every render — that would be an infinite re-solve loop.
+    liveSolveCache.set(key, res);
+  } catch {
+    liveSolveCache.set(key, { strategy: [], heroEv: 0, iterations: 0 }); // sentinel: keep heuristic
+  }
+  if (liveSolveInFlight === key) liveSolveInFlight = null;
+  if (liveSolverSpot() === key) render(); // refresh to show the solved advice
+}
+
+// Turn a solved subgame strategy into a recommendation (hero is first to act, so
+// the menu is check / bet@size). Picks the highest-frequency line; carries the
+// full mix for display.
+function solverToRec(res: RiverResult, base: Recommendation | null): Recommendation {
+  const mix = res.strategy.filter((a) => a.freq > 0.005);
+  const top = [...mix].sort((a, b) => b.freq - a.freq)[0] ?? res.strategy[0]!;
+  const summary = mix
+    .map((a) => `${a.action === "bet" ? `bet ${chipsBet(roundBet(a.amount))}` : a.action} ${(a.freq * 100).toFixed(0)}%`)
+    .join(" · ");
+  return {
+    action: top.action,
+    amount: top.action === "bet" ? roundBet(top.amount) : 0,
+    equity: base?.equity ?? 0,
+    realizedEquity: base?.realizedEquity,
+    potOdds: 0,
+    handLabel: base?.handLabel,
+    inPosition: base?.inPosition,
+    ev: { fold: 0, call: 0, raise: 0 },
+    reasoning: `Solved (CFR): ${summary}`,
+    source: "solver",
+    mix: mix.map((a) => ({ action: a.action as ActionType, amount: roundBet(a.amount), freq: a.freq })),
+  };
 }
 
 function startGtoSolve(): void {
@@ -903,6 +995,15 @@ function updateRec(): void {
     const prior = PROFILES[S.archetype] ?? STATION;
     S.rec = recommend(S.gs, prior, mulberry32(0xface), buildProfiles());
     if (S.rec.amount > 0) S.rec.amount = roundBet(S.rec.amount);
+    // Layer the real CFR solver over the heuristic for spots it models well:
+    // use a cached solve if we have one, otherwise kick one off in the background
+    // (the heuristic shows meanwhile, then gets replaced by "Solved (CFR)").
+    const spot = liveSolverSpot();
+    if (spot) {
+      const cached = liveSolveCache.get(spot);
+      if (cached && cached.strategy.length > 0) S.rec = solverToRec(cached, S.rec);
+      else if (!cached) ensureLiveSolve(spot); // empty (sentinel) → keep heuristic, don't retry
+    }
     S.raiseAmount = Math.max(
       S.gs.currentBet > 0 ? minRaise(S.gs.currentBet, S.gs.bb) : openRaiseSize(S.gs.bb),
       S.gs.toCall(S.heroSeat) + 1,
@@ -1220,10 +1321,43 @@ function renderGame(): void {
   // The reason text leads with "Fold — …" / "Raise — …" etc, which just repeats
   // the big action label above it. Strip that leading "<action> — " prefix.
   const recReason = S.rec ? S.rec.reasoning.replace(/^\s*[A-Za-z][A-Za-z\s/-]*\s—\s/, "") : "";
+  // Source badge — be honest about where the advice comes from.
+  const SRC: Record<string, { txt: string; cls: string }> = {
+    solver: { txt: "🧠 GTO · solved", cls: "src-solver" },
+    nash: { txt: "Nash push/fold", cls: "src-nash" },
+    chart: { txt: "GTO chart", cls: "src-chart" },
+    heuristic: { txt: "equity heuristic", cls: "src-heur" },
+  };
+  const _solveSpot = liveSolverSpot();
+  const solvingNow = !!_solveSpot && !liveSolveCache.has(_solveSpot);
+  const srcMeta = S.rec?.source ? SRC[S.rec.source] : undefined;
+  const srcBadge = S.rec
+    ? `<span class="rec-src ${solvingNow ? "src-solving" : srcMeta?.cls ?? ""}">${
+        solvingNow ? "solving GTO…" : srcMeta?.txt ?? ""
+      }</span>`
+    : "";
+  // Mixed-strategy bars (from the solver) — the defining feature of GTO play.
+  const mixHtml = S.rec?.mix && S.rec.mix.length > 1
+    ? `<div class="rec-mix">${S.rec.mix
+        .sort((a, b) => b.freq - a.freq)
+        .map((m) => {
+          const lbl = m.action === "bet" ? `Bet ${chipsBet(m.amount)}`
+            : m.action === "raise" ? `Raise ${chipsBet(m.amount)}`
+            : m.action.charAt(0).toUpperCase() + m.action.slice(1);
+          return `<div class="mix-row"><span class="mix-act">${lbl}</span>` +
+            `<div class="mix-bar"><div class="mix-fill" style="width:${(m.freq * 100).toFixed(0)}%"></div></div>` +
+            `<span class="mix-pct">${(m.freq * 100).toFixed(0)}%</span></div>`;
+        })
+        .join("")}</div>`
+    : "";
   const recHtml = S.rec ? `
     <div class="rec-panel">
-      <div class="rec-action">${S.rec.action}${S.rec.amount > 0 ? ` ${chipsBet(S.rec.amount)}` : ""}</div>
+      <div class="rec-head">
+        <div class="rec-action">${S.rec.action}${S.rec.amount > 0 ? ` ${chipsBet(S.rec.amount)}` : ""}</div>
+        ${srcBadge}
+      </div>
       <div class="rec-reason">${recReason}</div>
+      ${mixHtml}
     </div>` : "";
 
   // ── Actions ──
