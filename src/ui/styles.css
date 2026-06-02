@@ -476,13 +476,15 @@ body {
 /* Fixed-height table region: pinned so it never resizes/shifts when the
    recommendation + action buttons appear or disappear below it. */
 .table-wrap {
-  flex: 0 0 auto; height: min(42vh, 360px); min-height: 0;
+  flex: 0 0 auto; height: min(48vh, 410px); min-height: 0;
   display: flex; align-items: center; justify-content: center;
 }
-/* Below the table: a scrollable body (cards / read / rec) + an action dock that
-   stays pinned and visible so the buttons are NEVER cut off on tall phones. */
+/* Below the table: a scrollable region whose content is centred in the leftover
+   space (sits a bit lower, not jammed under the table). "safe center" falls back
+   to top-aligned if the content is taller than the space, so nothing clips. */
 .controls {
   flex: 1 1 auto; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch;
+  display: flex; flex-direction: column; justify-content: safe center;
 }
 .controls-body { } /* contents flow naturally; .controls scrolls if they overflow */
 
