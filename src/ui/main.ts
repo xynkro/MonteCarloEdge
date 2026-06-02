@@ -7,7 +7,8 @@ import { estimateVillainRange } from "../engine/opponent.js";
 import { solveSubgame, type RiverResult, type ActionFreq } from "../engine/gto/river-solver.js";
 import { solvePushFold, handClassKey, type PushFoldResult } from "../engine/gto/pushfold.js";
 import { allCombos, topSlice } from "../engine/hand-strength.js";
-import { recommend, type Recommendation, type ProfileMap } from "../engine/decision.js";
+import { recommend, type Recommendation, type ProfileMap, type IcmConfig } from "../engine/decision.js";
+import { PAYOUT_PRESETS } from "../engine/icm.js";
 import { gradeDecision, SRC_WORD } from "../engine/grade.js";
 import { AUTO, TAG, LAG, STATION, NIT, type OpponentProfile } from "../engine/opponent.js";
 import { villainDecision } from "../engine/villain-ai.js";
@@ -55,6 +56,10 @@ interface AppState {
   // Live mode: running per-seat stacks (bb) carried across the session.
   seatStacks: number[];
   archetype: string;
+  // Tournament (ICM) mode: when on, push/fold & call-offs use the bubble factor
+  // from the table's chip stacks + this payout preset (else cash chip-EV).
+  tournament: boolean;
+  payoutPreset: string; // key into PAYOUT_PRESETS
   gs: GameState | null;
   heroCards: [Card, Card] | null;
   boardCards: Card[];
@@ -131,6 +136,8 @@ const S: AppState = {
   handNumber: 0,
   seatStacks: [],
   archetype: "Auto",
+  tournament: false,
+  payoutPreset: "top3",
   gs: null,
   heroCards: null,
   boardCards: [],
@@ -740,6 +747,25 @@ function renderSetup(): void {
         </div>
       </div>
 
+      <div class="field-row">
+        <div class="field">
+          <label>Game type</label>
+          <select id="gametype">
+            <option value="cash" ${!S.tournament ? "selected" : ""}>Cash (chip-EV)</option>
+            <option value="mtt" ${S.tournament ? "selected" : ""}>Tournament (ICM)</option>
+          </select>
+        </div>
+        <div class="field" ${S.tournament ? "" : 'style="visibility:hidden"'}>
+          <label>Payouts</label>
+          <select id="payouts">
+            <option value="wta" ${S.payoutPreset === "wta" ? "selected" : ""}>Winner-take-all</option>
+            <option value="top2" ${S.payoutPreset === "top2" ? "selected" : ""}>Top 2 (65/35)</option>
+            <option value="top3" ${S.payoutPreset === "top3" ? "selected" : ""}>Top 3 (50/30/20)</option>
+            <option value="top4" ${S.payoutPreset === "top4" ? "selected" : ""}>Top 4</option>
+          </select>
+        </div>
+      </div>
+
       <div class="field">
         <label>Where are you sitting?</label>
         <span class="hint">Tap your seat. BTN (Dealer) is best — you act last after the flop.</span>
@@ -812,6 +838,13 @@ function renderSetup(): void {
     S.archetype = (e.target as HTMLSelectElement).value;
     const d = document.querySelector(".arch-desc");
     if (d) d.textContent = ARCH_DESC[S.archetype] ?? "";
+  });
+  document.getElementById("gametype")?.addEventListener("change", (e) => {
+    S.tournament = (e.target as HTMLSelectElement).value === "mtt";
+    render();
+  });
+  document.getElementById("payouts")?.addEventListener("change", (e) => {
+    S.payoutPreset = (e.target as HTMLSelectElement).value;
   });
   document.getElementById("per-seat-toggle")?.addEventListener("click", () => {
     document.getElementById("per-seat-body")?.classList.toggle("hidden");
@@ -1002,7 +1035,10 @@ function updateRec(): void {
   if (!S.gs || S.handOver) { S.rec = null; return; }
   if (S.gs.nextToAct() === S.heroSeat) {
     const prior = PROFILES[S.archetype] ?? STATION;
-    S.rec = recommend(S.gs, prior, mulberry32(0xface), buildProfiles());
+    const icm: IcmConfig | undefined = S.tournament
+      ? { payouts: PAYOUT_PRESETS[S.payoutPreset] ?? PAYOUT_PRESETS.top3! }
+      : undefined;
+    S.rec = recommend(S.gs, prior, mulberry32(0xface), buildProfiles(), icm);
     if (S.rec.amount > 0) S.rec.amount = roundBet(S.rec.amount);
     // Layer the real CFR solver over the heuristic for spots it models well:
     // use a cached solve if we have one, otherwise kick one off in the background

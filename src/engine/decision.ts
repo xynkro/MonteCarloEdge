@@ -10,6 +10,7 @@ import {
   type GameState,
 } from "./game-state.js";
 import { threeBetSize, fourBetSize, recommendSize } from "./sizing.js";
+import { bubbleFactor } from "./icm.js";
 import { handClassKey } from "./gto/pushfold.js";
 import { classJams } from "./gto/pushfold-chart.js";
 import {
@@ -70,14 +71,19 @@ export interface Recommendation {
 // Per-seat opponent profiles (optional). Falls back to `defaultProfile`.
 export type ProfileMap = Map<number, OpponentProfile>;
 
+// Tournament config: payout structure (fractions of the prize pool, top-down)
+// for ICM. Present ⇒ tournament mode (bubble-factor risk premium); absent ⇒ cash.
+export interface IcmConfig { payouts: number[] }
+
 export function recommend(
   state: GameState,
   villainProfile?: OpponentProfile,
   rng?: Rng,
   profiles?: ProfileMap,
+  icm?: IcmConfig,
 ): Recommendation {
   const r = state.street === "preflop"
-    ? preflopRecommend(state, villainProfile ?? TAG, profiles)
+    ? preflopRecommend(state, villainProfile ?? TAG, profiles, icm)
     : postflopRecommend(state, villainProfile ?? TAG, rng ?? mulberry32(0xdec1de), profiles);
   // Tag provenance: preflop is the Nash push/fold chart when short (its reasoning
   // says "jam"/"all-in") else a hand-authored chart; postflop is MC-equity
@@ -158,6 +164,7 @@ function reRaiseDecision(
   heroRaisedPre: boolean,
   heroTotal: number,
   label: string,
+  bf = 1, // ICM bubble factor — tightens value/jam/flat cutoffs near a pay jump
 ): Recommendation {
   const p = comboPercentile([hero[0], hero[1]]);
   const ip = state.isInPosition(seat);
@@ -165,11 +172,11 @@ function reRaiseDecision(
 
   if (raiseCount >= 3) {
     // Facing a 4-bet: 5-bet jam premiums; flat QQ/AKo only when deep; else fold.
-    if (p < 0.013) {
+    if (p < 0.013 / bf) {
       return { action: "raise", amount: heroTotal, equity: 0.6, potOdds: odds,
         ev: { fold: 0, call: 0.5, raise: 2 }, reasoning: `5-bet jam — ${label}, premium vs 4-bet` };
     }
-    if (p < 0.022 && heroTotal / state.bb > 40) {
+    if (p < 0.022 / bf && heroTotal / state.bb > 40) {
       return { action: "call", amount: 0, equity: 0.45, potOdds: odds,
         ev: { fold: 0, call: 0.2, raise: 0 }, reasoning: `Call the 4-bet — ${label} (deep)` };
     }
@@ -177,15 +184,15 @@ function reRaiseDecision(
       ev: { fold: 0, call: -1, raise: -1 }, reasoning: `Fold — ${label} vs 4-bet` };
   }
 
-  // Facing a 3-bet.
-  const blockerBluff = isWheelAceSuited(hero) && heroRaisedPre && ip;
-  if (p < 0.026 || blockerBluff) {
+  // Facing a 3-bet. (Blocker 4-bet bluffs are dropped near a bubble — bf>1.)
+  const blockerBluff = isWheelAceSuited(hero) && heroRaisedPre && ip && bf <= 1.03;
+  if (p < 0.026 / bf || blockerBluff) {
     const amt = Math.min(fourBetSize(state.currentBet), heroTotal);
-    const kind = p < 0.026 ? "value" : "blocker bluff";
+    const kind = p < 0.026 / bf ? "value" : "blocker bluff";
     return { action: "raise", amount: amt, equity: 0.58, potOdds: odds,
       ev: { fold: 0, call: 0.5, raise: 1.8 }, reasoning: `4-bet — ${label} (${kind})` };
   }
-  const flatCut = ip ? 0.075 : 0.045; // JJ-99/AQ/suited broadways IP, tighter OOP
+  const flatCut = (ip ? 0.075 : 0.045) / bf; // JJ-99/AQ/suited broadways IP, tighter OOP
   if (p < flatCut) {
     return { action: "call", amount: 0, equity: 0.45, potOdds: odds,
       ev: { fold: 0, call: 0.3, raise: 0 }, reasoning: `Call the 3-bet — ${label}` };
@@ -198,11 +205,25 @@ function preflopRecommend(
   state: GameState,
   villainProfile: OpponentProfile = TAG,
   profiles?: ProfileMap,
+  icm?: IcmConfig,
 ): Recommendation {
   const hero = state.heroCards;
   const seat = state.heroSeat;
   const pos = state.positions[seat]!;
   const label = `${cardToString(hero[0])}${cardToString(hero[1])}`;
+
+  // ICM risk premium (tournament mode). A bubble factor > 1 means busting costs
+  // more $ than the chips are worth, so we must JAM/CALL TIGHTER than chip-EV.
+  // We compute one representative bubble factor for hero (an even-stacked all-in)
+  // from the table's chip stacks + payouts, and divide the jam/call cutoffs by it.
+  let bf = 1;
+  if (icm && icm.payouts.length > 0) {
+    const chips = state.stacks.map((s, i) => s + (state.invested[i] ?? 0));
+    const risk = Math.max(1, chips[seat]!);
+    bf = bubbleFactor(chips, icm.payouts, seat, risk, risk);
+    bf = Math.max(1, Math.min(2.5, bf));
+  }
+  const icmNote = bf > 1.03 ? ` · ICM ${bf.toFixed(2)}×` : "";
 
   // Raise DEPTH this preflop: 0 = unopened, 1 = a single open, 2 = a 3-bet is
   // out, 3+ = a 4-bet+ is out. Drives the open / 3-bet / 4-bet / 5-bet tree.
@@ -232,12 +253,12 @@ function preflopRecommend(
     }
     // Short-stack open: jam-or-fold instead of min-raising the stack away.
     if (heroBB <= 16) {
-      const within = comboPercentile([hero[0], hero[1]]) <= jamPosCap(pos, state.tableSize);
+      const within = comboPercentile([hero[0], hero[1]]) <= jamPosCap(pos, state.tableSize) / bf;
       if (heroJams(hero, heroBB) && within) {
         return {
           action: "raise", amount: heroTotal, equity: 0.5, potOdds: 0,
           ev: { fold: 0, call: 0.5, raise: 1 },
-          reasoning: `All-in ${heroBB.toFixed(0)}bb — ${label}, short-stack jam range (${pos})`,
+          reasoning: `All-in ${heroBB.toFixed(0)}bb — ${label}, short-stack jam range (${pos})${icmNote}`,
         };
       }
       return {
@@ -284,18 +305,18 @@ function preflopRecommend(
     // Short-stack BB: jam the strong part of the defense range rather than
     // calling/min-3betting; otherwise fall through to a priced call or fold.
     if (heroBB <= 14) {
-      if (heroJams(hero, heroBB) && comboPercentile([hero[0], hero[1]]) <= 0.30) {
+      if (heroJams(hero, heroBB) && comboPercentile([hero[0], hero[1]]) <= 0.30 / bf) {
         return {
           action: "raise", amount: heroTotal, equity: 0.52, potOdds: state.potOdds(seat),
           ev: { fold: 0, call: 0.4, raise: 1.4 },
-          reasoning: `3-bet jam ${heroBB.toFixed(0)}bb — ${label} from BB`,
+          reasoning: `3-bet jam ${heroBB.toFixed(0)}bb — ${label} from BB${icmNote}`,
         };
       }
     }
     // BB facing a 3-bet+ (cold): the defense charts are vs a single opener, not a
     // 3-bet, so route to the polar re-raise tree (tight: 4-bet KK+/AKs, flat QQ/AK).
     if (raiseCount >= 2) {
-      return reRaiseDecision(state, hero, seat, raiseCount, heroRaisedPre, heroTotal, label);
+      return reRaiseDecision(state, hero, seat, raiseCount, heroRaisedPre, heroTotal, label, bf);
     }
     if (opener) {
       const openerPos = state.positions[opener.seat]!;
@@ -349,12 +370,12 @@ function preflopRecommend(
   // re-jam range is tighter than an open-jam — you're calling off vs a range that
   // chose to raise.
   if (heroBB <= 14) {
-    const reCap = jamPosCap(pos, state.tableSize) * 0.7;
+    const reCap = jamPosCap(pos, state.tableSize) * 0.7 / bf;
     if (heroJams(hero, heroBB) && comboPercentile([hero[0], hero[1]]) <= reCap) {
       return {
         action: "raise", amount: heroTotal, equity: 0.5, potOdds: state.potOdds(seat),
         ev: { fold: 0, call: 0.5, raise: 1.5 },
-        reasoning: `3-bet jam ${heroBB.toFixed(0)}bb — ${label} vs raise`,
+        reasoning: `3-bet jam ${heroBB.toFixed(0)}bb — ${label} vs raise${icmNote}`,
       };
     }
     return {
@@ -366,7 +387,7 @@ function preflopRecommend(
 
   // Facing a 3-bet (we opened) or a 4-bet+ → the polar re-raise tree.
   if (raiseCount >= 2) {
-    return reRaiseDecision(state, hero, seat, raiseCount, heroRaisedPre, heroTotal, label);
+    return reRaiseDecision(state, hero, seat, raiseCount, heroRaisedPre, heroTotal, label, bf);
   }
 
   // Facing a single open with caller(s) in between → SQUEEZE (tighter value, a
@@ -399,7 +420,9 @@ function preflopRecommend(
   // Scale 3-bet and calling thresholds by table size
   // HU: much wider ranges → 3-bet more, call more
   const threeBetCut = state.tableSize <= 2 ? 0.12 : state.tableSize <= 4 ? 0.08 : 0.06;
-  const callCut = state.tableSize <= 2 ? 0.45 : state.tableSize <= 4 ? 0.30 : 0.25;
+  // Calling a raise risks chips with no fold equity, so the ICM bubble factor
+  // tightens it (busting near a pay jump is extra costly).
+  const callCut = (state.tableSize <= 2 ? 0.45 : state.tableSize <= 4 ? 0.30 : 0.25) / bf;
 
   const pct = comboPercentile([hero[0], hero[1]]);
   if (pct < threeBetCut) {
