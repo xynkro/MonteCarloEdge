@@ -435,9 +435,12 @@ body {
 }
 
 /* Result/showdown screen has the most content (board read + opponents' reveal
-   + result + buttons). Shrink the table and tighten spacing so it fits without
-   scrolling. */
-.game.hand-over .table-wrap { height: min(30vh, 260px); }
+   + result + buttons). Tighten the spacing so it fits without scrolling. The
+   table keeps its normal size on tall phones (no jarring shrink); only short
+   screens shrink it to make room. */
+@media (max-height: 760px) {
+  .game.hand-over .table-wrap { height: min(30vh, 240px); }
+}
 .game.hand-over .hero-area { padding: 6px 16px 4px; }
 .game.hand-over .hero-cards { margin-bottom: 3px; }
 .game.hand-over .hero-card { width: 46px; height: 64px; font-size: 19px; }
@@ -493,10 +496,20 @@ body {
 .action-dock { flex: 0 0 auto; }
 .hero-cards { display: flex; gap: 9px; justify-content: center; margin-bottom: 7px; }
 
+/* Hand summary row: what you have + win% — above the hole cards */
+.hand-summary {
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+  margin: 2px 0 7px; flex-wrap: wrap;
+}
+.hand-strength {
+  font-size: 12px; font-weight: 700; color: var(--muted); white-space: nowrap;
+}
+.hand-strength strong { color: var(--gold); font-size: 14px; font-weight: 900; }
 .hand-label {
   text-align: center; font-size: 13px; font-weight: 800; color: var(--muted);
-  margin-bottom: 7px; letter-spacing: .3px; text-transform: uppercase;
+  letter-spacing: .3px; text-transform: uppercase;
 }
+.hand-summary .hand-label { margin: 0; }
 .hand-label.strong { color: var(--gold); text-shadow: 0 0 16px rgba(255,209,102,.3); }
 
 .board-read {

@@ -1178,19 +1178,22 @@ function renderGame(): void {
       ).join("")
     : `<div class="hero-card empty">?</div><div class="hero-card empty">?</div>`;
 
-  // ── Hand strength label ──
-  let handLabelHtml = "";
+  // ── Hand summary: what you have + win% — shown ABOVE the hole cards ──
+  let handSummaryHtml = "";
   if (S.heroCards && gs) {
     const d = describeHand(S.heroCards, gs.board);
     const draws = d.draws.length ? ` + ${d.draws.join(" + ")}` : "";
-    handLabelHtml = `<div class="hand-label ${d.strong ? "strong" : ""}">${d.label}${draws}</div>`;
+    const eq = S.boardRead?.equity ?? S.rec?.equity ?? null;
+    const eqStr = eq === null ? "" : `${(eq * 100).toFixed(0)}%`;
+    handSummaryHtml = `<div class="hand-summary">
+      <span class="hand-label ${d.strong ? "strong" : ""}">${d.label}${draws}</span>
+      ${eqStr ? `<span class="hand-strength"><strong>${eqStr}</strong> win</span>` : ""}
+    </div>`;
   }
 
-  // ── Board read: win% + the nuts ──
+  // ── Board read: the nuts (strength now lives in the hand summary above) ──
   let boardReadHtml = "";
   if (S.boardRead) {
-    const eq = S.boardRead.equity;
-    const eqStr = eq === null ? "—" : `${(eq * 100).toFixed(0)}%`;
     const npct = S.boardRead.nutsPct;
     const heldItem = npct === null ? "" :
       `<div class="br-item"><span class="br-label">Nuts out</span><span class="br-val ${npct > 0.15 ? "warn" : ""}">${(npct * 100).toFixed(0)}%</span></div>`;
@@ -1211,7 +1214,6 @@ function renderGame(): void {
         </div>`
       : "";
     boardReadHtml = `<div class="board-read">
-      <div class="br-item"><span class="br-label">Strength</span><span class="br-val win">${eqStr}</span></div>
       ${nutsItem}
       ${secondItem}
       ${heldItem}
@@ -1307,9 +1309,9 @@ function renderGame(): void {
           }</div>` : ""}
 
           <div class="hero-area">
+            ${handSummaryHtml}
             <div class="hero-cards">${heroHtml}</div>
             ${gs ? `<div class="pot-line"><span class="table-pot">${chips(gs.pot)}</span><span class="pot-street">${gs.street.toUpperCase()}</span></div>` : ""}
-            ${handLabelHtml}
             ${boardReadHtml}
             ${recHtml}
             ${canSolveGto() ? `<button class="gto-btn" id="gto-solve">${S.gtoSolving ? "Solving…" : "🧠 Solve GTO"}</button>` : ""}
