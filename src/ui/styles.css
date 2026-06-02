@@ -820,13 +820,20 @@ body {
   background: var(--bg); border-radius: 0 var(--radius) var(--radius) 0;
 }
 .review-row.ok { border-left-color: var(--emerald); }
+.review-row.mix { border-left-color: var(--gold); }
 .review-row.bad { border-left-color: var(--rose); }
 .review-street { font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); font-weight: 700; }
 .review-cmp { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; margin: 4px 0; }
 .review-cmp strong { color: var(--text); }
 .review-reason { font-size: 11px; color: var(--muted); font-style: italic; line-height: 1.4; }
+.review-mix { font-size: 11px; color: #c9bcff; font-weight: 600; margin: 2px 0; }
 .review-verdict { font-size: 12px; font-weight: 800; margin-top: 4px; }
-.review-row.ok .review-verdict { color: var(--emerald); }
-.review-row.bad .review-verdict { color: var(--rose); }
+
+/* Grade chips (review verdicts, status-bar feedback, stats breakdown). */
+.g-ok { color: var(--emerald); }
+.g-mix { color: var(--gold); }
+.g-bad { color: var(--rose); }
+.last-grade { font-weight: 800; }
+.grade-breakdown { display: flex; justify-content: center; gap: 12px; font-size: 11px; font-weight: 700; margin-top: 6px; }
 
 .hidden { display: none !important; }

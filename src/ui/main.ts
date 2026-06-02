@@ -8,6 +8,7 @@ import { solveSubgame, type RiverResult, type ActionFreq } from "../engine/gto/r
 import { solvePushFold, handClassKey, type PushFoldResult } from "../engine/gto/pushfold.js";
 import { allCombos, topSlice } from "../engine/hand-strength.js";
 import { recommend, type Recommendation, type ProfileMap } from "../engine/decision.js";
+import { gradeDecision, SRC_WORD } from "../engine/grade.js";
 import { AUTO, TAG, LAG, STATION, NIT, type OpponentProfile } from "../engine/opponent.js";
 import { villainDecision } from "../engine/villain-ai.js";
 import { evaluate } from "../engine/evaluator.js";
@@ -86,6 +87,10 @@ interface AppState {
   // Post-hand review: hero's decision points this hand
   decisionLog: { street: string; chosen: ActionType; chosenAmt: number; rec: Recommendation }[];
   reviewOpen: boolean;
+  // Stage 3 — decision grading / coaching feedback. Running session accuracy
+  // against the recommendation (mix-aware where a solver gave frequencies).
+  gradeStats: { n: number; pts: number; gto: number; mixed: number; off: number };
+  lastGrade: { label: string; cls: string } | null;
   // Generic numpad (blinds / stack)
   numpadTarget: NumpadTarget | null;
   numpadSeat: number;
@@ -153,6 +158,8 @@ const S: AppState = {
   playerStats: new Map(),
   decisionLog: [],
   reviewOpen: false,
+  gradeStats: { n: 0, pts: 0, gto: 0, mixed: 0, off: 0 },
+  lastGrade: null,
   numpadTarget: null,
   numpadSeat: -1,
   numpadRaw: "",
@@ -863,6 +870,7 @@ function startHand(): void {
   S.rit = null;
   S.raiseAmount = 0;
   S.decisionLog = [];
+  S.lastGrade = null;
   S.reviewOpen = false;
   S.gtoResult = null;
   S.gtoSolving = false;
@@ -935,6 +943,7 @@ function startTrainingHand(): void {
   S.raiseAmount = 0;
   S.rec = null;
   S.decisionLog = [];
+  S.lastGrade = null;
   S.reviewOpen = false;
   S.gtoResult = null;
   S.gtoSolving = false;
@@ -1434,7 +1443,9 @@ function renderGame(): void {
       <div class="controls">
         <div class="controls-body">
           ${!S.handOver && !S.allInPrompt && !S.rit ? `<div class="status-bar ${isHeroTurn ? "your-turn" : ""}">${
-            isHeroTurn ? "<strong>YOUR TURN</strong>" : S.message || ""
+            isHeroTurn ? "<strong>YOUR TURN</strong>"
+            : S.lastGrade ? `<span class="last-grade ${S.lastGrade.cls}">${S.lastGrade.label}</span>`
+            : S.message || ""
           }</div>` : ""}
 
           <div class="hero-area">
@@ -1677,9 +1688,15 @@ function doAction(seat: number, type: ActionType): void {
   S.seatMenuSeat = null; // any action closes an open inline seat menu
   const amount = type === "bet" || type === "raise" ? S.raiseAmount : 0;
 
-  // Log hero's decision against the recommendation for post-hand review.
+  // Log hero's decision against the recommendation, and grade it (Stage 3).
   if (seat === S.heroSeat && S.rec) {
-    S.decisionLog.push({ street: S.gs.street, chosen: type, chosenAmt: amount, rec: S.rec });
+    const entry = { street: S.gs.street, chosen: type, chosenAmt: amount, rec: S.rec };
+    S.decisionLog.push(entry);
+    const g = gradeDecision(entry);
+    S.lastGrade = { label: g.label, cls: g.cls };
+    S.gradeStats.n += 1;
+    S.gradeStats.pts += g.score;
+    S.gradeStats[g.bucket] += 1;
   }
 
   playSound(type === "fold" ? "fold" : type === "check" ? "check"
@@ -1824,23 +1841,34 @@ function renderReview(): void {
   const rows = S.decisionLog.map((d) => {
     const recAmt = d.rec.amount > 0 ? ` ${chipsBet(d.rec.amount)}` : "";
     const chosenAmt = d.chosenAmt > 0 ? ` ${chips(d.chosenAmt)}` : "";
-    const matched = d.chosen === d.rec.action;
-    const verdict = matched ? "✓ matched" : "✗ deviated";
-    return `<div class="review-row ${matched ? "ok" : "bad"}">
+    const g = gradeDecision(d);
+    const refLabel = d.rec.source === "solver" ? "GTO solve" : SRC_WORD[d.rec.source ?? "heuristic"] ?? "strategy";
+    // Show the full solved mix when we have one — that's the real lesson.
+    const mixLine = d.rec.mix && d.rec.mix.length > 1
+      ? `<div class="review-mix">${d.rec.mix.slice().sort((a, b) => b.freq - a.freq)
+          .map((m) => `${m.action === "bet" ? `bet ${chipsBet(m.amount)}` : m.action} ${(m.freq * 100).toFixed(0)}%`)
+          .join(" · ")}</div>`
+      : "";
+    return `<div class="review-row ${g.cls === "g-ok" ? "ok" : g.cls === "g-mix" ? "mix" : "bad"}">
       <div class="review-street">${d.street}</div>
       <div class="review-cmp">
         <span>You: <strong>${d.chosen}${chosenAmt}</strong></span>
-        <span>Engine: <strong>${d.rec.action}${recAmt}</strong></span>
+        <span>${refLabel}: <strong>${d.rec.action}${recAmt}</strong></span>
       </div>
-      <div class="review-reason">${d.rec.reasoning}</div>
-      <div class="review-verdict">${verdict}</div>
+      ${mixLine}
+      <div class="review-verdict ${g.cls}">${g.label}</div>
     </div>`;
   }).join("");
 
-  const deviations = S.decisionLog.filter((d) => d.chosen !== d.rec.action).length;
-  const summary = deviations === 0
-    ? "Every decision matched the engine. 🎯"
-    : `${deviations} of ${S.decisionLog.length} decisions deviated from the engine.`;
+  const gd = S.decisionLog.map(gradeDecision);
+  const pts = gd.reduce((s, g) => s + g.score, 0);
+  const acc = gd.length ? Math.round((pts / gd.length) * 100) : 100;
+  const offs = gd.filter((g) => g.bucket === "off").length;
+  const summary = gd.length === 0
+    ? "No hero decisions to grade."
+    : offs === 0
+      ? `Hand accuracy ${acc}% — every decision on-strategy. 🎯`
+      : `Hand accuracy ${acc}% · ${offs} clear ${offs === 1 ? "mistake" : "mistakes"}.`;
 
   const overlay = document.createElement("div");
   overlay.className = "modal-backdrop";
@@ -2582,6 +2610,19 @@ async function renderStats(): Promise<void> {
         </div>
       </div>
 
+      ${S.gradeStats.n > 0 ? `
+      <div class="stats-card">
+        <div class="stat-big" style="color:${(() => { const a = S.gradeStats.pts / S.gradeStats.n; return a >= 0.85 ? "var(--green)" : a >= 0.65 ? "var(--gold)" : "var(--red)"; })()}">
+          ${Math.round((S.gradeStats.pts / S.gradeStats.n) * 100)}%
+        </div>
+        <div class="stat-label">GTO Accuracy (${S.gradeStats.n} decisions)</div>
+        <div class="grade-breakdown">
+          <span class="g-ok">${S.gradeStats.gto} on-strategy</span>
+          <span class="g-mix">${S.gradeStats.mixed} rare mix</span>
+          <span class="g-bad">${S.gradeStats.off} mistakes</span>
+        </div>
+      </div>` : ""}
+
       ${stats.hands > 0 ? `
       <div class="stats-row">
         <div class="stats-card small">
@@ -2615,7 +2656,11 @@ async function renderStats(): Promise<void> {
   document.getElementById("export-csv")?.addEventListener("click", () => exportCsv(allHands));
   document.getElementById("clear-hist")?.addEventListener("click", () => {
     if (confirm("Clear all hand history?")) {
-      clearHistory().then(() => { S.sessionStart = Date.now(); render(); });
+      clearHistory().then(() => {
+        S.sessionStart = Date.now();
+        S.gradeStats = { n: 0, pts: 0, gto: 0, mixed: 0, off: 0 };
+        render();
+      });
     }
   });
 }
