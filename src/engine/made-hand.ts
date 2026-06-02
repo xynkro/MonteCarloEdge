@@ -159,6 +159,76 @@ export function nutLabel(combo: readonly [Card, Card], board: readonly Card[]): 
   }
 }
 
+// Plain-English category names for "what beats you".
+const THREAT_NAME: Record<number, string> = {
+  [CATEGORY.STRAIGHT_FLUSH]: "Straight flush",
+  [CATEGORY.QUADS]: "Quads",
+  [CATEGORY.FULL_HOUSE]: "Full house",
+  [CATEGORY.FLUSH]: "Flush",
+  [CATEGORY.STRAIGHT]: "Straight",
+  [CATEGORY.TRIPS]: "Trips / set",
+  [CATEGORY.TWO_PAIR]: "Two pair",
+  [CATEGORY.PAIR]: "Pair",
+  [CATEGORY.HIGH_CARD]: "High card",
+};
+
+export interface Threat {
+  label: string; // "Flush", "Higher two pair", "Set / trips"
+  category: number;
+  combos: number; // how many 2-card holdings make this and beat hero
+}
+
+// Every two-card holding an opponent could have that BEATS hero's current hand
+// on this board, grouped into plain-English threats and ranked strongest-first.
+// Card-removal aware (excludes hero's cards, the board, and any dead cards).
+// `total` = all possible villain holdings; `beating` = how many of them beat hero.
+export function handsThatBeat(
+  hero: readonly [Card, Card],
+  board: readonly Card[],
+  dead: readonly Card[] = [],
+): { threats: Threat[]; total: number; beating: number } {
+  if (board.length < 3) return { threats: [], total: 0, beating: 0 };
+  const heroRank = evaluate([hero[0], hero[1], ...board]);
+  const heroCat = categoryOf(heroRank);
+  const used = new Uint8Array(NUM_CARDS);
+  used[hero[0]] = 1;
+  used[hero[1]] = 1;
+  for (const c of board) used[c] = 1;
+  for (const c of dead) used[c] = 1;
+
+  const groups = new Map<number, { combos: number; bestRank: number }>();
+  let total = 0;
+  let beating = 0;
+  for (let a = 0; a < NUM_CARDS; a++) {
+    if (used[a]) continue;
+    for (let b = a + 1; b < NUM_CARDS; b++) {
+      if (used[b]) continue;
+      total++;
+      const r = evaluate([a, b, ...board]);
+      if (r <= heroRank) continue; // ties chop, not beat
+      beating++;
+      const cat = categoryOf(r);
+      const g = groups.get(cat) ?? { combos: 0, bestRank: r };
+      g.combos++;
+      if (r > g.bestRank) g.bestRank = r;
+      groups.set(cat, g);
+    }
+  }
+
+  const threats: Threat[] = [...groups.entries()]
+    .map(([cat, g]) => ({
+      // A threat in the SAME category as hero is a bigger version of his hand.
+      label: cat === heroCat ? `Higher ${THREAT_NAME[cat]!.toLowerCase()}` : THREAT_NAME[cat]!,
+      category: cat,
+      combos: g.combos,
+    }))
+    // Most-likely threat first (by number of combos), tie-break to the stronger
+    // hand — so "the main way you're beaten" leads the list.
+    .sort((x, y) => y.combos - x.combos || y.category - x.category);
+
+  return { threats, total, beating };
+}
+
 export function describeHand(
   hero: readonly [Card, Card],
   board: readonly Card[],
@@ -240,9 +310,11 @@ export function describeHand(
     }
   }
 
-  // Draws (only if not already that made hand or better).
+  // Draws (only if not already that made hand or better). On the river the board
+  // is complete — there are no cards to come, so a "draw" is meaningless (a busted
+  // gutshot is just your made hand, often air). Never report draws with 5 cards out.
   const draws: string[] = [];
-  if (cat < CATEGORY.FLUSH) {
+  if (board.length < 5 && cat < CATEGORY.FLUSH) {
     // Flush draw: a suit with exactly 4 cards where hero holds >=1.
     const suitCount = new Array<number>(4).fill(0);
     for (const c of cards) suitCount[suitOf(c)]!++;
@@ -251,7 +323,7 @@ export function describeHand(
       if (suitCount[s] === 4 && heroSuits.includes(s)) { draws.push("Flush draw"); break; }
     }
   }
-  if (cat < CATEGORY.STRAIGHT) {
+  if (board.length < 5 && cat < CATEGORY.STRAIGHT) {
     const sd = straightDraw(holeRanks, boardRanks);
     if (sd === "oesd") draws.push("Open-ended straight draw");
     else if (sd === "gutshot") draws.push("Gutshot");

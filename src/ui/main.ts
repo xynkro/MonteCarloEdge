@@ -11,7 +11,7 @@ import { recommend, type Recommendation, type ProfileMap } from "../engine/decis
 import { AUTO, TAG, LAG, STATION, NIT, type OpponentProfile } from "../engine/opponent.js";
 import { villainDecision } from "../engine/villain-ai.js";
 import { evaluate } from "../engine/evaluator.js";
-import { describeHand, nutHand, nutLabel } from "../engine/made-hand.js";
+import { describeHand, nutHand, nutLabel, handsThatBeat, type Threat } from "../engine/made-hand.js";
 import { monteCarloEquityMultiway } from "../engine/equity.js";
 import { settlePots, strengthFromWinners } from "../engine/settle.js";
 import { openRaiseSize, minRaise } from "../engine/sizing.js";
@@ -96,7 +96,7 @@ interface AppState {
   // GTO preflop push/fold readout
   gtoPreflop: { title: string; rows: { label: string; freq: number }[]; note: string } | null;
   // Board read: hero win% vs villain range(s) + the nuts on this board
-  boardRead: { equity: number | null; nuts: string; nutsCards: [Card, Card] | null; second: string | null; secondCards: [Card, Card] | null; nutsPct: number | null } | null;
+  boardRead: { equity: number | null; nuts: string; nutsCards: [Card, Card] | null; second: string | null; secondCards: [Card, Card] | null; nutsPct: number | null; threats: Threat[] } | null;
   boardReadKey: string;
   message: string;
   // Undo: reversible snapshots of mid-hand state (live mode only).
@@ -923,6 +923,9 @@ function updateBoardRead(): void {
 
   const nut = nutHand(S.gs.board, [S.heroCards[0], S.heroCards[1]]);
   const nuts = nut?.label ?? "—";
+  // What an opponent could be holding that beats hero RIGHT NOW on this board.
+  const beat = handsThatBeat([S.heroCards[0], S.heroCards[1]], S.gs.board);
+  const threats = beat.threats.slice(0, 3);
   const second = nut?.second ?? null;
   const nutsCards = nut?.combos[0] ?? null;
   const secondCards = nut?.secondCombo ?? null;
@@ -951,7 +954,7 @@ function updateBoardRead(): void {
       }
     }
   }
-  S.boardRead = { equity, nuts, nutsCards, second, secondCards, nutsPct };
+  S.boardRead = { equity, nuts, nutsCards, second, secondCards, nutsPct, threats };
 }
 
 // Common one-tap raise/bet sizes for the seat about to act. Facing a bet →
@@ -1225,10 +1228,26 @@ function renderGame(): void {
           <span class="br-sub">${S.boardRead.second}</span>
         </div>`
       : "";
-    boardReadHtml = `<div class="board-read">
-      ${nutsItem}
-      ${secondItem}
-      ${heldItem}
+    // "What beats you" — the single most important read before calling/betting.
+    // Lists the hand types an opponent could hold that beat your made hand, with
+    // how many such holdings exist. Empty list ⇒ you hold the (current) nuts.
+    const threats = S.boardRead.threats;
+    let beatsHtml = "";
+    if (threats.length === 0) {
+      beatsHtml = `<div class="beats-you nuts">🔒 Nothing beats you — you have the nuts</div>`;
+    } else {
+      const chips = threats
+        .map(t => `<span class="threat">${t.label}<small>${t.combos}</small></span>`)
+        .join("");
+      beatsHtml = `<div class="beats-you"><span class="beats-lead">Beats you</span>${chips}</div>`;
+    }
+    boardReadHtml = `<div class="board-read-wrap">
+      ${beatsHtml}
+      <div class="board-read">
+        ${nutsItem}
+        ${secondItem}
+        ${heldItem}
+      </div>
     </div>`;
   }
 
