@@ -11,6 +11,9 @@ export interface PlayerStats {
   cbetActs: number; cbetOpps: number;
   foldToCbetActs: number; foldToCbetOpps: number;
   foldToRaiseActs: number; foldToRaiseOpps: number;
+  foldTo3BetActs: number; foldTo3BetOpps: number; // opened, faced a 3-bet, folded
+  betWhenCheckedToActs: number; betWhenCheckedToOpps: number; // checked to, bet
+  calldownActs: number; calldownOpps: number; // faced a postflop bet, called
 }
 
 export function emptyStats(): PlayerStats {
@@ -22,6 +25,9 @@ export function emptyStats(): PlayerStats {
     cbetActs: 0, cbetOpps: 0,
     foldToCbetActs: 0, foldToCbetOpps: 0,
     foldToRaiseActs: 0, foldToRaiseOpps: 0,
+    foldTo3BetActs: 0, foldTo3BetOpps: 0,
+    betWhenCheckedToActs: 0, betWhenCheckedToOpps: 0,
+    calldownActs: 0, calldownOpps: 0,
   };
 }
 
@@ -97,6 +103,57 @@ export function observeHand(stats: PlayerStats, gs: GameState, seat: number): Pl
     }
   }
 
+  // Fold to 3-bet — player OPENED (first preflop raiser), faced a re-raise, and
+  // we record whether they folded to it. Drives light-3-bet exploitation.
+  let firstRaiser = -1;
+  for (const a of preflop) { if (a.type === "raise" || a.type === "bet") { firstRaiser = a.seat; break; } }
+  if (firstRaiser === seat) {
+    let opened = false, threeBet = false;
+    for (const a of preflop) {
+      if (!opened) { if ((a.type === "raise" || a.type === "bet") && a.seat === seat) opened = true; continue; }
+      if (!threeBet) { if ((a.type === "raise" || a.type === "bet") && a.seat !== seat) threeBet = true; continue; }
+      if (a.seat === seat) { // player's response to the 3-bet
+        s.foldTo3BetOpps++;
+        if (a.type === "fold") s.foldTo3BetActs++;
+        break;
+      }
+    }
+  }
+
+  // Bet-when-checked-to & call-down, per postflop street.
+  for (const st of ["flop", "turn", "river"] as const) {
+    const sa = gs.actions.filter((a) => a.street === st);
+    let betBefore = false, checkBefore = false, recorded = false;
+    for (const a of sa) {
+      if (a.seat === seat && !recorded) {
+        if (!betBefore && checkBefore) { // it was checked to them
+          s.betWhenCheckedToOpps++;
+          if (a.type === "bet") s.betWhenCheckedToActs++;
+        }
+        recorded = true;
+      }
+      if (a.type === "bet" || a.type === "raise") betBefore = true;
+      if (a.type === "check") checkBefore = true;
+    }
+  }
+
+  // Call-down — faced a postflop bet/raise and called (vs folded).
+  let postBetPending = false;
+  for (const a of gs.actions) {
+    if (a.street === "preflop") continue;
+    if (a.seat === seat) {
+      if (postBetPending) {
+        if (a.type === "call" || a.type === "fold") {
+          s.calldownOpps++;
+          if (a.type === "call") s.calldownActs++;
+        }
+        postBetPending = false;
+      }
+    } else if (a.type === "bet" || a.type === "raise") {
+      postBetPending = true;
+    }
+  }
+
   return s;
 }
 
@@ -118,6 +175,9 @@ export function blendProfile(prior: OpponentProfile, stats: PlayerStats): Oppone
     cbetPct: blend(prior.cbetPct, stats.cbetActs, stats.cbetOpps),
     foldToCbet: blend(prior.foldToCbet, stats.foldToCbetActs, stats.foldToCbetOpps),
     foldToRaise: blend(prior.foldToRaise, stats.foldToRaiseActs, stats.foldToRaiseOpps),
+    foldTo3Bet: blend(prior.foldTo3Bet, stats.foldTo3BetActs, stats.foldTo3BetOpps),
+    betWhenCheckedTo: blend(prior.betWhenCheckedTo, stats.betWhenCheckedToActs, stats.betWhenCheckedToOpps),
+    calldownPct: blend(prior.calldownPct, stats.calldownActs, stats.calldownOpps),
   };
 }
 

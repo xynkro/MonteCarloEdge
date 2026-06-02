@@ -419,7 +419,15 @@ function preflopRecommend(
 
   // Scale 3-bet and calling thresholds by table size
   // HU: much wider ranges → 3-bet more, call more
-  const threeBetCut = state.tableSize <= 2 ? 0.12 : state.tableSize <= 4 ? 0.08 : 0.06;
+  const baseThreeBetCut = state.tableSize <= 2 ? 0.12 : state.tableSize <= 4 ? 0.08 : 0.06;
+  // EXPLOIT: if the opener over-folds to 3-bets, add light/bluff 3-bets (widen the
+  // cutoff); if they rarely fold, tighten to value. Read their adapted profile.
+  const opener = preRaises.find((a) => a.seat !== seat);
+  const openerProfile = (opener && profiles?.get(opener.seat)) || villainProfile;
+  const f3b = openerProfile.foldTo3Bet;
+  const exploitMult = 1 + Math.max(-0.4, Math.min(1.2, (f3b - 0.5) * 2.2)); // foldy → wider
+  // Cap light 3-bets at ~18% of hands, and tighten by the ICM bubble factor.
+  const threeBetCut = Math.min(0.18, baseThreeBetCut * exploitMult) / bf;
   // Calling a raise risks chips with no fold equity, so the ICM bubble factor
   // tightens it (busting near a pay jump is extra costly).
   const callCut = (state.tableSize <= 2 ? 0.45 : state.tableSize <= 4 ? 0.30 : 0.25) / bf;
@@ -430,13 +438,16 @@ function preflopRecommend(
       threeBetSize(state.currentBet, true),
       state.stacks[seat]! + state.streetInvested[seat]!,
     );
+    const light = pct >= baseThreeBetCut;
     return {
       action: "raise",
       amount: amt,
       equity: 0.6,
       potOdds: state.potOdds(seat),
       ev: { fold: 0, call: 0.5, raise: 2 },
-      reasoning: `3-bet — ${label} premium hand`,
+      reasoning: light
+        ? `3-bet — ${label} light (opener folds ${(f3b * 100).toFixed(0)}% to 3-bets)`
+        : `3-bet — ${label} premium hand`,
     };
   }
   if (pct < callCut) {
