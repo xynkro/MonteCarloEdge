@@ -10,12 +10,43 @@ import {
   type GameState,
 } from "./game-state.js";
 import { threeBetSize } from "./sizing.js";
+import { handClassKey } from "./gto/pushfold.js";
+import { classJams } from "./gto/pushfold-chart.js";
 import {
   type OpponentProfile,
   TAG,
   estimateVillainRange,
   comboPercentile,
 } from "./opponent.js";
+
+// ── Short-stack push/fold (jam-or-fold) ──
+// Below ~16bb, min-raising bleeds the stack; the GTO play is jam-or-fold. The
+// jam range comes from a precomputed Nash push/fold chart (classJams) — the CFR
+// solver is far too slow to run per decision — tightened by position for
+// multiway pots via jamPosCap below.
+function heroJams(hero: readonly [number, number], stackBB: number): boolean {
+  return classJams(handClassKey(hero[0], hero[1]), stackBB);
+}
+
+// Max fraction of hands to open-jam from a position in a multiway pot. HU has no
+// such cap (rely purely on Nash). Later position = wider; UTG only premiums.
+function jamPosCap(pos: string, tableSize: number): number {
+  if (tableSize <= 2) return 1; // HU: Nash frequency alone governs
+  switch (pos) {
+    case "SB": return 0.55;
+    case "BTN": return 0.50;
+    case "CO": return 0.40;
+    case "HJ": case "LJ": case "MP": return 0.28;
+    default: return 0.18; // UTG / early
+  }
+}
+
+// Effective big blinds = hero's total chips this hand, in BB. Drives the
+// push/fold mode switch.
+function heroStackBB(state: GameState): number {
+  const seat = state.heroSeat;
+  return (state.stacks[seat]! + state.streetInvested[seat]!) / state.bb;
+}
 
 export interface Recommendation {
   action: ActionType;
@@ -111,6 +142,9 @@ function preflopRecommend(
       a.street === "preflop",
   );
 
+  const heroTotal = state.stacks[seat]! + state.streetInvested[seat]!;
+  const heroBB = heroStackBB(state);
+
   if (!facingRaise) {
     if (pos === "BB") {
       return {
@@ -120,6 +154,22 @@ function preflopRecommend(
         potOdds: 0,
         ev: { fold: 0, call: 0, raise: 0 },
         reasoning: `Check — BB with no raise`,
+      };
+    }
+    // Short-stack open: jam-or-fold instead of min-raising the stack away.
+    if (heroBB <= 16) {
+      const within = comboPercentile([hero[0], hero[1]]) <= jamPosCap(pos, state.tableSize);
+      if (heroJams(hero, heroBB) && within) {
+        return {
+          action: "raise", amount: heroTotal, equity: 0.5, potOdds: 0,
+          ev: { fold: 0, call: 0.5, raise: 1 },
+          reasoning: `All-in ${heroBB.toFixed(0)}bb — ${label}, short-stack jam range (${pos})`,
+        };
+      }
+      return {
+        action: "fold", amount: 0, equity: 0, potOdds: 0,
+        ev: { fold: 0, call: -1, raise: -1 },
+        reasoning: `Fold — ${label}, short-stack jam-or-fold, not a jam (${pos})`,
       };
     }
     try {
@@ -157,6 +207,17 @@ function preflopRecommend(
         (a.type === "raise" || a.type === "bet") &&
         a.street === "preflop",
     );
+    // Short-stack BB: jam the strong part of the defense range rather than
+    // calling/min-3betting; otherwise fall through to a priced call or fold.
+    if (heroBB <= 14) {
+      if (heroJams(hero, heroBB) && comboPercentile([hero[0], hero[1]]) <= 0.30) {
+        return {
+          action: "raise", amount: heroTotal, equity: 0.52, potOdds: state.potOdds(seat),
+          ev: { fold: 0, call: 0.4, raise: 1.4 },
+          reasoning: `3-bet jam ${heroBB.toFixed(0)}bb — ${label} from BB`,
+        };
+      }
+    }
     if (opener) {
       const openerPos = state.positions[opener.seat]!;
       try {
@@ -202,6 +263,25 @@ function preflopRecommend(
       potOdds: state.potOdds(seat),
       ev: { fold: 0, call: -0.5, raise: -1 },
       reasoning: `Fold — ${label} not in BB defense range`,
+    };
+  }
+
+  // Short-stack facing a raise: re-jam or fold (flatting OOP short bleeds). The
+  // re-jam range is tighter than an open-jam — you're calling off vs a range that
+  // chose to raise.
+  if (heroBB <= 14) {
+    const reCap = jamPosCap(pos, state.tableSize) * 0.7;
+    if (heroJams(hero, heroBB) && comboPercentile([hero[0], hero[1]]) <= reCap) {
+      return {
+        action: "raise", amount: heroTotal, equity: 0.5, potOdds: state.potOdds(seat),
+        ev: { fold: 0, call: 0.5, raise: 1.5 },
+        reasoning: `3-bet jam ${heroBB.toFixed(0)}bb — ${label} vs raise`,
+      };
+    }
+    return {
+      action: "fold", amount: 0, equity: 0, potOdds: state.potOdds(seat),
+      ev: { fold: 0, call: -0.5, raise: -1 },
+      reasoning: `Fold — ${label}, short stack vs raise (jam-or-fold)`,
     };
   }
 
@@ -370,6 +450,12 @@ function postflopRecommend(
   }
 
   const heroStack = state.stacks[seat]!;
+  // Effective stack for sizing: you can't get called for more than the deepest
+  // still-in opponent has behind, so never recommend betting past that (dead
+  // money). Shoves still use the full stack; only non-all-in bets cap here.
+  let maxVilRem = 0;
+  for (const vs of villainSeats) maxVilRem = Math.max(maxVilRem, state.stacks[vs]!);
+  const betCap = Math.max(0, Math.min(heroStack, maxVilRem));
   const pot = state.pot;
   const tex = analyzeBoard(state.board);
   const conn = heroConnection(hero, state.board);
@@ -395,7 +481,7 @@ function postflopRecommend(
   const drawBetThresh = inPos ? 0.28 : 0.34;
   if (semiBluffOK && (conn.hasFlushDraw || conn.hasStraightDraw) && dq > drawBetThresh && eq < 0.62) {
     const frac = Math.min(0.65, 0.50 * texAdj);
-    const size = Math.min(pot * frac, heroStack);
+    const size = Math.min(pot * frac, betCap);
     const drawType = conn.hasFlushDraw ? "flush draw" : "straight draw";
     return fin({
       action: "bet", amount: size, equity: eq, potOdds: 0,
@@ -407,7 +493,7 @@ function postflopRecommend(
   // Monotone board without flush → cautious
   if (tex.monotone && !conn.hasFlushDraw && eq < 0.70) {
     if (dq > THIN_VALUE) {
-      const size = Math.min(pot * 0.25, heroStack);
+      const size = Math.min(pot * 0.25, betCap);
       return fin({
         action: "bet", amount: size, equity: eq, potOdds: 0,
         ev: { fold: 0, call: 0, raise: 0.2 },
@@ -426,7 +512,7 @@ function postflopRecommend(
   if (dq > 0.80) {
     // Monsters can overbet a sticky caller.
     const frac = Math.min(sticky > 0.6 ? 1.5 : 1.0, (0.80 + (dq - 0.80)) * valueTexAdj * valueMult);
-    const size = Math.min(pot * frac, heroStack);
+    const size = Math.min(pot * frac, betCap);
     return fin({
       action: "bet", amount: size, equity: eq, potOdds: 0,
       ev: { fold: 0, call: 0, raise: 1 },
@@ -435,7 +521,7 @@ function postflopRecommend(
   }
   if (dq > 0.60) {
     const frac = Math.min(1.1, (0.55 + (dq - 0.60)) * valueTexAdj * valueMult);
-    const size = Math.min(pot * frac, heroStack);
+    const size = Math.min(pot * frac, betCap);
     return fin({
       action: "bet", amount: size, equity: eq, potOdds: 0,
       ev: { fold: 0, call: 0, raise: 1 },
@@ -444,7 +530,7 @@ function postflopRecommend(
   }
   if (dq > valueBetT) {
     const frac = Math.min(0.7, 0.40 * valueTexAdj * valueMult);
-    const size = Math.min(pot * frac, heroStack);
+    const size = Math.min(pot * frac, betCap);
     return fin({
       action: "bet", amount: size, equity: eq, potOdds: 0,
       ev: { fold: 0, call: 0, raise: 0.5 },
@@ -452,7 +538,7 @@ function postflopRecommend(
     });
   }
   if (dq > thinValueT) {
-    const size = Math.min(pot * 0.25 * valueMult, heroStack);
+    const size = Math.min(pot * 0.25 * valueMult, betCap);
     if (size > 0) {
       return fin({
         action: "bet", amount: size, equity: eq, potOdds: 0,
@@ -475,7 +561,7 @@ function postflopRecommend(
     const frac = tex.dry ? 0.5 : tex.wet ? 0.75 : 0.6; // size to credibly represent
     const breakeven = frac / (1 + frac);               // fold% needed to break even
     if (foldy > breakeven + 0.06 && heroStack > pot * frac) {
-      const size = Math.min(pot * frac, heroStack);
+      const size = Math.min(pot * frac, betCap);
       return fin({
         action: "bet", amount: size, equity: eq, potOdds: 0,
         ev: { fold: foldy * pot, call: 0, raise: foldy * pot - (1 - foldy) * size },
