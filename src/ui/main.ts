@@ -1281,6 +1281,9 @@ function renderGame(): void {
       <div class="game-topbar">
         <span>Hand #${S.handNumber}${S.mode === "training" ? " · <strong style=\"color:var(--violet)\">TRAINING</strong>" : ""}</span>
         <div class="topbar-btns">
+          ${S.mode === "training"
+            ? `<button class="hdr-btn" id="speed-btn" title="Playback speed">${SPEED_LABEL[trainingSpeed()]}</button>`
+            : ""}
           ${S.mode === "live" && S.undoStack.length > 0
             ? `<button class="hdr-btn undo" id="undo-btn" title="Undo ${S.undoStack[S.undoStack.length - 1]!.label}">↩ Undo</button>`
             : ""}
@@ -1325,6 +1328,7 @@ function renderGame(): void {
 
   // ── Events ──
   $("#new-hand")?.addEventListener("click", () => { S.screen = "setup"; S.dealerSeat = -1; S.handNumber = 0; render(); });
+  document.getElementById("speed-btn")?.addEventListener("click", () => { cycleSpeed(); render(); });
   document.getElementById("undo-btn")?.addEventListener("click", undo);
   document.getElementById("next-hand")?.addEventListener("click", nextHand);
   document.getElementById("train-again")?.addEventListener("click", () => {
@@ -1753,9 +1757,23 @@ let villainTimer: ReturnType<typeof setTimeout> | null = null;
 function cancelVillainTimer(): void {
   if (villainTimer) { clearTimeout(villainTimer); villainTimer = null; }
 }
+// Training playback speed (villain step pacing). Persisted across sessions.
+const SPEED_TIERS = ["slow", "normal", "fast", "instant"] as const;
+type SpeedTier = typeof SPEED_TIERS[number];
+const SPEED_FACTOR: Record<SpeedTier, number> = { slow: 1.8, normal: 1, fast: 0.5, instant: 0.04 };
+const SPEED_LABEL: Record<SpeedTier, string> = { slow: "🐢 Slow", normal: "▶ Normal", fast: "⏩ Fast", instant: "⚡ Instant" };
+function trainingSpeed(): SpeedTier {
+  const v = (localStorage.getItem("mce-speed") as SpeedTier) || "normal";
+  return SPEED_TIERS.includes(v) ? v : "normal";
+}
+function cycleSpeed(): void {
+  const i = SPEED_TIERS.indexOf(trainingSpeed());
+  localStorage.setItem("mce-speed", SPEED_TIERS[(i + 1) % SPEED_TIERS.length]!);
+}
+
 function scheduleVillainStep(delay: number): void {
   cancelVillainTimer();
-  villainTimer = setTimeout(villainStep, delay);
+  villainTimer = setTimeout(villainStep, Math.max(20, delay * SPEED_FACTOR[trainingSpeed()]));
 }
 
 function autoPlayVillain(): void {
