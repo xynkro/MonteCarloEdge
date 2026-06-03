@@ -28,58 +28,48 @@ export interface OpponentProfile {
   betWhenCheckedTo: number;
   foldToRaise: number;
   calldownPct: number;
+  // ── Realism knobs (Stage 8, research-grounded) ──
+  bluffFreq: number; // how often it fires PURE air as a bluff
+  semiBluffFreq: number; // how often it bets/raises DRAWS (semi-bluff)
+  barrelFreq: number; // how often it continues a bluff on the next street
+  stickiness: number; // sunk-cost / curiosity: continues beyond pot-odds
 }
 
 export const TAG: OpponentProfile = {
   name: "TAG",
-  vpip: 0.22,
-  pfr: 0.18,
-  threeBetPct: 0.08,
-  foldTo3Bet: 0.65,
-  cbetPct: 0.7,
-  foldToCbet: 0.55,
-  betWhenCheckedTo: 0.45,
-  foldToRaise: 0.6,
-  calldownPct: 0.3,
+  vpip: 0.22, pfr: 0.18, threeBetPct: 0.08, foldTo3Bet: 0.65,
+  cbetPct: 0.7, foldToCbet: 0.55, betWhenCheckedTo: 0.45, foldToRaise: 0.6, calldownPct: 0.3,
+  bluffFreq: 0.45, semiBluffFreq: 0.55, barrelFreq: 0.50, stickiness: 0.30,
 };
 
 export const LAG: OpponentProfile = {
   name: "LAG",
-  vpip: 0.35,
-  pfr: 0.28,
-  threeBetPct: 0.12,
-  foldTo3Bet: 0.45,
-  cbetPct: 0.8,
-  foldToCbet: 0.35,
-  betWhenCheckedTo: 0.6,
-  foldToRaise: 0.4,
-  calldownPct: 0.5,
+  vpip: 0.30, pfr: 0.26, threeBetPct: 0.12, foldTo3Bet: 0.45,
+  cbetPct: 0.8, foldToCbet: 0.35, betWhenCheckedTo: 0.6, foldToRaise: 0.4, calldownPct: 0.5,
+  bluffFreq: 0.70, semiBluffFreq: 0.75, barrelFreq: 0.65, stickiness: 0.50,
 };
 
 export const STATION: OpponentProfile = {
   name: "Station",
-  vpip: 0.5,
-  pfr: 0.1,
-  threeBetPct: 0.03,
-  foldTo3Bet: 0.3,
-  cbetPct: 0.35,
-  foldToCbet: 0.2,
-  betWhenCheckedTo: 0.2,
-  foldToRaise: 0.15,
-  calldownPct: 0.8,
+  vpip: 0.42, pfr: 0.08, threeBetPct: 0.03, foldTo3Bet: 0.3,
+  cbetPct: 0.35, foldToCbet: 0.2, betWhenCheckedTo: 0.2, foldToRaise: 0.15, calldownPct: 0.8,
+  bluffFreq: 0.10, semiBluffFreq: 0.30, barrelFreq: 0.20, stickiness: 0.85,
 };
 
 export const NIT: OpponentProfile = {
   name: "Nit",
-  vpip: 0.12,
-  pfr: 0.1,
-  threeBetPct: 0.06,
-  foldTo3Bet: 0.75,
-  cbetPct: 0.75,
-  foldToCbet: 0.6,
-  betWhenCheckedTo: 0.35,
-  foldToRaise: 0.7,
-  calldownPct: 0.2,
+  vpip: 0.12, pfr: 0.10, threeBetPct: 0.06, foldTo3Bet: 0.75,
+  cbetPct: 0.75, foldToCbet: 0.6, betWhenCheckedTo: 0.35, foldToRaise: 0.7, calldownPct: 0.2,
+  bluffFreq: 0.30, semiBluffFreq: 0.45, barrelFreq: 0.25, stickiness: 0.15,
+};
+
+// A loose-aggressive overbluffer — bets/raises nearly everything. Hero counter:
+// tighten, let them barrel into your value, don't bluff back.
+export const MANIAC: OpponentProfile = {
+  name: "Maniac",
+  vpip: 0.50, pfr: 0.40, threeBetPct: 0.16, foldTo3Bet: 0.30,
+  cbetPct: 0.9, foldToCbet: 0.30, betWhenCheckedTo: 0.8, foldToRaise: 0.3, calldownPct: 0.55,
+  bluffFreq: 0.85, semiBluffFreq: 0.90, barrelFreq: 0.80, stickiness: 0.50,
 };
 
 // Neutral "average player" prior for when the opponent type is unknown. The
@@ -87,15 +77,9 @@ export const NIT: OpponentProfile = {
 // are logged, so the strategy starts solid/unexploitative and self-corrects.
 export const AUTO: OpponentProfile = {
   name: "Auto",
-  vpip: 0.25,
-  pfr: 0.18,
-  threeBetPct: 0.06,
-  foldTo3Bet: 0.55,
-  cbetPct: 0.6,
-  foldToCbet: 0.45,
-  betWhenCheckedTo: 0.4,
-  foldToRaise: 0.5,
-  calldownPct: 0.45,
+  vpip: 0.25, pfr: 0.18, threeBetPct: 0.06, foldTo3Bet: 0.55,
+  cbetPct: 0.6, foldToCbet: 0.45, betWhenCheckedTo: 0.4, foldToRaise: 0.5, calldownPct: 0.45,
+  bluffFreq: 0.40, semiBluffFreq: 0.55, barrelFreq: 0.45, stickiness: 0.35,
 };
 
 let _pctMap: Map<number, number> | null = null;
@@ -116,27 +100,25 @@ export function comboPercentile(c: Combo): number {
   return percentileMap().get(lo * 52 + hi) ?? 1;
 }
 
+// Bucket a holding on the board for villain decisions. Crucially a flush/straight
+// draw is now its OWN bucket ("draw") instead of being lumped with air — a villain
+// must be able to semi-bluff its draws and peel them, not treat them as 7-2.
 export function handConnection(
   cards: Combo,
   board: Card[],
-): "strong" | "medium" | "air" {
-  const r0 = rankOf(cards[0]);
-  const r1 = rankOf(cards[1]);
-  const boardRanks = board.map(rankOf);
-  const maxBoard = boardRanks.length > 0 ? Math.max(...boardRanks) : -1;
-
-  let matches = 0;
-  for (const br of boardRanks) {
-    if (br === r0) matches++;
-    if (br === r1) matches++;
+): "strong" | "medium" | "draw" | "air" {
+  if (board.length < 3) return "air";
+  const d = describeHand([cards[0], cards[1]], board);
+  if (d.category >= CATEGORY.TWO_PAIR) return "strong"; // two pair, set, straight, flush+
+  const hasDraw =
+    d.draws.includes("Flush draw") ||
+    d.draws.includes("Open-ended straight draw") ||
+    d.draws.includes("Gutshot");
+  if (d.category === CATEGORY.PAIR) {
+    if (/Overpair/i.test(d.label)) return "strong"; // overpair plays like a strong made hand
+    return hasDraw ? "strong" : "medium"; // pair + draw = strong combo
   }
-
-  const isPair = r0 === r1;
-  const isOverpair = isPair && r0 > maxBoard;
-
-  if (matches >= 2 || isOverpair) return "strong";
-  if (matches >= 1 || isPair) return "medium";
-  return "air";
+  return hasDraw ? "draw" : "air";
 }
 
 // A combo's strength on the current board: its made-hand rank, with a bump for
@@ -323,9 +305,14 @@ function villainPreflopAct(
       const amt = Math.min(threeBetSize(state.currentBet, pos === "BTN" || pos === "CO"), maxBet);
       if (amt > state.currentBet) return { seat, type: "raise", amount: amt };
     }
-    // Loose players defend wide; tight players need a real hand. BB defends a
-    // touch wider since it's already partly invested and getting a price.
-    const defend = (pos === "BB" ? profile.vpip + 0.08 : profile.vpip) * 0.9;
+    // Blind defense SCALED TO THE OPEN SIZE (pot odds), not a flat tight cut. A
+    // small raise gets defended very wide (you're already invested and getting a
+    // price — "another $3 to see a flop"); a big open gets defended tighter.
+    const raiseBB = state.bb > 0 ? state.currentBet / state.bb : 2.5;
+    const sizeF = Math.max(0.45, Math.min(1.15, 1.6 - 0.3 * raiseBB)); // 2x→1.0, 2.5x→0.85, 3x→0.70, 4x→0.40
+    const anchor = pos === "BB" ? 0.62 : pos === "SB" ? 0.36 : profile.vpip + 0.04;
+    const loose = Math.max(0.7, Math.min(1.5, 0.55 + profile.vpip * 1.6)); // station wide, nit tight
+    const defend = Math.min(0.88, anchor * sizeF * loose);
     if (pct < defend) return { seat, type: "call", amount: 0 };
     return { seat, type: "fold", amount: 0 };
   }
@@ -367,34 +354,54 @@ function villainPostflopAct(
   const strength = handConnection(cards, state.board);
   const tc = state.toCall(seat);
   const maxBet = state.stacks[seat]! + state.streetInvested[seat]!;
+  const pot = state.pot;
+
+  // Did THIS villain already bet/raise on a prior postflop street? Used to barrel
+  // (continue a bluff) coherently instead of re-rolling to ~0 each street.
+  const wasAggressor = state.actions.some(
+    (a) => a.seat === seat && a.street !== "preflop" && (a.type === "bet" || a.type === "raise"),
+  );
+  // Already invested chips this hand → sunk-cost stickiness kicks in harder.
+  const invested = state.invested[seat]! > state.bb;
 
   if (tc > 0) {
-    const callProb =
-      strength === "strong"
-        ? 0.95
-        : strength === "medium"
-          ? 1 - profile.foldToCbet
-          : profile.calldownPct * 0.3;
+    const betFrac = pot > 0 ? state.currentBet / pot : 0.5;
+    // MDF-ish price sensitivity: small bets get called much wider, overbets get
+    // folded more. Stickiness (station/sunk-cost) inflates calls beyond the price.
+    const priceAdj = betFrac <= 0.4 ? 1.22 : betFrac >= 1.2 ? 0.72 : 1 - (betFrac - 0.4) * 0.35;
+    const stick = 1 + profile.stickiness * (invested ? 0.5 : 0.35);
 
-    if (rng() < callProb) {
-      if (strength === "strong" && rng() < 0.2 && state.stacks[seat]! > tc) {
-        const amt = Math.min(state.currentBet * 2.5, maxBet);
-        return { seat, type: "raise", amount: amt };
-      }
-      return { seat, type: "call", amount: 0 };
+    let callProb: number;
+    let raiseProb = 0;
+    if (strength === "strong") { callProb = 0.97; raiseProb = profile.semiBluffFreq * 0.3 + 0.12; }
+    else if (strength === "draw") { callProb = 0.80 * priceAdj; raiseProb = profile.semiBluffFreq * 0.22; } // peel / semi-bluff raise
+    else if (strength === "medium") { callProb = (1 - profile.foldToCbet) * priceAdj * stick; }
+    else { callProb = profile.calldownPct * 0.45 * priceAdj * stick; } // air: float/curiosity
+    callProb = Math.min(0.98, callProb);
+
+    if (raiseProb > 0 && rng() < raiseProb && state.stacks[seat]! > tc) {
+      const amt = Math.min(Math.max(state.currentBet * 2.5, pot + tc), maxBet);
+      if (amt > state.currentBet) return { seat, type: "raise", amount: amt };
     }
+    if (rng() < callProb) return { seat, type: "call", amount: 0 };
     return { seat, type: "fold", amount: 0 };
   }
 
-  const betProb =
-    strength === "strong"
-      ? Math.min(1, profile.cbetPct * 1.3)
-      : strength === "medium"
-        ? profile.betWhenCheckedTo
-        : profile.betWhenCheckedTo * 0.3;
+  // No bet to call — decide whether to bet (value / semi-bluff / bluff) or check.
+  // Polarized: strong bets for value; draws semi-bluff; air bluffs (sometimes a
+  // barrel); medium mostly checks back (merge-bet only a fraction).
+  let betProb: number;
+  if (strength === "strong") betProb = Math.min(0.95, profile.cbetPct * 1.25);
+  else if (strength === "draw") betProb = wasAggressor ? profile.barrelFreq : profile.semiBluffFreq;
+  else if (strength === "medium") betProb = profile.betWhenCheckedTo * 0.5; // mostly check back
+  else betProb = wasAggressor ? profile.barrelFreq * 0.7 : profile.bluffFreq; // air bluff / barrel
 
   if (rng() < betProb) {
-    const size = Math.min(state.pot * 0.6, state.stacks[seat]!);
+    // Texture-aware sizing: smaller with merged (medium/value) hands, bigger when
+    // polar (a draw or air on a later street wants fold equity).
+    const polar = strength === "draw" || strength === "air";
+    const frac = polar ? (state.board.length >= 4 ? 0.75 : 0.6) : 0.4 + (strength === "strong" ? 0.2 : 0);
+    const size = Math.min(pot * frac, state.stacks[seat]!);
     if (size > 0) return { seat, type: "bet", amount: size };
   }
   return { seat, type: "check", amount: 0 };
