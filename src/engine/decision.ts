@@ -587,6 +587,30 @@ function postflopRecommend(
         reasoning: `Call — ${handLabel} (${posTag}), ${pct(eq)} equity > ${pct(odds)} pot odds${wayTag}`,
       });
     }
+    // IMPLIED-ODDS PEEL: a draw that fails DIRECT pot odds can still be a +EV call
+    // if the effective stack behind pays off when it hits (vs a payable field).
+    // This is the fix for "I folded my draw and would've hit the nuts on the river".
+    const drawConn = heroConnection(hero, state.board);
+    if ((drawConn.hasFlushDraw || drawConn.hasStraightDraw) && state.stacks[seat]! > tc) {
+      const toCome = 5 - state.board.length; // 2 on flop, 1 on turn
+      const hitProb = drawConn.hasFlushDraw
+        ? (toCome >= 2 ? 0.35 : 0.196)   // ~9 outs
+        : (toCome >= 2 ? 0.31 : 0.17);   // OESD ~8 outs
+      let maxRem = 0;
+      for (const vs of villainSeats) maxRem = Math.max(maxRem, state.stacks[vs]!);
+      const behind = Math.min(state.stacks[seat]! - tc, maxRem); // chips still winnable
+      const potAfter = state.potAfterCall(seat);
+      const impliedNeeded = tc / hitProb - potAfter; // extra $ to collect on a hit
+      // Sticky/loose fields pay off draws; nits don't — collect fraction of `behind`.
+      const expectedPayoff = behind * (0.30 + sticky * 0.55);
+      if (hitProb >= 0.14 && expectedPayoff >= impliedNeeded) {
+        return fin({
+          action: "call", amount: 0, equity: eq, potOdds: odds,
+          ev: { fold: 0, call: evCall, raise: 0 },
+          reasoning: `Call — ${drawConn.hasFlushDraw ? "flush" : "straight"} draw, implied odds (${posTag})${wayTag}`,
+        });
+      }
+    }
     return fin({
       action: "fold", amount: 0, equity: eq, potOdds: odds,
       ev: { fold: 0, call: evCall, raise: -tc },
@@ -696,24 +720,33 @@ function postflopRecommend(
     }
   }
 
-  // ── Represent / bluff ──
-  // With a hand that has no showdown value, checking just gives up. If the
-  // opponent folds often enough, BETTING to represent a strong hand prints
-  // money (fold equity). Only heads-up (multiway someone calls too often), only
-  // with true air (no showdown value, no draw — draws are the semi-bluff above),
-  // and only when the estimated fold% clears the bet's break-even with margin.
-  // Never vs a calling station (low foldy) — that's where bluffs go to die.
-  const bluffOK = villainSeats.length === 1 && eq < 0.34 && dq < THIN_VALUE
-    && !conn.hasFlushDraw && !conn.hasStraightDraw;
-  if (bluffOK) {
-    const frac = tex.dry ? 0.5 : tex.wet ? 0.75 : 0.6; // size to credibly represent
-    const breakeven = frac / (1 + frac);               // fold% needed to break even
-    if (foldy > breakeven + 0.06 && heroStack > pot * frac) {
+  // ── Represent / bluff (incl. barrels & river bluffs) ──
+  // With no showdown value, checking just gives up. Bet to represent strength
+  // when fold equity clears the break-even. Now allowed MULTIWAY (with a steeper
+  // fold-equity bar per extra caller), credits a BARREL (we were the aggressor —
+  // the story is consistent) and BLOCKERS (an A/K blocks villain value), and on
+  // the river a missed draw becomes a pure bluff here. Still folds to print vs a
+  // calling station (low foldy).
+  const isAir = eq < 0.34 && dq < THIN_VALUE && !conn.hasFlushDraw && !conn.hasStraightDraw;
+  const nVil = villainSeats.length;
+  if (isAir && nVil <= 2) {
+    const wasAggressor = state.actions.some(
+      (a) => a.seat === seat && a.street !== "preflop" && (a.type === "bet" || a.type === "raise"),
+    );
+    const frac = tex.dry ? 0.5 : tex.wet ? 0.75 : 0.6;
+    const breakeven = frac / (1 + frac); // fold% needed to break even
+    const hiCard = Math.max(rankOf(hero[0]), rankOf(hero[1]));
+    const blockerCredit = hiCard >= 12 ? 0.05 : hiCard >= 10 ? 0.02 : 0; // A/K… blocks value
+    const barrelCredit = wasAggressor ? 0.05 : 0;
+    // Each extra caller steeply raises the bar (someone always has it multiway).
+    const need = breakeven + 0.05 + 0.14 * (nVil - 1) - blockerCredit - barrelCredit;
+    if (foldy > need && heroStack > pot * frac) {
       const size = Math.min(pot * frac, betCap);
+      const kind = wasAggressor ? "Barrel" : "Bluff";
       return fin({
         action: "bet", amount: size, equity: eq, potOdds: 0,
         ev: { fold: foldy * pot, call: 0, raise: foldy * pot - (1 - foldy) * size },
-        reasoning: `Bluff — represent strength on ${texNote}, opp folds ~${pct(foldy)} (${posTag})`,
+        reasoning: `${kind} — represent strength on ${texNote}, opp folds ~${pct(foldy)} (${posTag})${wayTag}`,
       });
     }
   }
