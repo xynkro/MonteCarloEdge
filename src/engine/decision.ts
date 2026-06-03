@@ -75,16 +75,23 @@ export type ProfileMap = Map<number, OpponentProfile>;
 // for ICM. Present ⇒ tournament mode (bubble-factor risk premium); absent ⇒ cash.
 export interface IcmConfig { payouts: number[] }
 
+// Hero PLAY STYLE — lets the user dial their own strategy instead of one-size-
+// fits-all. `aggression` scales bluff/barrel frequency, value-bet thinness and
+// 3-bet width; `looseness` scales open/call/defense width. 1.0 = GTO baseline.
+export interface HeroStyle { aggression: number; looseness: number }
+export const STYLE_GTO: HeroStyle = { aggression: 1.0, looseness: 1.0 };
+
 export function recommend(
   state: GameState,
   villainProfile?: OpponentProfile,
   rng?: Rng,
   profiles?: ProfileMap,
   icm?: IcmConfig,
+  style: HeroStyle = STYLE_GTO,
 ): Recommendation {
   const r = state.street === "preflop"
-    ? preflopRecommend(state, villainProfile ?? TAG, profiles, icm)
-    : postflopRecommend(state, villainProfile ?? TAG, rng ?? mulberry32(0xdec1de), profiles);
+    ? preflopRecommend(state, villainProfile ?? TAG, profiles, icm, style)
+    : postflopRecommend(state, villainProfile ?? TAG, rng ?? mulberry32(0xdec1de), profiles, style);
   // Tag provenance: preflop is the Nash push/fold chart when short (its reasoning
   // says "jam"/"all-in") else a hand-authored chart; postflop is MC-equity
   // heuristics (the live CFR solver is layered on in the UI for solvable spots).
@@ -206,6 +213,7 @@ function preflopRecommend(
   villainProfile: OpponentProfile = TAG,
   profiles?: ProfileMap,
   icm?: IcmConfig,
+  style: HeroStyle = STYLE_GTO,
 ): Recommendation {
   const hero = state.heroCards;
   const seat = state.heroSeat;
@@ -426,11 +434,12 @@ function preflopRecommend(
   const openerProfile = (opener && profiles?.get(opener.seat)) || villainProfile;
   const f3b = openerProfile.foldTo3Bet;
   const exploitMult = 1 + Math.max(-0.4, Math.min(1.2, (f3b - 0.5) * 2.2)); // foldy → wider
-  // Cap light 3-bets at ~18% of hands, and tighten by the ICM bubble factor.
-  const threeBetCut = Math.min(0.18, baseThreeBetCut * exploitMult) / bf;
+  // Cap light 3-bets at ~18% of hands, tighten by the ICM bubble factor, and
+  // widen/tighten by the hero's chosen aggression & looseness.
+  const threeBetCut = Math.min(0.22, baseThreeBetCut * exploitMult * style.aggression * style.looseness) / bf;
   // Calling a raise risks chips with no fold equity, so the ICM bubble factor
-  // tightens it (busting near a pay jump is extra costly).
-  const callCut = (state.tableSize <= 2 ? 0.45 : state.tableSize <= 4 ? 0.30 : 0.25) / bf;
+  // tightens it (busting near a pay jump is extra costly); looseness widens it.
+  const callCut = (state.tableSize <= 2 ? 0.45 : state.tableSize <= 4 ? 0.30 : 0.25) * style.looseness / bf;
 
   const pct = comboPercentile([hero[0], hero[1]]);
   if (pct < threeBetCut) {
@@ -475,6 +484,7 @@ function postflopRecommend(
   villainProfile: OpponentProfile,
   rng: Rng,
   profiles?: ProfileMap,
+  style: HeroStyle = STYLE_GTO,
 ): Recommendation {
   const hero = state.heroCards;
   const seat = state.heroSeat;
@@ -552,8 +562,11 @@ function postflopRecommend(
   // value thresholds as stickiness rises (toward ~0.50 equity vs a pure station,
   // i.e. "called by worse more than half the time").
   const stickyDiscount = sticky > 0.5 ? Math.min(0.10, (sticky - 0.5) * 0.4) : 0;
-  const valueBetT = VALUE_BET - stickyDiscount;
-  const thinValueT = THIN_VALUE - stickyDiscount;
+  // Aggression thins value bets (bet weaker hands for value) — capped so it can't
+  // go silly. aggr 1.4 ≈ −6 equity points on the value tiers.
+  const aggrThin = Math.max(-0.04, Math.min(0.10, (style.aggression - 1) * 0.15));
+  const valueBetT = VALUE_BET - stickyDiscount - aggrThin;
+  const thinValueT = THIN_VALUE - stickyDiscount - aggrThin;
 
   const pct = (n: number) => `${(n * 100).toFixed(0)}%`;
   // Finalize: attach shared context fields to every recommendation.
@@ -738,8 +751,10 @@ function postflopRecommend(
     const hiCard = Math.max(rankOf(hero[0]), rankOf(hero[1]));
     const blockerCredit = hiCard >= 12 ? 0.05 : hiCard >= 10 ? 0.02 : 0; // A/K… blocks value
     const barrelCredit = wasAggressor ? 0.05 : 0;
-    // Each extra caller steeply raises the bar (someone always has it multiway).
-    const need = breakeven + 0.05 + 0.14 * (nVil - 1) - blockerCredit - barrelCredit;
+    // Each extra caller steeply raises the bar (someone always has it multiway);
+    // hero aggression lowers it (bluff more often).
+    const need = breakeven + 0.05 + 0.14 * (nVil - 1) - blockerCredit - barrelCredit
+      - (style.aggression - 1) * 0.12;
     if (foldy > need && heroStack > pot * frac) {
       const size = Math.min(pot * frac, betCap);
       const kind = wasAggressor ? "Barrel" : "Bluff";

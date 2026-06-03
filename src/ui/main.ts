@@ -7,8 +7,19 @@ import { estimateVillainRange } from "../engine/opponent.js";
 import { solveSubgame, type RiverResult, type ActionFreq } from "../engine/gto/river-solver.js";
 import { solvePushFold, handClassKey, type PushFoldResult } from "../engine/gto/pushfold.js";
 import { allCombos, topSlice } from "../engine/hand-strength.js";
-import { recommend, type Recommendation, type ProfileMap, type IcmConfig } from "../engine/decision.js";
+import { recommend, type Recommendation, type ProfileMap, type IcmConfig, type HeroStyle } from "../engine/decision.js";
 import { PAYOUT_PRESETS } from "../engine/icm.js";
+
+// Hero play-style presets — dial your own strategy (the "no aggression adjuster"
+// gap). aggression scales bluff/barrel/value-thinness/3-bet width; looseness
+// scales open/call/defense width.
+const HERO_STYLES: Record<string, { label: string; style: HeroStyle; blurb: string }> = {
+  gto: { label: "Balanced (GTO)", style: { aggression: 1.0, looseness: 1.0 }, blurb: "Solver-baseline, hard to exploit." },
+  tag: { label: "Tight-Aggressive", style: { aggression: 1.15, looseness: 0.82 }, blurb: "Fewer hands, bet/raise them hard." },
+  lag: { label: "Loose-Aggressive", style: { aggression: 1.35, looseness: 1.28 }, blurb: "Wide, lots of pressure & bluffs." },
+  nit: { label: "Tight / Cautious", style: { aggression: 0.75, looseness: 0.7 }, blurb: "Premiums only, minimal bluffing." },
+  maniac: { label: "Maniac", style: { aggression: 1.6, looseness: 1.5 }, blurb: "Max aggression — high variance." },
+};
 import { gradeDecision, SRC_WORD } from "../engine/grade.js";
 import { AUTO, TAG, LAG, STATION, NIT, type OpponentProfile } from "../engine/opponent.js";
 import { villainDecision } from "../engine/villain-ai.js";
@@ -60,6 +71,7 @@ interface AppState {
   // from the table's chip stacks + this payout preset (else cash chip-EV).
   tournament: boolean;
   payoutPreset: string; // key into PAYOUT_PRESETS
+  heroStyle: string; // key into HERO_STYLES — your own play style
   gs: GameState | null;
   heroCards: [Card, Card] | null;
   boardCards: Card[];
@@ -138,6 +150,7 @@ const S: AppState = {
   archetype: "Auto",
   tournament: false,
   payoutPreset: "top3",
+  heroStyle: "gto",
   gs: null,
   heroCards: null,
   boardCards: [],
@@ -767,6 +780,16 @@ function renderSetup(): void {
       </div>
 
       <div class="field">
+        <label>Your play style</label>
+        <select id="herostyle">
+          ${Object.entries(HERO_STYLES).map(([k, v]) =>
+            `<option value="${k}" ${S.heroStyle === k ? "selected" : ""}>${v.label}</option>`
+          ).join("")}
+        </select>
+        <span class="hint style-blurb">${HERO_STYLES[S.heroStyle]?.blurb ?? ""}</span>
+      </div>
+
+      <div class="field">
         <label>Where are you sitting?</label>
         <span class="hint">Tap your seat. BTN (Dealer) is best — you act last after the flop.</span>
         <div class="seat-ring">
@@ -845,6 +868,11 @@ function renderSetup(): void {
   });
   document.getElementById("payouts")?.addEventListener("change", (e) => {
     S.payoutPreset = (e.target as HTMLSelectElement).value;
+  });
+  document.getElementById("herostyle")?.addEventListener("change", (e) => {
+    S.heroStyle = (e.target as HTMLSelectElement).value;
+    const b = document.querySelector(".style-blurb");
+    if (b) b.textContent = HERO_STYLES[S.heroStyle]?.blurb ?? "";
   });
   document.getElementById("per-seat-toggle")?.addEventListener("click", () => {
     document.getElementById("per-seat-body")?.classList.toggle("hidden");
@@ -1038,7 +1066,8 @@ function updateRec(): void {
     const icm: IcmConfig | undefined = S.tournament
       ? { payouts: PAYOUT_PRESETS[S.payoutPreset] ?? PAYOUT_PRESETS.top3! }
       : undefined;
-    S.rec = recommend(S.gs, prior, mulberry32(0xface), buildProfiles(), icm);
+    const style = (HERO_STYLES[S.heroStyle] ?? HERO_STYLES.gto!).style;
+    S.rec = recommend(S.gs, prior, mulberry32(0xface), buildProfiles(), icm, style);
     if (S.rec.amount > 0) S.rec.amount = roundBet(S.rec.amount);
     // Layer the real CFR solver over the heuristic for spots it models well:
     // use a cached solve if we have one, otherwise kick one off in the background
