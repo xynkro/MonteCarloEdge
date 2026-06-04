@@ -1775,15 +1775,23 @@ function doAction(seat: number, type: ActionType): void {
     const entry = { street: S.gs.street, chosen: type, chosenAmt: amount, rec: S.rec };
     S.decisionLog.push(entry);
     const g = gradeDecision(entry);
-    // Quiz mode shows a verdict in the requested wording: "Correct Call" /
-    // "Wrong — GTO says Raise $3".
+    // Quiz mode grades only the ACTION TYPE (fold/check/call/bet/raise) — sizing
+    // isn't tested — and shows "Correct Raise" / "Wrong — GTO says Raise".
     if (quizMode() && S.mode === "training") {
       const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
-      const recAct = `${cap(S.rec.action)}${S.rec.amount > 0 ? ` ${chipsBet(roundBet(S.rec.amount))}` : ""}`;
       const src = SRC_WORD[S.rec.source ?? "heuristic"] ?? "Strategy";
-      S.lastGrade = g.bucket === "off"
-        ? { label: `✗ Wrong — ${src} says ${recAct}`, cls: "g-bad" }
-        : g.bucket === "mixed"
+      // Type-only bucket: if the chosen action type appears in a solved mix at a
+      // meaningful frequency it's correct/fine; otherwise match the top action.
+      let bucket: "ok" | "mix" | "off";
+      if (S.rec.mix && S.rec.mix.length > 0) {
+        const f = S.rec.mix.filter((m) => m.action === type).reduce((s, m) => s + m.freq, 0);
+        bucket = f >= 0.15 ? "ok" : f >= 0.02 ? "mix" : "off";
+      } else {
+        bucket = type === S.rec.action ? "ok" : "off";
+      }
+      S.lastGrade = bucket === "off"
+        ? { label: `✗ Wrong — ${src} says ${cap(S.rec.action)}`, cls: "g-bad" }
+        : bucket === "mix"
           ? { label: `≈ OK — ${cap(type)} is a fine mix`, cls: "g-mix" }
           : { label: `✓ Correct ${cap(type)}`, cls: "g-ok" };
     } else {
