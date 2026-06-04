@@ -159,6 +159,40 @@ function isWheelAceSuited(hero: readonly [number, number]): boolean {
   return suited && hi === 12 && lo <= 3; // A + {2,3,4,5}
 }
 
+// Should hero CONTINUE a speculative hand for implied odds even when its raw
+// percentile is below the calling cut? Small pairs set-mine, suited connectors /
+// suited aces draw to the nuts — all need deep effective stacks to pay off (the
+// 15x / 5-10 rules). `minR` lets callers demand a bigger ratio facing a 3-bet.
+function speculativeContinue(
+  hero: readonly [number, number],
+  state: GameState,
+  seat: number,
+  looseness: number,
+  minR = 1,
+): boolean {
+  const callAmt = state.toCall(seat);
+  if (callAmt <= 0) return false;
+  const heroTotal = state.stacks[seat]! + state.streetInvested[seat]!;
+  // Effective stack = min(hero, deepest still-in opponent) — can't win more.
+  let villTotal = 0;
+  for (let i = 0; i < state.folded.length; i++) {
+    if (i === seat || state.folded[i]) continue;
+    villTotal = Math.max(villTotal, state.stacks[i]! + state.streetInvested[i]!);
+  }
+  const eff = Math.min(heroTotal, villTotal || heroTotal);
+  const R = eff / callAmt; // implied-odds ratio (effective stack : price)
+  const pctOfStack = callAmt / eff;
+  const r0 = rankOf(hero[0]), r1 = rankOf(hero[1]);
+  const suited = suitOf(hero[0]) === suitOf(hero[1]);
+  const hi = Math.max(r0, r1), lo = Math.min(r0, r1), gap = hi - lo;
+  const L = looseness; // a looser style needs a less generous price
+  if (r0 === r1) return R >= 15 / L && pctOfStack <= 0.12 * L;   // set-mine any pair
+  if (suited && hi === 12) return R >= (22 / L) * minR;          // suited ace (nut-flush + ace-high)
+  if (suited && gap <= 1 && lo >= 3) return R >= (25 / L) * minR; // suited connectors 54s+
+  if (suited && gap <= 2) return R >= (32 / L) * minR;           // suited gappers
+  return false;
+}
+
 // Facing a 3-bet (raiseCount 2) or a 4-bet+ (raiseCount >= 3) at a playable
 // depth. Percentile cutoffs approximate the 6-max consensus polar ranges:
 //   5-bet jam ≈ KK+/AKs (~1.3%) · 4-bet value ≈ QQ+/AK (~2.6%) + Axs blockers
@@ -172,14 +206,16 @@ function reRaiseDecision(
   heroTotal: number,
   label: string,
   bf = 1, // ICM bubble factor — tightens value/jam/flat cutoffs near a pay jump
+  style: HeroStyle = STYLE_GTO,
 ): Recommendation {
   const p = comboPercentile([hero[0], hero[1]]);
   const ip = state.isInPosition(seat);
   const odds = state.potOdds(seat);
+  const aggr = style.aggression, loose = style.looseness;
 
   if (raiseCount >= 3) {
     // Facing a 4-bet: 5-bet jam premiums; flat QQ/AKo only when deep; else fold.
-    if (p < 0.013 / bf) {
+    if (p < (0.013 / bf) * aggr) {
       return { action: "raise", amount: heroTotal, equity: 0.6, potOdds: odds,
         ev: { fold: 0, call: 0.5, raise: 2 }, reasoning: `5-bet jam — ${label}, premium vs 4-bet` };
     }
@@ -192,17 +228,20 @@ function reRaiseDecision(
   }
 
   // Facing a 3-bet. (Blocker 4-bet bluffs are dropped near a bubble — bf>1.)
+  const fourBetCut = (0.026 / bf) * aggr;
   const blockerBluff = isWheelAceSuited(hero) && heroRaisedPre && ip && bf <= 1.03;
-  if (p < 0.026 / bf || blockerBluff) {
+  if (p < fourBetCut || blockerBluff) {
     const amt = Math.min(fourBetSize(state.currentBet), heroTotal);
-    const kind = p < 0.026 / bf ? "value" : "blocker bluff";
+    const kind = p < fourBetCut ? "value" : "blocker bluff";
     return { action: "raise", amount: amt, equity: 0.58, potOdds: odds,
       ev: { fold: 0, call: 0.5, raise: 1.8 }, reasoning: `4-bet — ${label} (${kind})` };
   }
-  const flatCut = (ip ? 0.075 : 0.045) / bf; // JJ-99/AQ/suited broadways IP, tighter OOP
-  if (p < flatCut) {
+  const flatCut = (ip ? 0.075 : 0.045) * loose / bf; // JJ-99/AQ/suited broadways IP, tighter OOP
+  // Deep IP, also set-mine / draw to the nuts vs a 3-bet (implied odds).
+  const deepSpec = ip && heroTotal / state.bb > 40 && speculativeContinue(hero, state, seat, loose, 1.6);
+  if (p < flatCut || deepSpec) {
     return { action: "call", amount: 0, equity: 0.45, potOdds: odds,
-      ev: { fold: 0, call: 0.3, raise: 0 }, reasoning: `Call the 3-bet — ${label}` };
+      ev: { fold: 0, call: 0.3, raise: 0 }, reasoning: `Call the 3-bet — ${label}${deepSpec && p >= flatCut ? " (implied odds)" : ""}` };
   }
   return { action: "fold", amount: 0, equity: 0, potOdds: odds,
     ev: { fold: 0, call: -0.4, raise: -1 }, reasoning: `Fold — ${label} vs 3-bet` };
@@ -324,7 +363,7 @@ function preflopRecommend(
     // BB facing a 3-bet+ (cold): the defense charts are vs a single opener, not a
     // 3-bet, so route to the polar re-raise tree (tight: 4-bet KK+/AKs, flat QQ/AK).
     if (raiseCount >= 2) {
-      return reRaiseDecision(state, hero, seat, raiseCount, heroRaisedPre, heroTotal, label, bf);
+      return reRaiseDecision(state, hero, seat, raiseCount, heroRaisedPre, heroTotal, label, bf, style);
     }
     if (opener) {
       const openerPos = state.positions[opener.seat]!;
@@ -395,7 +434,7 @@ function preflopRecommend(
 
   // Facing a 3-bet (we opened) or a 4-bet+ → the polar re-raise tree.
   if (raiseCount >= 2) {
-    return reRaiseDecision(state, hero, seat, raiseCount, heroRaisedPre, heroTotal, label, bf);
+    return reRaiseDecision(state, hero, seat, raiseCount, heroRaisedPre, heroTotal, label, bf, style);
   }
 
   // Facing a single open with caller(s) in between → SQUEEZE (tighter value, a
@@ -403,7 +442,7 @@ function preflopRecommend(
   if (raiseCount === 1 && callersBeforeHero > 0) {
     const p = comboPercentile([hero[0], hero[1]]);
     const ip = state.isInPosition(seat);
-    if (p < 0.05) {
+    if (p < 0.05 * style.aggression * style.looseness) {
       const amt = Math.min(
         threeBetSize(state.currentBet, ip) + callersBeforeHero * state.currentBet,
         heroTotal,
@@ -414,11 +453,13 @@ function preflopRecommend(
         reasoning: `Squeeze — ${label} vs open + ${callersBeforeHero} caller${callersBeforeHero > 1 ? "s" : ""}`,
       };
     }
-    if (p < 0.09 && ip) {
+    // Overcall IP with the playable range OR a speculative hand with implied odds
+    // (multiway sweetens set-mining / suited draws — great pot odds when you hit).
+    const specOC = ip && speculativeContinue(hero, state, seat, style.looseness);
+    if ((p < 0.09 * style.looseness && ip) || specOC) {
       return {
         action: "call", amount: 0, equity: 0.45, potOdds: state.potOdds(seat),
-        ev: { fold: 0, call: 0.2, raise: 0 }, reasoning: `Overcall — ${label} in position`,
-      };
+        ev: { fold: 0, call: 0.2, raise: 0 }, reasoning: `Overcall — ${label} in position${specOC && p >= 0.09 * style.looseness ? " (implied odds)" : ""}` };
     }
     return {
       action: "fold", amount: 0, equity: 0, potOdds: state.potOdds(seat),
@@ -459,14 +500,20 @@ function preflopRecommend(
         : `3-bet — ${label} premium hand`,
     };
   }
-  if (pct < callCut) {
+  // Call the raw playable range OR a speculative hand getting implied odds — a
+  // small pair set-mines, a suited connector/ace draws to the nuts. This is the
+  // fix for "pocket 2s asked to fold": the percentile sort buries set-miners.
+  const spec = speculativeContinue(hero, state, seat, style.looseness);
+  if (pct < callCut || spec) {
     return {
       action: "call",
       amount: 0,
       equity: 0.45,
       potOdds: state.potOdds(seat),
       ev: { fold: 0, call: 0.3, raise: 0 },
-      reasoning: `Call — ${label} playable vs raise`,
+      reasoning: spec && pct >= callCut
+        ? `Call — ${label}, implied odds (set-mine / draw to the nuts)`
+        : `Call — ${label} playable vs raise`,
     };
   }
   return {
