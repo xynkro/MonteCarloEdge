@@ -833,7 +833,16 @@ body {
 .g-ok { color: var(--emerald); }
 .g-mix { color: var(--gold); }
 .g-bad { color: var(--rose); }
-.last-grade { font-weight: 800; }
+.last-grade { font-weight: 800; font-size: 14px; letter-spacing: .2px; }
+/* Quiz mode: covered recommendation + active toggle */
+.rec-panel.quiz-cover {
+  background: linear-gradient(135deg, rgba(124,92,255,.14), rgba(20,16,40,.5));
+  border: 1px dashed rgba(124,92,255,.5);
+}
+.rec-panel.quiz-cover .rec-action {
+  -webkit-text-fill-color: initial; background: none; color: #b3a4ff;
+}
+.hdr-btn.quiz-on { background: rgba(124,92,255,.25); color: #c9bcff; border-color: rgba(124,92,255,.5); }
 .grade-breakdown { display: flex; justify-content: center; gap: 12px; font-size: 11px; font-weight: 700; margin-top: 6px; }
 
 .hidden { display: none !important; }

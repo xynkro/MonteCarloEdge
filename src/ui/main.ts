@@ -1424,15 +1424,22 @@ function renderGame(): void {
         })
         .join("")}</div>`
     : "";
-  const recHtml = S.rec ? `
-    <div class="rec-panel">
+  // Quiz mode: on YOUR turn in training, hide the recommendation (and its size
+  // hints) so you commit blind, then get graded after you act.
+  const quizHide = quizMode() && S.mode === "training" && isHeroTurn && !S.handOver && !S.trainingOver;
+  const recHtml = !S.rec ? "" : quizHide
+    ? `<div class="rec-panel quiz-cover">
+         <div class="rec-action">🙈 Your call?</div>
+         <div class="rec-reason">Quiz mode — make your decision, then I'll grade it.</div>
+       </div>`
+    : `<div class="rec-panel">
       <div class="rec-head">
         <div class="rec-action">${S.rec.action}${S.rec.amount > 0 ? ` ${chipsBet(S.rec.amount)}` : ""}</div>
         ${srcBadge}
       </div>
       <div class="rec-reason">${recReason}</div>
       ${mixHtml}
-    </div>` : "";
+    </div>`;
 
   // ── Actions ──
   const legal = gs && next !== null ? gs.legalActionsFor(next) : [];
@@ -1442,9 +1449,10 @@ function renderGame(): void {
     && (S.mode === "live" || next === S.heroSeat);
 
   // If there's a rec with amount, show it on the bet/raise button for one-tap action
+  // — but NOT in quiz mode (the size would give the answer away).
   const recAmt = S.rec && S.rec.amount > 0 ? roundBet(S.rec.amount) : 0;
-  const betLabel = recAmt > 0 && S.rec?.action === "bet" ? `Bet ${chipsBet(recAmt)}` : "Bet";
-  const raiseLabel = recAmt > 0 && S.rec?.action === "raise" ? `Raise ${chipsBet(recAmt)}` : "Raise";
+  const betLabel = !quizHide && recAmt > 0 && S.rec?.action === "bet" ? `Bet ${chipsBet(recAmt)}` : "Bet";
+  const raiseLabel = !quizHide && recAmt > 0 && S.rec?.action === "raise" ? `Raise ${chipsBet(recAmt)}` : "Raise";
 
   // Multiway logging shortcuts: when it's an opponent's turn (live mode), batch
   // the obvious action for everyone up to the hero.
@@ -1487,6 +1495,9 @@ function renderGame(): void {
         <span>Hand #${S.handNumber}${S.mode === "training" ? " · <strong style=\"color:var(--violet)\">TRAINING</strong>" : ""}</span>
         <div class="topbar-btns">
           ${S.mode === "training"
+            ? `<button class="hdr-btn ${quizMode() ? "quiz-on" : ""}" id="quiz-btn" title="Quiz mode: hide the recommendation, grade your call">${quizMode() ? "🙈 Quiz" : "💡 Coach"}</button>`
+            : ""}
+          ${S.mode === "training"
             ? `<button class="hdr-btn" id="speed-btn" title="Playback speed">${SPEED_LABEL[trainingSpeed()]}</button>`
             : ""}
           ${S.mode === "live" && S.undoStack.length > 0
@@ -1508,7 +1519,12 @@ function renderGame(): void {
       <div class="controls">
         <div class="controls-body">
           ${!S.handOver && !S.allInPrompt && !S.rit ? `<div class="status-bar ${isHeroTurn ? "your-turn" : ""}">${
-            isHeroTurn ? "<strong>YOUR TURN</strong>"
+            isHeroTurn
+              // In quiz mode keep the last verdict visible alongside YOUR TURN so
+              // it doesn't vanish at fast speeds before the next decision.
+              ? (quizMode() && S.mode === "training" && S.lastGrade
+                  ? `<span class="last-grade ${S.lastGrade.cls}">${S.lastGrade.label}</span> · <strong>YOUR TURN</strong>`
+                  : "<strong>YOUR TURN</strong>")
             : S.lastGrade ? `<span class="last-grade ${S.lastGrade.cls}">${S.lastGrade.label}</span>`
             : S.message || ""
           }</div>` : ""}
@@ -1536,6 +1552,7 @@ function renderGame(): void {
   // ── Events ──
   $("#new-hand")?.addEventListener("click", () => { S.screen = "setup"; S.dealerSeat = -1; S.handNumber = 0; render(); });
   document.getElementById("speed-btn")?.addEventListener("click", () => { cycleSpeed(); render(); });
+  document.getElementById("quiz-btn")?.addEventListener("click", () => { toggleQuiz(); render(); });
   document.getElementById("undo-btn")?.addEventListener("click", undo);
   document.getElementById("next-hand")?.addEventListener("click", nextHand);
   document.getElementById("train-again")?.addEventListener("click", () => {
@@ -1758,7 +1775,20 @@ function doAction(seat: number, type: ActionType): void {
     const entry = { street: S.gs.street, chosen: type, chosenAmt: amount, rec: S.rec };
     S.decisionLog.push(entry);
     const g = gradeDecision(entry);
-    S.lastGrade = { label: g.label, cls: g.cls };
+    // Quiz mode shows a verdict in the requested wording: "Correct Call" /
+    // "Wrong — GTO says Raise $3".
+    if (quizMode() && S.mode === "training") {
+      const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+      const recAct = `${cap(S.rec.action)}${S.rec.amount > 0 ? ` ${chipsBet(roundBet(S.rec.amount))}` : ""}`;
+      const src = SRC_WORD[S.rec.source ?? "heuristic"] ?? "Strategy";
+      S.lastGrade = g.bucket === "off"
+        ? { label: `✗ Wrong — ${src} says ${recAct}`, cls: "g-bad" }
+        : g.bucket === "mixed"
+          ? { label: `≈ OK — ${cap(type)} is a fine mix`, cls: "g-mix" }
+          : { label: `✓ Correct ${cap(type)}`, cls: "g-ok" };
+    } else {
+      S.lastGrade = { label: g.label, cls: g.cls };
+    }
     S.gradeStats.n += 1;
     S.gradeStats.pts += g.score;
     S.gradeStats[g.bucket] += 1;
@@ -1975,6 +2005,11 @@ function cycleSpeed(): void {
   const i = SPEED_TIERS.indexOf(trainingSpeed());
   localStorage.setItem("mce-speed", SPEED_TIERS[(i + 1) % SPEED_TIERS.length]!);
 }
+
+// Quiz mode: hide the recommendation so you must decide blind, then grade the
+// call ("Correct Call" / "Wrong — GTO says X"). Persisted across sessions.
+function quizMode(): boolean { return localStorage.getItem("mce-quiz") === "1"; }
+function toggleQuiz(): void { localStorage.setItem("mce-quiz", quizMode() ? "0" : "1"); }
 
 function scheduleVillainStep(delay: number): void {
   cancelVillainTimer();
