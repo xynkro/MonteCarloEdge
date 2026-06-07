@@ -256,6 +256,12 @@ function buildProfiles(): ProfileMap {
 const $ = (s: string) => document.querySelector(s)!;
 const app = document.getElementById("app")!;
 
+// A revealed card's two faces (front = rank/suit, back = card-back). The outer
+// .board-card/.hero-card becomes the 3D container; .deal-in flips inner back→front.
+function flipFaces(content: string): string {
+  return `<div class="flip-inner"><div class="flip-front">${content}</div><div class="flip-back"></div></div>`;
+}
+
 function cardDisplay(c: Card): string {
   return RANKS[rankOf(c)] + SUITS[suitOf(c)];
 }
@@ -1371,7 +1377,7 @@ function renderGame(): void {
       const anim = animBoard >= 0 && i >= animBoard
         ? ` deal-in" style="animation-delay:${((i - animBoard) * 90)}ms`
         : "";
-      return `<div class="board-card dealt ${isRed(c) ? "red" : ""}${anim}">${cardDisplay(c)}</div>`;
+      return `<div class="board-card dealt ${isRed(c) ? "red" : ""}${anim}">${flipFaces(cardDisplay(c))}</div>`;
     }
     return `<div class="board-card empty"></div>`;
   }).join("");
@@ -1379,7 +1385,7 @@ function renderGame(): void {
   // ── Hero cards ──
   const heroHtml = S.heroCards
     ? S.heroCards.map((c, i) =>
-        `<div class="hero-card dealt ${isRed(c) ? "red" : ""}${animHero ? ` deal-in" style="animation-delay:${i * 110}ms` : ""}">${cardDisplay(c)}</div>`
+        `<div class="hero-card dealt ${isRed(c) ? "red" : ""}${animHero ? ` deal-in" style="animation-delay:${i * 110}ms` : ""}">${flipFaces(cardDisplay(c))}</div>`
       ).join("")
     : `<div class="hero-card empty">?</div><div class="hero-card empty">?</div>`;
 
