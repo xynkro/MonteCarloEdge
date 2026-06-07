@@ -883,6 +883,8 @@ body {
   .leak-fill { transition: none !important; }
 }
 
+.lbl-sub { font-weight: 600; font-size: 10px; color: var(--muted); letter-spacing: .5px; }
+
 /* ── Leak report ── */
 .leak-row { margin: 8px 0; }
 .leak-head { display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 4px; }

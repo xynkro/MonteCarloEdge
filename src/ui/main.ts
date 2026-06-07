@@ -61,6 +61,7 @@ interface AppState {
   stackBB: number;
   bbValue: number;
   sbValue: number;
+  sbManual: boolean; // true once SB is edited directly → stops auto-tracking BB/2
   heroSeat: number;
   dealerSeat: number;
   handNumber: number;
@@ -148,7 +149,8 @@ const S: AppState = {
   tableSize: 6,
   stackBB: 100,
   bbValue: 1,
-  sbValue: 1,
+  sbValue: 0.5,
+  sbManual: false,
   heroSeat: 3,
   dealerSeat: -1,
   handNumber: 0,
@@ -262,6 +264,7 @@ function isRed(c: Card): boolean {
 }
 function roundBet(bb: number): number {
   const unit = S.sbValue / S.bbValue;
+  if (!(unit > 0)) return bb; // guard: never divide by a 0/NaN SB unit
   return Math.round(bb / unit) * unit;
 }
 
@@ -360,9 +363,18 @@ function renderNumpad(): void {
   document.getElementById("np-confirm")?.addEventListener("click", () => {
     const v = parseFloat(S.numpadRaw);
     if (!isNaN(v) && v > 0) {
-      if (target === "sb") S.sbValue = v;
-      else if (target === "bb") S.bbValue = v;
-      else if (target === "seatstack") {
+      if (target === "sb") {
+        S.sbValue = Math.min(v, S.bbValue); // SB can't exceed BB
+        // Editing SB locks it — UNLESS it's exactly half the BB, which returns
+        // it to auto-tracking (an in-session path back to the default behaviour).
+        S.sbManual = Math.abs(S.sbValue - S.bbValue / 2) > 1e-9;
+      } else if (target === "bb") {
+        S.bbValue = v;
+        // SB auto-follows to half the BB unless the user set it manually; either
+        // way keep it in (0, BB].
+        if (!S.sbManual) S.sbValue = Math.max(0.01, Math.round((v / 2) * 100) / 100);
+        else if (S.sbValue > S.bbValue) S.sbValue = S.bbValue;
+      } else if (target === "seatstack") {
         const seat = S.numpadSeat;
         S.seatStacks[seat] = v;
         // Apply to the live hand too (correction / rebuy mid-session).
@@ -746,19 +758,31 @@ function renderSetup(): void {
           </select>
         </div>
         <div class="field">
-          <label>Opponent type</label>
-          <select id="arch">
-            ${Object.keys(PROFILES).map(k =>
-              `<option value="${k}" ${k === S.archetype ? "selected" : ""}>${k}</option>`
-            ).join("")}
+          <label>Game type</label>
+          <select id="gametype">
+            <option value="cash" ${!S.tournament ? "selected" : ""}>Cash (chip-EV)</option>
+            <option value="mtt" ${S.tournament ? "selected" : ""}>Tournament (ICM)</option>
           </select>
         </div>
       </div>
-      <span class="hint arch-desc">${ARCH_DESC[S.archetype]}</span>
+
+      ${S.tournament ? `
+      <div class="field-row">
+        <div class="field">
+          <label>Payouts</label>
+          <select id="payouts">
+            <option value="wta" ${S.payoutPreset === "wta" ? "selected" : ""}>Winner-take-all</option>
+            <option value="top2" ${S.payoutPreset === "top2" ? "selected" : ""}>Top 2 (65/35)</option>
+            <option value="top3" ${S.payoutPreset === "top3" ? "selected" : ""}>Top 3 (50/30/20)</option>
+            <option value="top4" ${S.payoutPreset === "top4" ? "selected" : ""}>Top 4</option>
+          </select>
+        </div>
+        <div class="field"><!-- spacer: keeps Payouts at 50% column width --></div>
+      </div>` : ""}
 
       <div class="field-row">
         <div class="field">
-          <label>Blinds</label>
+          <label>Blinds <span class="lbl-sub">SB / BB</span></label>
           <div class="blinds-row">
             <button class="tap-input" data-numpad="sb">$${fmtMoney(S.sbValue)}</button>
             <span class="blind-slash">/</span>
@@ -770,35 +794,28 @@ function renderSetup(): void {
           <button class="tap-input" data-numpad="stack">${S.stackBB}bb · $${fmtMoney(S.stackBB * S.bbValue)}</button>
         </div>
       </div>
+      <span class="hint">${S.sbManual ? "Small blind set manually" : "Small blind auto-tracks ½ the big blind — tap it to set your own"}</span>
 
       <div class="field-row">
         <div class="field">
-          <label>Game type</label>
-          <select id="gametype">
-            <option value="cash" ${!S.tournament ? "selected" : ""}>Cash (chip-EV)</option>
-            <option value="mtt" ${S.tournament ? "selected" : ""}>Tournament (ICM)</option>
+          <label>Your play style</label>
+          <select id="herostyle">
+            ${Object.entries(HERO_STYLES).map(([k, v]) =>
+              `<option value="${k}" ${S.heroStyle === k ? "selected" : ""}>${v.label}</option>`
+            ).join("")}
           </select>
         </div>
-        <div class="field" ${S.tournament ? "" : 'style="visibility:hidden"'}>
-          <label>Payouts</label>
-          <select id="payouts">
-            <option value="wta" ${S.payoutPreset === "wta" ? "selected" : ""}>Winner-take-all</option>
-            <option value="top2" ${S.payoutPreset === "top2" ? "selected" : ""}>Top 2 (65/35)</option>
-            <option value="top3" ${S.payoutPreset === "top3" ? "selected" : ""}>Top 3 (50/30/20)</option>
-            <option value="top4" ${S.payoutPreset === "top4" ? "selected" : ""}>Top 4</option>
+        <div class="field">
+          <label>Opponent type</label>
+          <select id="arch">
+            ${Object.keys(PROFILES).map(k =>
+              `<option value="${k}" ${k === S.archetype ? "selected" : ""}>${k}</option>`
+            ).join("")}
           </select>
         </div>
       </div>
-
-      <div class="field">
-        <label>Your play style</label>
-        <select id="herostyle">
-          ${Object.entries(HERO_STYLES).map(([k, v]) =>
-            `<option value="${k}" ${S.heroStyle === k ? "selected" : ""}>${v.label}</option>`
-          ).join("")}
-        </select>
-        <span class="hint style-blurb">${HERO_STYLES[S.heroStyle]?.blurb ?? ""}</span>
-      </div>
+      <span class="hint style-blurb"><strong>You:</strong> ${HERO_STYLES[S.heroStyle]?.blurb ?? ""}</span>
+      <span class="hint arch-desc"><strong>Opponents:</strong> ${ARCH_DESC[S.archetype] ?? ""}</span>
 
       <div class="field">
         <label>Where are you sitting?</label>
@@ -871,7 +888,7 @@ function renderSetup(): void {
   $("#arch").addEventListener("change", (e) => {
     S.archetype = (e.target as HTMLSelectElement).value;
     const d = document.querySelector(".arch-desc");
-    if (d) d.textContent = ARCH_DESC[S.archetype] ?? "";
+    if (d) d.innerHTML = `<strong>Opponents:</strong> ${ARCH_DESC[S.archetype] ?? ""}`;
   });
   document.getElementById("gametype")?.addEventListener("change", (e) => {
     S.tournament = (e.target as HTMLSelectElement).value === "mtt";
@@ -883,7 +900,7 @@ function renderSetup(): void {
   document.getElementById("herostyle")?.addEventListener("change", (e) => {
     S.heroStyle = (e.target as HTMLSelectElement).value;
     const b = document.querySelector(".style-blurb");
-    if (b) b.textContent = HERO_STYLES[S.heroStyle]?.blurb ?? "";
+    if (b) b.innerHTML = `<strong>You:</strong> ${HERO_STYLES[S.heroStyle]?.blurb ?? ""}`;
   });
   document.getElementById("per-seat-toggle")?.addEventListener("click", () => {
     document.getElementById("per-seat-body")?.classList.toggle("hidden");
