@@ -108,6 +108,12 @@ interface AppState {
   // against the recommendation (mix-aware where a solver gave frequencies).
   gradeStats: { n: number; pts: number; gto: number; mixed: number; off: number };
   lastGrade: { label: string; cls: string } | null;
+  // Training "addictiveness": a consecutive-correct streak + one-shot verdict
+  // flash drive the dopamine loop. bestStreak persists across sessions.
+  streak: number;
+  bestStreak: number;
+  flashVerdict: "ok" | "bad" | null;
+  celebrate: boolean; // one-shot: hero won the pot → table glow
   // Generic numpad (blinds / stack)
   numpadTarget: NumpadTarget | null;
   numpadSeat: number;
@@ -180,6 +186,10 @@ const S: AppState = {
   reviewOpen: false,
   gradeStats: { n: 0, pts: 0, gto: 0, mixed: 0, off: 0 },
   lastGrade: null,
+  streak: 0,
+  bestStreak: Number(localStorage.getItem("mce-beststreak") || 0),
+  flashVerdict: null,
+  celebrate: false,
   numpadTarget: null,
   numpadSeat: -1,
   numpadRaw: "",
@@ -898,6 +908,7 @@ function renderSetup(): void {
     S.dealerSeat = -1;
     S.handNumber = 0;
     S.seatStacks = []; // fresh tournament stacks
+    S.streak = 0; // fresh streak for a new training session
     startTrainingHand();
   });
   document.getElementById("view-stats")?.addEventListener("click", () => {
@@ -1489,10 +1500,16 @@ function renderGame(): void {
       ${legal.includes("raise") ? `<button class="action-btn raise" data-open-bet="raise">${raiseLabel}</button>` : ""}
     </div>` : "";
 
+  // One-shot verdict flash for the just-graded decision (training dopamine).
+  const vf = S.flashVerdict === "ok" ? " verdict-pop" : S.flashVerdict === "bad" ? " verdict-shake" : "";
   app.innerHTML = `
-    <div class="game ${S.handOver || S.trainingOver ? "hand-over" : ""}">
+    <div class="game ${S.handOver || S.trainingOver ? "hand-over" : ""}${S.celebrate ? " celebrate" : ""}">
       <div class="game-topbar">
-        <span>Hand #${S.handNumber}${S.mode === "training" ? " · <strong style=\"color:var(--violet)\">TRAINING</strong>" : ""}</span>
+        <span>Hand #${S.handNumber}${S.mode === "training" ? " · <strong style=\"color:var(--violet)\">TRAINING</strong>" : ""}${
+          S.mode === "training" && S.streak >= 2
+            ? ` <span class="streak streak-t${S.streak >= 10 ? 3 : S.streak >= 5 ? 2 : 1}">🔥 ${S.streak}</span>`
+            : ""
+        }</span>
         <div class="topbar-btns">
           ${S.mode === "training"
             ? `<button class="hdr-btn ${quizMode() ? "quiz-on" : ""}" id="quiz-btn" title="Quiz mode: hide the recommendation, grade your call">${quizMode() ? "🙈 Quiz" : "💡 Coach"}</button>`
@@ -1523,9 +1540,9 @@ function renderGame(): void {
               // In quiz mode keep the last verdict visible alongside YOUR TURN so
               // it doesn't vanish at fast speeds before the next decision.
               ? (quizMode() && S.mode === "training" && S.lastGrade
-                  ? `<span class="last-grade ${S.lastGrade.cls}">${S.lastGrade.label}</span> · <strong>YOUR TURN</strong>`
+                  ? `<span class="last-grade ${S.lastGrade.cls}${vf}">${S.lastGrade.label}</span> · <strong>YOUR TURN</strong>`
                   : "<strong>YOUR TURN</strong>")
-            : S.lastGrade ? `<span class="last-grade ${S.lastGrade.cls}">${S.lastGrade.label}</span>`
+            : S.lastGrade ? `<span class="last-grade ${S.lastGrade.cls}${vf}">${S.lastGrade.label}</span>`
             : S.message || ""
           }</div>` : ""}
 
@@ -1548,6 +1565,8 @@ function renderGame(): void {
     </div>`;
   S.dealAnim = null; // one-shot: consumed by this render
   S.flashSeat = null;
+  S.flashVerdict = null; // one-shot verdict animation consumed
+  S.celebrate = false; // one-shot win glow consumed
 
   // ── Events ──
   $("#new-hand")?.addEventListener("click", () => { S.screen = "setup"; S.dealerSeat = -1; S.handNumber = 0; render(); });
@@ -1800,6 +1819,21 @@ function doAction(seat: number, type: ActionType): void {
     S.gradeStats.n += 1;
     S.gradeStats.pts += g.score;
     S.gradeStats[g.bucket] += 1;
+    // Training dopamine loop: build a consecutive-correct streak, flash the
+    // verdict. A "fine mix" keeps the streak; a clear mistake breaks it.
+    if (S.mode === "training") {
+      if (g.bucket === "off") {
+        S.streak = 0;
+        S.flashVerdict = "bad";
+      } else {
+        S.streak += 1;
+        S.flashVerdict = "ok";
+        if (S.streak > S.bestStreak) {
+          S.bestStreak = S.streak;
+          try { localStorage.setItem("mce-beststreak", String(S.bestStreak)); } catch { /* ignore */ }
+        }
+      }
+    }
   }
 
   playSound(type === "fold" ? "fold" : type === "check" ? "check"
@@ -2248,6 +2282,8 @@ function saveHandRecord(heroPnl: number): void {
 
   // Win/lose sound.
   playSound(heroPnl > 0 ? "win" : heroPnl < 0 ? "lose" : "check");
+  // Training win → one-shot celebratory table glow (consumed by the next render).
+  if (S.mode === "training" && heroPnl > 0) S.celebrate = true;
 
   saveHand({
     timestamp: Date.now(),
@@ -2729,6 +2765,7 @@ async function renderStats(): Promise<void> {
           <span class="g-mix">${S.gradeStats.mixed} rare mix</span>
           <span class="g-bad">${S.gradeStats.off} mistakes</span>
         </div>
+        ${S.bestStreak >= 2 ? `<div class="stat-label" style="margin-top:6px">🔥 Best streak: <strong style="color:#ff9f1c">${S.bestStreak}</strong> correct in a row</div>` : ""}
       </div>` : ""}
 
       ${stats.hands > 0 ? `
