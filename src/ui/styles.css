@@ -880,7 +880,14 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .streak, .streak-t3, .last-grade.verdict-pop, .last-grade.verdict-shake,
   .game.celebrate .poker-table::after { animation: none !important; }
+  .leak-fill { transition: none !important; }
 }
+
+/* ── Leak report ── */
+.leak-row { margin: 8px 0; }
+.leak-head { display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 4px; }
+.leak-bar { height: 8px; background: rgba(255,255,255,.08); border-radius: 999px; overflow: hidden; }
+.leak-fill { height: 100%; border-radius: 999px; transition: width .5s cubic-bezier(.2,.8,.3,1); }
 .grade-breakdown { display: flex; justify-content: center; gap: 12px; font-size: 11px; font-weight: 700; margin-top: 6px; }
 
 .hidden { display: none !important; }

@@ -54,7 +54,7 @@ interface UndoSnapshot {
 }
 
 interface AppState {
-  screen: "setup" | "game" | "stats";
+  screen: "setup" | "game" | "stats" | "leaks";
   mode: "live" | "training";
   sessionStart: number;
   tableSize: number;
@@ -284,6 +284,7 @@ type NumpadTarget = "sb" | "bb" | "stack" | "seatstack";
 function render(): void {
   if (S.screen === "setup") renderSetup();
   else if (S.screen === "stats") renderStats();
+  else if (S.screen === "leaks") renderLeaks();
   else renderGame();
   if (S.pickerOpen) renderPicker();
   if (S.betPadOpen) renderBetPad();
@@ -1819,6 +1820,11 @@ function doAction(seat: number, type: ActionType): void {
     S.gradeStats.n += 1;
     S.gradeStats.pts += g.score;
     S.gradeStats[g.bucket] += 1;
+    // Persist the decision for the leak report (your play vs GTO over time).
+    logDecision({
+      t: Date.now(), cat: spotCategory(S.gs, seat), chosen: type,
+      rec: S.rec.action, bucket: g.bucket, score: g.score,
+    });
     // Training dopamine loop: build a consecutive-correct streak, flash the
     // verdict. A "fine mix" keeps the streak; a clear mistake breaks it.
     if (S.mode === "training") {
@@ -2052,6 +2058,38 @@ function cycleSpeed(): void {
 // call ("Correct Call" / "Wrong — GTO says X"). Persisted across sessions.
 function quizMode(): boolean { return localStorage.getItem("mce-quiz") === "1"; }
 function toggleQuiz(): void { localStorage.setItem("mce-quiz", quizMode() ? "0" : "1"); }
+
+// ── Leak detection: persist every graded decision (your play vs GTO) ──
+interface LoggedDecision {
+  t: number;        // timestamp
+  cat: string;      // spot category (e.g. "Preflop open", "Flop facing bet")
+  chosen: ActionType;
+  rec: ActionType;  // recommended action
+  bucket: "gto" | "mixed" | "off";
+  score: number;
+}
+const DECISIONS_KEY = "mce-decisions";
+function loadDecisions(): LoggedDecision[] {
+  try { return JSON.parse(localStorage.getItem(DECISIONS_KEY) || "[]"); } catch { return []; }
+}
+function logDecision(d: LoggedDecision): void {
+  const arr = loadDecisions();
+  arr.push(d);
+  if (arr.length > 1500) arr.splice(0, arr.length - 1500); // rolling cap
+  try { localStorage.setItem(DECISIONS_KEY, JSON.stringify(arr)); } catch { /* quota */ }
+}
+// Plain-English spot category for a decision, from the game state at the time.
+function spotCategory(gs: GameState, seat: number): string {
+  const street = gs.street;
+  if (street === "preflop") {
+    const raises = gs.actions.filter(a => a.street === "preflop" && (a.type === "raise" || a.type === "bet")).length;
+    if (raises === 0) return "Preflop open";
+    if (raises === 1) return "Preflop vs raise";
+    return "Preflop vs 3bet+";
+  }
+  const cap = street.charAt(0).toUpperCase() + street.slice(1);
+  return gs.toCall(seat) > 0 ? `${cap} facing bet` : `${cap} as aggressor`;
+}
 
 function scheduleVillainStep(delay: number): void {
   cancelVillainTimer();
@@ -2790,11 +2828,13 @@ async function renderStats(): Promise<void> {
         <div class="stat-label">All Time: ${allStats.hands} hands, ${fmt(allStats.totalPnl)}</div>
       </div>` : ""}
 
-      <button class="start-btn" id="back-setup">Back to Table</button>
+      <button class="start-btn" id="leak-report" style="background:linear-gradient(135deg,#7c3aed,#5b21b6);color:#fff">🔍 Leak Report</button>
+      <button class="start-btn" id="back-setup" style="margin-top:8px">Back to Table</button>
       ${allHands.length > 0 ? `<button class="hdr-btn" id="export-csv" style="width:100%;padding:12px;margin-top:4px;font-size:13px">Export CSV</button>` : ""}
       ${allHands.length > 0 ? `<button class="hdr-btn" id="clear-hist" style="width:100%;padding:12px;margin-top:4px;font-size:13px;color:var(--red)">Clear All History</button>` : ""}
     </div>`;
 
+  document.getElementById("leak-report")?.addEventListener("click", () => { S.screen = "leaks"; render(); });
   document.getElementById("back-setup")?.addEventListener("click", () => {
     S.screen = "setup"; render();
   });
@@ -2807,6 +2847,101 @@ async function renderStats(): Promise<void> {
         render();
       });
     }
+  });
+}
+
+// ── Leak Report: your play vs GTO, aggregated from the persisted decision log ──
+function renderLeaks(): void {
+  const all = loadDecisions();
+  const acc = (xs: LoggedDecision[]) => xs.length ? xs.reduce((s, d) => s + d.score, 0) / xs.length : 0;
+  const pctTxt = (v: number) => `${Math.round(v * 100)}%`;
+
+  // Per-category accuracy + sample.
+  const byCat = new Map<string, LoggedDecision[]>();
+  for (const d of all) { (byCat.get(d.cat) ?? byCat.set(d.cat, []).get(d.cat)!).push(d); }
+  const cats = [...byCat.entries()].map(([cat, xs]) => ({ cat, n: xs.length, a: acc(xs), xs }));
+
+  // Biggest leaks: lowest accuracy with a meaningful sample.
+  const leaks = cats.filter(c => c.n >= 6).sort((x, y) => x.a - y.a).slice(0, 3);
+
+  // Dominant mistake direction across all errors.
+  const cont = (a: ActionType) => a !== "fold";
+  let overFold = 0, tooLoose = 0, tooPassive = 0, overAggro = 0;
+  for (const d of all) {
+    if (d.bucket !== "off") continue;
+    if (d.chosen === "fold" && cont(d.rec)) overFold++;
+    else if (d.rec === "fold" && cont(d.chosen)) tooLoose++;
+    else if ((d.chosen === "check" || d.chosen === "call") && (d.rec === "bet" || d.rec === "raise")) tooPassive++;
+    else if ((d.chosen === "bet" || d.chosen === "raise") && (d.rec === "check" || d.rec === "call" || d.rec === "fold")) overAggro++;
+  }
+  const biases = [
+    { k: "fold too much", n: overFold, fix: "You're folding hands GTO continues with — defend wider and don't give up your equity." },
+    { k: "play too many hands", n: tooLoose, fix: "You're entering pots GTO folds — tighten up, especially out of position." },
+    { k: "play too passively", n: tooPassive, fix: "You check/call where GTO bets or raises — bet your value and your bluffs." },
+    { k: "over-bluff / over-bet", n: overAggro, fix: "You bet/raise where GTO checks or folds — pick better spots, respect strength." },
+  ].sort((a, b) => b.n - a.n);
+  const topBias = biases[0]!.n > 0 ? biases[0]! : null;
+
+  // Trend: recent vs prior block.
+  const N = Math.min(50, Math.floor(all.length / 2));
+  const recent = N >= 5 ? acc(all.slice(-N)) : null;
+  const prior = N >= 5 ? acc(all.slice(-2 * N, -N)) : null;
+  const trend = recent !== null && prior !== null ? recent - prior : null;
+
+  const overall = acc(all);
+  const accColor = (v: number) => v >= 0.85 ? "var(--green)" : v >= 0.65 ? "var(--gold)" : "var(--red)";
+  const bar = (v: number, color: string) =>
+    `<div class="leak-bar"><div class="leak-fill" style="width:${Math.round(v * 100)}%;background:${color}"></div></div>`;
+
+  const enough = all.length >= 8;
+  app.innerHTML = `
+    <div class="setup">
+      <h1>🔍 Leak Report</h1>
+      <span class="hint" style="text-align:center;display:block;margin-bottom:14px">Your decisions vs GTO · ${all.length} graded · build it up in Training (try Quiz mode)</span>
+
+      ${!enough ? `
+        <div class="stats-card"><div class="stat-label" style="text-align:center;padding:20px 0">
+          Play a few more training hands to unlock your leak report.<br>(${all.length}/8 decisions)
+        </div></div>` : `
+        <div class="stats-card">
+          <div class="stat-big" style="color:${accColor(overall)}">${pctTxt(overall)}</div>
+          <div class="stat-label">Overall GTO accuracy${
+            trend !== null ? ` · <span style="color:${trend >= 0.02 ? "var(--green)" : trend <= -0.02 ? "var(--red)" : "var(--muted)"}">${trend >= 0.02 ? "▲ improving" : trend <= -0.02 ? "▼ slipping" : "▬ steady"}</span>` : ""
+          }</div>
+        </div>
+
+        ${topBias ? `
+        <div class="stats-card" style="text-align:left">
+          <div class="stat-label" style="text-transform:none;font-weight:800;color:var(--text);margin-bottom:4px">Your #1 tendency: you <span style="color:var(--rose)">${topBias.k}</span></div>
+          <div class="hint" style="text-align:left">${topBias.fix}</div>
+        </div>` : ""}
+
+        ${leaks.length ? `
+        <div class="stats-card" style="text-align:left">
+          <div class="stat-label" style="margin-bottom:8px">Biggest leaks (lowest accuracy)</div>
+          ${leaks.map(c => `
+            <div class="leak-row">
+              <div class="leak-head"><span>${c.cat}</span><span style="color:${accColor(c.a)};font-weight:800">${pctTxt(c.a)} · ${c.n} spots</span></div>
+              ${bar(c.a, accColor(c.a))}
+            </div>`).join("")}
+        </div>` : ""}
+
+        <div class="stats-card" style="text-align:left">
+          <div class="stat-label" style="margin-bottom:8px">Accuracy by spot</div>
+          ${cats.sort((a, b) => b.n - a.n).map(c => `
+            <div class="leak-row">
+              <div class="leak-head"><span>${c.cat}</span><span style="color:var(--muted)">${pctTxt(c.a)} · ${c.n}</span></div>
+              ${bar(c.a, accColor(c.a))}
+            </div>`).join("")}
+        </div>`}
+
+      <button class="start-btn" id="leak-back" style="margin-top:6px">Back to Stats</button>
+      ${all.length > 0 ? `<button class="hdr-btn" id="leak-clear" style="width:100%;padding:12px;margin-top:4px;font-size:13px;color:var(--red)">Reset Leak Data</button>` : ""}
+    </div>`;
+
+  document.getElementById("leak-back")?.addEventListener("click", () => { S.screen = "stats"; render(); });
+  document.getElementById("leak-clear")?.addEventListener("click", () => {
+    if (confirm("Reset all leak/decision data?")) { try { localStorage.removeItem(DECISIONS_KEY); } catch { /* */ } render(); }
   });
 }
 
