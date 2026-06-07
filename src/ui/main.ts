@@ -9,6 +9,7 @@ import { solvePushFold, handClassKey, type PushFoldResult } from "../engine/gto/
 import { allCombos, topSlice } from "../engine/hand-strength.js";
 import { recommend, type Recommendation, type ProfileMap, type IcmConfig, type HeroStyle } from "../engine/decision.js";
 import { PAYOUT_PRESETS } from "../engine/icm.js";
+import morphdom from "morphdom";
 
 // Hero play-style presets — dial your own strategy (the "no aggression adjuster"
 // gap). aggression scales bluff/barrel/value-thinness/3-bet width; looseness
@@ -256,6 +257,42 @@ function buildProfiles(): ProfileMap {
 const $ = (s: string) => document.querySelector(s)!;
 const app = document.getElementById("app")!;
 
+// ── DOM morphing (render refactor) ──
+// The screens still assign `app.innerHTML = <template>`, but we intercept that
+// setter and MORPH the existing DOM to the new HTML instead of nuking it. Kept
+// nodes survive, so CSS transitions on persistent elements work and there's far
+// less jank. morphdom mutates child nodes directly and never reads app.innerHTML,
+// so there's no recursion. Modals mount on document.body (outside `app`) so the
+// morph never deletes them. Event handlers are assigned as .onclick/.onchange
+// PROPERTIES (via onEl/onId), which is idempotent under node-reuse — re-running
+// the wiring each render just overwrites, so no double-binding and no full
+// event-delegation rewrite was needed.
+Object.defineProperty(app, "innerHTML", {
+  configurable: true,
+  get(): string { return ""; }, // never read by our code; morphdom reads live nodes
+  set(html: string) {
+    morphdom(app, `<div>${html}</div>`, {
+      childrenOnly: true,
+      // Clear property handlers on every REUSED node before re-wiring. Nodes now
+      // persist across renders, so a handler attached CONDITIONALLY (e.g.
+      // #board-area's openBoardPicker only when needsBoard) would otherwise
+      // linger after the condition turns false. render() re-runs ALL wiring
+      // immediately after this morph, so every handler still needed is re-added.
+      onBeforeElUpdated(fromEl: HTMLElement): boolean {
+        if (fromEl.onclick) fromEl.onclick = null;
+        if (fromEl.onchange) fromEl.onchange = null;
+        return true;
+      },
+    });
+  },
+});
+function onEl(el: Element | null | undefined, ev: "click" | "change", fn: (e: Event) => void): void {
+  if (el) (el as unknown as Record<string, unknown>)["on" + ev] = fn;
+}
+function onId(id: string, ev: "click" | "change", fn: (e: Event) => void): void {
+  onEl(document.getElementById(id), ev, fn);
+}
+
 // A revealed card's two faces (front = rank/suit, back = card-back). The outer
 // .board-card/.hero-card becomes the 3D container; .deal-in flips inner back→front.
 function flipFaces(content: string): string {
@@ -342,9 +379,9 @@ function renderNumpad(): void {
         <button class="confirm-btn" id="np-confirm">Set</button>
       </div>
     </div>`;
-  app.appendChild(overlay);
+  document.body.appendChild(overlay);
 
-  document.getElementById("np-remove")?.addEventListener("click", () => {
+  onId("np-remove", "click", () => {
     const seat = S.numpadSeat;
     S.numpadTarget = null; S.numpadRaw = "";
     document.getElementById("numpad-modal")?.remove();
@@ -352,7 +389,7 @@ function renderNumpad(): void {
   });
 
   overlay.querySelectorAll(".numpad-btn").forEach(btn =>
-    btn.addEventListener("click", () => {
+    onEl(btn, "click", () => {
       const k = (btn as HTMLElement).dataset.key!;
       if (k === "⌫") S.numpadRaw = S.numpadRaw.slice(0, -1);
       else if (k === ".") { if (!S.numpadRaw.includes(".")) S.numpadRaw = (S.numpadRaw || "0") + "."; }
@@ -362,11 +399,11 @@ function renderNumpad(): void {
     }),
   );
 
-  document.getElementById("np-cancel")?.addEventListener("click", () => {
+  onId("np-cancel", "click", () => {
     S.numpadTarget = null; S.numpadRaw = "";
     document.getElementById("numpad-modal")?.remove();
   });
-  document.getElementById("np-confirm")?.addEventListener("click", () => {
+  onId("np-confirm", "click", () => {
     const v = parseFloat(S.numpadRaw);
     if (!isNaN(v) && v > 0) {
       if (target === "sb") {
@@ -673,8 +710,8 @@ function renderGtoModal(): void {
         ${rows}
         <div class="modal-actions"><button class="confirm-btn" id="gto-close">Close</button></div>
       </div>`;
-    app.appendChild(overlay);
-    document.getElementById("gto-close")?.addEventListener("click", () => {
+    document.body.appendChild(overlay);
+    onId("gto-close", "click", () => {
       document.getElementById("gto-modal")?.remove();
     });
     return;
@@ -710,8 +747,8 @@ function renderGtoModal(): void {
         <button class="confirm-btn" id="gto-close">Close</button>
       </div>
     </div>`;
-  app.appendChild(overlay);
-  document.getElementById("gto-close")?.addEventListener("click", () => {
+  document.body.appendChild(overlay);
+  onId("gto-close", "click", () => {
     document.getElementById("gto-modal")?.remove();
   });
 }
@@ -879,53 +916,53 @@ function renderSetup(): void {
       </div>
     </div>`;
 
-  $("#help-toggle").addEventListener("click", () => {
+  onEl($("#help-toggle"), "click", () => {
     document.getElementById("help-body")?.classList.toggle("hidden");
   });
-  $("#tsize").addEventListener("change", (e) => {
+  onEl($("#tsize"), "change", (e) => {
     S.tableSize = +(e.target as HTMLSelectElement).value;
     const max = getPositions(S.tableSize).length - 1;
     if (S.heroSeat > max) S.heroSeat = max;
     render();
   });
   app.querySelectorAll("[data-numpad]").forEach(btn =>
-    btn.addEventListener("click", () => openNumpad((btn as HTMLElement).dataset.numpad as NumpadTarget)),
+    onEl(btn, "click", () => openNumpad((btn as HTMLElement).dataset.numpad as NumpadTarget)),
   );
-  $("#arch").addEventListener("change", (e) => {
+  onEl($("#arch"), "change", (e) => {
     S.archetype = (e.target as HTMLSelectElement).value;
     const d = document.querySelector(".arch-desc");
     if (d) d.innerHTML = `<strong>Opponents:</strong> ${ARCH_DESC[S.archetype] ?? ""}`;
   });
-  document.getElementById("gametype")?.addEventListener("change", (e) => {
+  onId("gametype", "change", (e) => {
     S.tournament = (e.target as HTMLSelectElement).value === "mtt";
     render();
   });
-  document.getElementById("payouts")?.addEventListener("change", (e) => {
+  onId("payouts", "change", (e) => {
     S.payoutPreset = (e.target as HTMLSelectElement).value;
   });
-  document.getElementById("herostyle")?.addEventListener("change", (e) => {
+  onId("herostyle", "change", (e) => {
     S.heroStyle = (e.target as HTMLSelectElement).value;
     const b = document.querySelector(".style-blurb");
     if (b) b.innerHTML = `<strong>You:</strong> ${HERO_STYLES[S.heroStyle]?.blurb ?? ""}`;
   });
-  document.getElementById("per-seat-toggle")?.addEventListener("click", () => {
+  onId("per-seat-toggle", "click", () => {
     document.getElementById("per-seat-body")?.classList.toggle("hidden");
   });
   app.querySelectorAll("[data-seat-type]").forEach(sel =>
-    sel.addEventListener("change", (e) => {
+    onEl(sel, "change", (e) => {
       const seat = +(sel as HTMLElement).dataset.seatType!;
       S.seatTypes.set(seat, (e.target as HTMLSelectElement).value);
     }),
   );
-  document.getElementById("sound-toggle")?.addEventListener("click", () => {
+  onId("sound-toggle", "click", () => {
     setSoundEnabled(!isSoundEnabled());
     render();
   });
   app.querySelectorAll(".seat-btn").forEach(btn =>
-    btn.addEventListener("click", () => { S.heroSeat = +(btn as HTMLElement).dataset.seat!; render(); }),
+    onEl(btn, "click", () => { S.heroSeat = +(btn as HTMLElement).dataset.seat!; render(); }),
   );
-  $("#start").addEventListener("click", () => { S.mode = "live"; startHand(); });
-  document.getElementById("start-training")?.addEventListener("click", () => {
+  onEl($("#start"), "click", () => { S.mode = "live"; startHand(); });
+  onId("start-training", "click", () => {
     S.mode = "training";
     S.trainingOver = null;
     S.trainingStartSize = S.tableSize;
@@ -935,7 +972,7 @@ function renderSetup(): void {
     S.streak = 0; // fresh streak for a new training session
     startTrainingHand();
   });
-  document.getElementById("view-stats")?.addEventListener("click", () => {
+  onId("view-stats", "click", () => {
     S.screen = "stats"; render();
   });
 }
@@ -1593,12 +1630,12 @@ function renderGame(): void {
   S.celebrate = false; // one-shot win glow consumed
 
   // ── Events ──
-  $("#new-hand")?.addEventListener("click", () => { S.screen = "setup"; S.dealerSeat = -1; S.handNumber = 0; render(); });
-  document.getElementById("speed-btn")?.addEventListener("click", () => { cycleSpeed(); render(); });
-  document.getElementById("quiz-btn")?.addEventListener("click", () => { toggleQuiz(); render(); });
-  document.getElementById("undo-btn")?.addEventListener("click", undo);
-  document.getElementById("next-hand")?.addEventListener("click", nextHand);
-  document.getElementById("train-again")?.addEventListener("click", () => {
+  onEl($("#new-hand"), "click", () => { S.screen = "setup"; S.dealerSeat = -1; S.handNumber = 0; render(); });
+  onId("speed-btn", "click", () => { cycleSpeed(); render(); });
+  onId("quiz-btn", "click", () => { toggleQuiz(); render(); });
+  onId("undo-btn", "click", undo);
+  onId("next-hand", "click", nextHand);
+  onId("train-again", "click", () => {
     // Restart the tournament with the originally configured table size.
     S.trainingOver = null;
     S.tableSize = S.trainingStartSize;
@@ -1609,12 +1646,12 @@ function renderGame(): void {
     S.handOver = false;
     startTrainingHand();
   });
-  document.getElementById("review-hand")?.addEventListener("click", () => { S.reviewOpen = true; renderReview(); });
-  document.getElementById("gto-solve")?.addEventListener("click", startGtoSolve);
+  onId("review-hand", "click", () => { S.reviewOpen = true; renderReview(); });
+  onId("gto-solve", "click", startGtoSolve);
 
   // Showdown winner buttons (manual). Settlement handles side pots / uncalled.
   app.querySelectorAll("[data-winner]").forEach(btn =>
-    btn.addEventListener("click", () => {
+    onEl(btn, "click", () => {
       const val = (btn as HTMLElement).dataset.winner!;
       const remaining = S.gs!.folded.map((f, i) => f ? -1 : i).filter((i) => i >= 0);
       const winners = val === "split" ? remaining : [+val];
@@ -1626,7 +1663,7 @@ function renderGame(): void {
 
   // Showdown: enter a villain's cards
   app.querySelectorAll("[data-vcards]").forEach(btn =>
-    btn.addEventListener("click", () => {
+    onEl(btn, "click", () => {
       S.pickerTarget = "villain";
       S.pickerVillainSeat = +(btn as HTMLElement).dataset.vcards!;
       S.pickerPicked = []; S.pickerRank = null;
@@ -1635,20 +1672,20 @@ function renderGame(): void {
     }),
   );
   // Showdown: confirm the auto-computed winner
-  document.getElementById("sd-confirm")?.addEventListener("click", () => {
+  onId("sd-confirm", "click", () => {
     const remaining = S.gs!.folded.map((f, i) => f ? -1 : i).filter((i) => i >= 0);
     const auto = computeShowdown(remaining, S.boardCards.slice(0, 5));
     if (auto) recordShowdownResult(auto.winners, auto.label, auto.strength);
   });
 
   // Run it once / twice
-  document.getElementById("run-once")?.addEventListener("click", () => {
+  onId("run-once", "click", () => {
     S.allInPrompt = false; openBoardPicker();
   });
-  document.getElementById("run-twice")?.addEventListener("click", startRunItTwice);
+  onId("run-twice", "click", startRunItTwice);
   // Run-it-twice per-run winner
   app.querySelectorAll("[data-runwinner]").forEach(btn =>
-    btn.addEventListener("click", () => {
+    onEl(btn, "click", () => {
       const v = (btn as HTMLElement).dataset.runwinner!;
       if (v === "split") {
         ritRecordWinner(S.gs!.folded.map((f, i) => f ? -1 : i).filter((i) => i >= 0));
@@ -1659,18 +1696,18 @@ function renderGame(): void {
   );
 
   app.querySelectorAll("[data-act]").forEach(btn =>
-    btn.addEventListener("click", () => {
+    onEl(btn, "click", () => {
       const act = (btn as HTMLElement).dataset.act as ActionType;
       const who = next === S.heroSeat ? "You" : (gs?.positions[next!] ?? "");
       pushUndo(`${who} ${act}`);
       doAction(next!, act);
     }),
   );
-  document.getElementById("fold-to-me")?.addEventListener("click", () => { pushUndo("fold to you"); advanceOpponents("fold"); });
-  document.getElementById("check-to-me")?.addEventListener("click", () => { pushUndo("check to you"); advanceOpponents("check"); });
-  document.getElementById("call-to-me")?.addEventListener("click", () => { pushUndo("call to you"); advanceOpponents("call"); });
+  onId("fold-to-me", "click", () => { pushUndo("fold to you"); advanceOpponents("fold"); });
+  onId("check-to-me", "click", () => { pushUndo("check to you"); advanceOpponents("check"); });
+  onId("call-to-me", "click", () => { pushUndo("call to you"); advanceOpponents("call"); });
   app.querySelectorAll("[data-size]").forEach(btn =>
-    btn.addEventListener("click", () => {
+    onEl(btn, "click", () => {
       S.raiseAmount = +(btn as HTMLElement).dataset.size!;
       const action: ActionType = gs!.currentBet > 0 ? "raise" : "bet";
       const who = next === S.heroSeat ? "You" : (gs?.positions[next!] ?? "");
@@ -1679,7 +1716,7 @@ function renderGame(): void {
     }),
   );
   app.querySelectorAll("[data-open-bet]").forEach(btn =>
-    btn.addEventListener("click", () => {
+    onEl(btn, "click", () => {
       S.betPadAction = (btn as HTMLElement).dataset.openBet as "bet" | "raise";
       S.betPadSeat = next!;
       // Pre-fill the amount only for YOUR own action — either the recommended
@@ -1703,13 +1740,13 @@ function renderGame(): void {
   );
 
   if (needsBoard) {
-    document.getElementById("board-area")?.addEventListener("click", openBoardPicker);
+    onId("board-area", "click", openBoardPicker);
   }
 
   // Tap a seat to set/correct its stack (rebuys) — live mode only.
   if (S.mode === "live") {
     app.querySelectorAll("[data-seatstack]").forEach(el =>
-      el.addEventListener("click", () => {
+      onEl(el, "click", () => {
         S.numpadSeat = +(el as HTMLElement).dataset.seatstack!;
         S.numpadRaw = "";
         openNumpad("seatstack");
@@ -1717,7 +1754,7 @@ function renderGame(): void {
     );
     // Tap the acting opponent's seat → toggle its inline action menu.
     app.querySelectorAll("[data-actmenu]").forEach(el =>
-      el.addEventListener("click", () => {
+      onEl(el, "click", () => {
         const seat = +(el as HTMLElement).dataset.actmenu!;
         S.seatMenuSeat = S.seatMenuSeat === seat ? null : seat;
         render();
@@ -1725,7 +1762,7 @@ function renderGame(): void {
     );
     // Pick an action from the inline seat menu.
     app.querySelectorAll("[data-seatact]").forEach(el =>
-      el.addEventListener("click", () => {
+      onEl(el, "click", () => {
         const seat = +(el as HTMLElement).dataset.seat!;
         const act = (el as HTMLElement).dataset.seatact!;
         const who = gs?.positions[seat] ?? "";
@@ -2048,9 +2085,9 @@ function renderReview(): void {
         <button class="confirm-btn" id="review-close">Close</button>
       </div>
     </div>`;
-  app.appendChild(overlay);
+  document.body.appendChild(overlay);
 
-  document.getElementById("review-close")?.addEventListener("click", () => {
+  onId("review-close", "click", () => {
     S.reviewOpen = false;
     document.getElementById("review-modal")?.remove();
   });
@@ -2493,7 +2530,12 @@ function ritRecordWinner(winners: number[]): void {
 }
 
 function openBoardPicker(): void {
-  if (!S.gs) return;
+  const gs = S.gs;
+  if (!gs) return;
+  // Guard: only deal a board when the current betting round is actually complete
+  // (matches `needsBoard`). Defends against a tap on the felt outside that window
+  // (e.g. a persistent #board-area node) dealing a street mid-round.
+  if (!(gs.roundComplete() && !gs.isComplete() && !S.handOver)) return;
   const nm: Record<string, "flop" | "turn" | "river"> = { preflop: "flop", flop: "turn", turn: "river" };
   S.pickerTarget = nm[S.gs.street] ?? "flop";
   S.pickerPicked = [];
@@ -2554,11 +2596,11 @@ function renderPicker(): void {
       </div>
     </div>`;
 
-  app.appendChild(overlay);
+  document.body.appendChild(overlay);
 
   // Rank: highlight in place + enable its suits — NO full re-render (no flash).
   overlay.querySelectorAll(".rank-btn:not(.used)").forEach(btn =>
-    btn.addEventListener("click", () => {
+    onEl(btn, "click", () => {
       const r = +(btn as HTMLElement).dataset.rank!;
       S.pickerRank = r;
       overlay.querySelectorAll(".rank-btn").forEach(b => b.classList.toggle("sel", b === btn));
@@ -2574,7 +2616,7 @@ function renderPicker(): void {
   // Suit: commit the card once a rank is selected. Handlers on ALL suit buttons
   // (they get enabled in place above), guarded by the live "used" state.
   overlay.querySelectorAll(".suit-btn").forEach(btn =>
-    btn.addEventListener("click", () => {
+    onEl(btn, "click", () => {
       if (S.pickerRank === null || btn.classList.contains("used")) return;
       const card = makeCard(S.pickerRank, +(btn as HTMLElement).dataset.suit!);
       S.pickerPicked.push(card);
@@ -2585,13 +2627,13 @@ function renderPicker(): void {
     }),
   );
 
-  document.getElementById("picker-cancel")?.addEventListener("click", () => {
+  onId("picker-cancel", "click", () => {
     S.pickerOpen = false; S.pickerPicked = []; S.pickerRank = null;
     document.getElementById("picker-modal")?.remove();
     if (!S.heroCards) { S.screen = "setup"; render(); }
   });
 
-  document.getElementById("picker-confirm")?.addEventListener("click", confirmPicker);
+  onId("picker-confirm", "click", confirmPicker);
 }
 
 function confirmPicker(): void {
@@ -2707,7 +2749,7 @@ function renderBetPad(): void {
       </div>
     </div>`;
 
-  app.appendChild(overlay);
+  document.body.appendChild(overlay);
 
   let raw = "";          // the user's own entry (dollars); empty until they touch it
   let touched = false;   // false = still showing the prefilled suggestion
@@ -2728,7 +2770,7 @@ function renderBetPad(): void {
   const curDollars = () => (touched ? parseFloat(raw) || 0 : 0);
 
   overlay.querySelectorAll(".numpad-btn").forEach(btn =>
-    btn.addEventListener("click", () => {
+    onEl(btn, "click", () => {
       const k = (btn as HTMLElement).dataset.key!;
       if (!touched) { touched = true; raw = ""; } // first keystroke clears the suggestion
       if (k === "⌫") raw = raw.slice(0, -1);
@@ -2739,7 +2781,7 @@ function renderBetPad(): void {
   );
 
   overlay.querySelectorAll(".preset-btn").forEach(btn =>
-    btn.addEventListener("click", () => {
+    onEl(btn, "click", () => {
       const el = btn as HTMLElement;
       let dollars: number;
       if (el.dataset.set !== undefined) {
@@ -2753,12 +2795,12 @@ function renderBetPad(): void {
     }),
   );
 
-  document.getElementById("bp-cancel")?.addEventListener("click", () => {
+  onId("bp-cancel", "click", () => {
     S.betPadOpen = false;
     document.getElementById("betpad-modal")?.remove();
   });
 
-  document.getElementById("bp-confirm")?.addEventListener("click", () => {
+  onId("bp-confirm", "click", () => {
     let bb = roundBet(S.raiseAmount);
     if (bb < minBB) bb = minBB;
     if (bb > maxBB) bb = maxBB;
@@ -2857,12 +2899,12 @@ async function renderStats(): Promise<void> {
       ${allHands.length > 0 ? `<button class="hdr-btn" id="clear-hist" style="width:100%;padding:12px;margin-top:4px;font-size:13px;color:var(--red)">Clear All History</button>` : ""}
     </div>`;
 
-  document.getElementById("leak-report")?.addEventListener("click", () => { S.screen = "leaks"; render(); });
-  document.getElementById("back-setup")?.addEventListener("click", () => {
+  onId("leak-report", "click", () => { S.screen = "leaks"; render(); });
+  onId("back-setup", "click", () => {
     S.screen = "setup"; render();
   });
-  document.getElementById("export-csv")?.addEventListener("click", () => exportCsv(allHands));
-  document.getElementById("clear-hist")?.addEventListener("click", () => {
+  onId("export-csv", "click", () => exportCsv(allHands));
+  onId("clear-hist", "click", () => {
     if (confirm("Clear all hand history?")) {
       clearHistory().then(() => {
         S.sessionStart = Date.now();
@@ -2962,8 +3004,8 @@ function renderLeaks(): void {
       ${all.length > 0 ? `<button class="hdr-btn" id="leak-clear" style="width:100%;padding:12px;margin-top:4px;font-size:13px;color:var(--red)">Reset Leak Data</button>` : ""}
     </div>`;
 
-  document.getElementById("leak-back")?.addEventListener("click", () => { S.screen = "stats"; render(); });
-  document.getElementById("leak-clear")?.addEventListener("click", () => {
+  onId("leak-back", "click", () => { S.screen = "stats"; render(); });
+  onId("leak-clear", "click", () => {
     if (confirm("Reset all leak/decision data?")) { try { localStorage.removeItem(DECISIONS_KEY); } catch { /* */ } render(); }
   });
 }
