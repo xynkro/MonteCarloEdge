@@ -433,7 +433,8 @@ body {
 /* A dealt card is a 3D flip container; the visual lives on the front face. */
 .board-card.dealt, .hero-card.dealt { background: transparent; box-shadow: none; perspective: 750px; }
 
-.flip-inner { position: relative; width: 100%; height: 100%; transform-style: preserve-3d; }
+/* inherit the card's radius down to the faces (else `inherit` resolves to 0 → square). */
+.flip-inner { position: relative; width: 100%; height: 100%; transform-style: preserve-3d; border-radius: inherit; }
 .flip-front, .flip-back {
   position: absolute; inset: 0; border-radius: inherit;
   display: flex; align-items: center; justify-content: center;

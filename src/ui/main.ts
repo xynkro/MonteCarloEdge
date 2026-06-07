@@ -1262,9 +1262,10 @@ function seatCoord(seatIdx: number): { left: number; top: number } {
   const n = getPositions(S.tableSize).length;
   const vis = (seatIdx - S.heroSeat + n) % n;
   const a = (vis * 2 * Math.PI) / n;
-  // Push seats out toward the rim of the felt (wider horizontally; vertically
-  // capped so the top seat clears the header).
-  return { left: 50 - 47 * Math.sin(a), top: 50 + 38 * Math.cos(a) };
+  // Push seats toward the rim of the felt. Horizontal radius is kept modest so
+  // the side seats' boxes (~76px, centered via translate(-50%)) don't spill past
+  // the table edge and get clipped by .game{overflow:hidden} on narrow phones.
+  return { left: 50 - 41 * Math.sin(a), top: 50 + 38 * Math.cos(a) };
 }
 
 // A small head-and-shoulders silhouette avatar so opponents read as people, not
