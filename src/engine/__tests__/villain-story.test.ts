@@ -28,9 +28,18 @@ describe("villain story engine", () => {
     expect(s.openedStreet).toBe("flop");
   });
 
-  it("commits a SET rep on a dry rainbow disconnected board", () => {
-    const gs = gsWith(["Ah", "8c", "2d"]); // rainbow, disconnected
-    expect(commitStory(gs, TAG).rep).toBe("trips_plus");
+  it("dry rainbow board → MERGED top-pair rep (not a set); a small bet can't rep a monster", () => {
+    const gs = gsWith(["Ah", "8c", "2d"]); // rainbow, disconnected, unpaired
+    const s = commitStory(gs, TAG);
+    expect(s.rep).toBe("pair_plus");
+    expect(s.label).toMatch(/top pair|overpair/i);
+  });
+
+  it("PAIRED board → full-house rep (polarized — bet big to sell it)", () => {
+    const gs = gsWith(["8h", "8c", "2d"]); // paired
+    const s = commitStory(gs, TAG);
+    expect(s.rep).toBe("trips_plus");
+    expect(s.label).toMatch(/full house/i);
   });
 
   it("scoreRunout: flush rep SCARES when the suit completes, BRICKS otherwise, KILLS when paired", () => {

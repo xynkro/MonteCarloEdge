@@ -52,7 +52,7 @@ export class GameState {
   // the opponent model (opponent.ts). Per-hand by construction — every hand is a
   // fresh GameState, so it never needs resetting. Keyed by seat.
   villainStories: Map<number, {
-    rep: "flush" | "straight" | "trips_plus";
+    rep: "flush" | "straight" | "trips_plus" | "pair_plus";
     suit: number;        // for a flush story; -1 otherwise
     hiRank: number;      // top rank of the represented hand
     coherence: number;   // 0..1 — how credibly/consistently this type bluffs

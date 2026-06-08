@@ -351,7 +351,7 @@ function villainPreflopAct(
 // the rep (scare), mostly gives up on bricks, and checks on kills. `coherence`
 // (per profile) controls how sharp that scare-vs-brick contrast is: a TAG tells
 // tight credible stories; a Maniac over-barrels everything; a Station has no story.
-type StoryRep = "flush" | "straight" | "trips_plus";
+type StoryRep = "flush" | "straight" | "trips_plus" | "pair_plus";
 type VillainStory = NonNullable<ReturnType<GameState["villainStories"]["get"]>>;
 
 function suitCounts(board: readonly Card[]): number[] {
@@ -377,7 +377,10 @@ function rankWindow(board: readonly Card[], want: number): boolean {
   return wheel >= want;
 }
 
-// The most board-credible big hand to represent given the texture at commit time.
+// The most board-credible hand to represent given the texture. Crucially this
+// also implies the SIZE that sells it: flush/straight/full-house reps are POLAR
+// (you bet big), a top-pair/overpair rep is MERGED (you bet medium) — a small
+// stab can't credibly rep a monster.
 export function credibleRep(board: readonly Card[]): Pick<VillainStory, "rep" | "suit" | "hiRank" | "label"> {
   const sc = suitCounts(board);
   let ms = 0, msSuit = 0;
@@ -385,7 +388,14 @@ export function credibleRep(board: readonly Card[]): Pick<VillainStory, "rep" | 
   const hiRank = board.reduce((m, c) => Math.max(m, rankOf(c)), 0);
   if (ms >= 2) return { rep: "flush", suit: msSuit, hiRank, label: "the flush" };
   if (rankWindow(board, 3)) return { rep: "straight", suit: -1, hiRank, label: "a straight" };
-  return { rep: "trips_plus", suit: -1, hiRank, label: "a set" };
+  if (boardPaired(board)) return { rep: "trips_plus", suit: -1, hiRank, label: "a full house" };
+  return { rep: "pair_plus", suit: -1, hiRank, label: "top pair / an overpair" };
+}
+
+// Is the represented hand POLAR (rep the nuts → bet big/overbet) vs MERGED
+// (rep a one-pair hand → bet medium)? Drives bluff sizing so the size sells it.
+export function repIsPolar(rep: StoryRep): boolean {
+  return rep !== "pair_plus";
 }
 
 export function commitStory(state: GameState, profile: OpponentProfile): VillainStory {
@@ -407,9 +417,14 @@ export function scoreRunout(story: VillainStory, board: readonly Card[]): "scare
     if (rankWindow(board, 4)) return "scare"; // a one-card straight is there
     return "brick";
   }
-  // trips_plus: a made-hand rep from the flop
-  if (flushThere || rankWindow(board, 4)) return "kill"; // board now credibly beats a set
-  if (paired) return "scare"; // rep the full house
+  if (story.rep === "trips_plus") {
+    // a full-house/trips rep on a paired board
+    if (flushThere || rankWindow(board, 4)) return "kill"; // board now beats trips
+    if (paired) return "scare"; // still paired → keep repping the boat
+    return "brick";
+  }
+  // pair_plus: a MERGED top-pair/overpair rep — no polar barrel; give up when beaten
+  if (flushThere || rankWindow(board, 4) || paired) return "kill";
   return "brick";
 }
 

@@ -18,6 +18,8 @@ import {
   TAG,
   estimateVillainRange,
   comboPercentile,
+  credibleRep,
+  repIsPolar,
 } from "./opponent.js";
 
 // ── Short-stack push/fold (jam-or-fold) ──
@@ -831,7 +833,15 @@ function postflopRecommend(
     const wasAggressor = state.actions.some(
       (a) => a.seat === seat && a.street !== "preflop" && (a.type === "bet" || a.type === "raise"),
     );
-    const frac = tex.dry ? 0.5 : tex.wet ? 0.75 : 0.6;
+    // SIZE THE BLUFF LIKE THE HAND IT REPS. A small stab can't credibly rep a
+    // monster: on polar boards (flush/straight/paired → rep the nuts) bet big/
+    // overbet so the story is believable; on a dry board (rep top pair/overpair)
+    // a medium bet is consistent. This keeps the bet and the read in sync.
+    const rep = credibleRep(state.board);
+    const polar = repIsPolar(rep.rep);
+    const frac = polar
+      ? (state.board.length >= 5 ? 1.05 : state.board.length >= 4 ? 0.9 : 0.8) // pot-ish → overbet by the river
+      : (tex.wet ? 0.66 : 0.55);
     const breakeven = frac / (1 + frac); // fold% needed to break even
     const hiCard = Math.max(rankOf(hero[0]), rankOf(hero[1]));
     const blockerCredit = hiCard >= 12 ? 0.05 : hiCard >= 10 ? 0.02 : 0; // A/K… blocks value
@@ -846,7 +856,7 @@ function postflopRecommend(
       return fin({
         action: "bet", amount: size, equity: eq, potOdds: 0,
         ev: { fold: foldy * pot, call: 0, raise: foldy * pot - (1 - foldy) * size },
-        reasoning: `${kind} — represent strength on ${texNote}, opp folds ~${pct(foldy)} (${posTag})${wayTag}`,
+        reasoning: `${kind} ${pct(frac)} pot — represent ${rep.label} on ${texNote}, opp folds ~${pct(foldy)} (${posTag})${wayTag}`,
       });
     }
   }
