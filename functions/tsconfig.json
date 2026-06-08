@@ -1,0 +1,18 @@
+{
+  "compilerOptions": {
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "outDir": "lib",
+    "rootDir": "..",
+    "strict": true,
+    "noUnusedLocals": false,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true
+  },
+  "//": "rootDir='..' keeps the relative ../src/... import graph in the emitted JS. We do NOT glob the engine dir (that pulls in __tests__, scripts, and the browser-only hand-history.ts/IndexedDB); instead tsc follows imports from functions/src, compiling ONLY the engine files the functions actually use. noUnusedLocals is off because the shared engine is linted by the main vite build, not here.",
+  "include": ["src/**/*.ts"],
+  "exclude": ["lib", "node_modules"]
+}

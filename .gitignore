@@ -10,3 +10,8 @@ council/
 .env.*
 functions/.env
 *.key
+
+# Firebase functions
+functions/node_modules/
+functions/lib/
+.firebase/
