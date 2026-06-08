@@ -60,7 +60,7 @@ interface UndoSnapshot {
 }
 
 interface AppState {
-  screen: "home" | "setup" | "game" | "stats" | "leaks" | "mp-setup" | "mp-table" | "mp-lobby" | "profile" | "settings" | "legal" | "explainer";
+  screen: "home" | "setup" | "game" | "stats" | "leaks" | "mp-setup" | "mp-table" | "mp-lobby" | "profile" | "settings" | "legal" | "explainer" | "store";
   // Player profile (local-first; syncs name/avatar to Firestore when signed in).
   profile: { nickname: string; avatar: string; chips: number };
   // Multiplayer / benchmark (Phase 0 hot-seat + Phase 1 online lobby).
@@ -380,6 +380,7 @@ function render(): void {
   else if (S.screen === "settings") renderSettings();
   else if (S.screen === "legal") renderLegal();
   else if (S.screen === "explainer") renderExplainer();
+  else if (S.screen === "store") renderStore();
   else if (S.screen === "setup") renderSetup();
   else if (S.screen === "stats") renderStats();
   else if (S.screen === "leaks") renderLeaks();
@@ -3480,6 +3481,11 @@ function avatarChip(av: string, seed: string, size = 40): string {
   const mono = (seed || "?").trim().charAt(0).toUpperCase() || "?";
   return `<span class="avatar identicon" style="${dim};background:hsl(${hashHue(seed || "x")} 55% 42%)">${mono}</span>`;
 }
+// Bust-rescue (monetization council's #1 trust mechanic): a player can never be
+// wall-jammed broke behind a paywall. Below one micro min-buy-in → free top-up.
+const BUST_RESCUE = 2000;
+function bustRescue(): void { if (S.profile.chips < BUST_RESCUE) { S.profile.chips = BUST_RESCUE; saveProfile(); } }
+
 function loadProfile(): void {
   try {
     const p = JSON.parse(localStorage.getItem("mce-profile") || "null");
@@ -3487,8 +3493,70 @@ function loadProfile(): void {
       S.profile = { nickname: p.nickname || "You", avatar: p.avatar || "", chips: typeof p.chips === "number" ? p.chips : 10000 };
     }
   } catch { /* default */ }
+  bustRescue();
 }
 function saveProfile(): void { try { localStorage.setItem("mce-profile", JSON.stringify(S.profile)); } catch { /* quota */ } }
+
+// Cosmetics — the ONLY chip sink (play-money in, in-app flair out; never anything
+// of value, never the killed chips→goods cash-out).
+const CHIP_PACKS = [{ chips: "50,000", price: "$1.99" }, { chips: "150,000", price: "$4.99" }, { chips: "400,000", price: "$9.99" }];
+const COSMETICS = [
+  { id: "squid", emoji: "🦑", name: "Squid Mascot", desc: "Collectible table mascot", chips: 25000 },
+  { id: "goldback", emoji: "🟡", name: "Gold Card Back", desc: "Gilded deck", chips: 12000 },
+  { id: "emerald", emoji: "🟢", name: "Emerald Felt", desc: "Premium table felt", chips: 15000 },
+  { id: "crown", emoji: "👑", name: "Crown Flair", desc: "Profile crown", chips: 30000 },
+];
+function ownedCosmetics(): string[] { try { return JSON.parse(localStorage.getItem("mce-cosmetics") || "[]"); } catch { return []; } }
+function addCosmetic(id: string): void { const o = ownedCosmetics(); if (!o.includes(id)) { o.push(id); try { localStorage.setItem("mce-cosmetics", JSON.stringify(o)); } catch { /* */ } } }
+
+function renderStore(): void {
+  cancelVillainTimer();
+  const p = S.profile;
+  const owned = ownedCosmetics();
+  app.innerHTML = `
+    <div class="setup doc">
+      <h1>🛍 Store</h1>
+      <div class="store-bal">Balance <strong>🪙 ${p.chips.toLocaleString()}</strong> <span class="hint">play-chips · no cash value</span></div>
+
+      <div class="set-group"><div class="set-head">Cosmetics · spend chips</div>
+        <div class="set-note" style="margin-bottom:9px">Pure flair — zero effect on play. The fun way to spend earned chips.</div>
+        <div class="store-grid">${COSMETICS.map((c) => {
+          const own = owned.includes(c.id);
+          return `<div class="store-item ${own ? "owned" : ""}"><div class="si-emoji">${c.emoji}</div><div class="si-name">${c.name}</div><div class="si-desc">${c.desc}</div>${own ? `<div class="si-own">Owned ✓</div>` : `<button class="hdr-btn si-buy" data-cos="${c.id}" ${p.chips < c.chips ? "disabled" : ""}>🪙 ${c.chips.toLocaleString()}</button>`}</div>`;
+        }).join("")}</div>
+      </div>
+
+      <div class="set-group"><div class="set-head">Chips · buy with money</div>
+        <div class="set-note" style="margin-bottom:9px">More chips = access to higher stakes. Buy-in is capped at 100bb, so chips never buy an edge at a table.</div>
+        <div class="store-grid">${CHIP_PACKS.map((pk) => `<div class="store-item"><div class="si-emoji">🪙</div><div class="si-name">${pk.chips}</div><button class="hdr-btn" disabled>${pk.price} · Soon</button></div>`).join("")}</div>
+        <span class="hint">Unlocks with Stripe (next phase). Fair-play caps: ~$20/day, ~$50/week. No FOMO timers, ever.</span>
+      </div>
+
+      <div class="set-group"><div class="set-head">Edge Pass · the GTO tool, live</div>
+        <div class="store-edge">
+          <div class="se-price">$6.99<span>/mo</span> · $49<span>/yr</span></div>
+          <div class="set-note">Bring your trained edge to LIVE tables: the real-time GTO overlay in Play Online + assisted seats, hand-history review, and a weekly leak report. <strong>The solo trainer stays 100% free, forever.</strong></div>
+          <button class="start-btn" disabled style="margin-top:8px;opacity:.6">Coming with online play</button>
+        </div>
+      </div>
+
+      <div class="set-group"><div class="set-head">Tournaments</div>
+        <div class="set-note">$2.99 entry · prizes are trophies &amp; cosmetics only — never cash. Coming soon.</div>
+      </div>
+
+      <div class="hint" style="text-align:center;margin-top:4px">Chips are play-money: no cash value, never cashable, withdrawable, or transferable.</div>
+      <button class="hdr-btn" id="store-back" style="width:100%;padding:12px;margin-top:8px">Back</button>
+    </div>`;
+
+  app.querySelectorAll("[data-cos]").forEach((b) => onEl(b, "click", () => {
+    const id = (b as HTMLElement).dataset.cos!;
+    const c = COSMETICS.find((x) => x.id === id);
+    if (c && S.profile.chips >= c.chips && !ownedCosmetics().includes(id)) {
+      S.profile.chips -= c.chips; saveProfile(); addCosmetic(id); playSound("chip"); render();
+    }
+  }));
+  onId("store-back", "click", () => { S.screen = "home"; render(); });
+}
 
 function renderHome(): void {
   cancelVillainTimer();
@@ -3542,7 +3610,7 @@ function renderHome(): void {
   onId("home-legal", "click", () => { _docReturn = "home"; S.screen = "legal"; render(); });
   onId("home-profile", "click", () => { S.screen = "profile"; render(); });
   onId("home-profile2", "click", () => { S.screen = "profile"; render(); });
-  onId("home-store", "click", () => { S.screen = "profile"; render(); });
+  onId("home-store", "click", () => { S.screen = "store"; render(); });
   onId("home-train", "click", () => { S.screen = "setup"; render(); });
   onId("home-online", "click", () => { void goOnline(); });
   onId("home-pass", "click", () => {

@@ -34,6 +34,7 @@ export const LEGAL_SECTIONS: Section[] = [
       <li>Free chips (daily chips, starting balance, bonuses) and any chips you might buy in a chip pack are <strong>the same thing</strong>: a non-redeemable in-app counter. If chip-pack purchases launch, buying one is buying a licence to use more in-app chips — like a free-to-play title (WSOP-style social poker). It is <strong>never a deposit, never a stake, and never entitles you to a payout or withdrawal</strong>.</li>
       <li>Chips you "win" at a table are a number going up in a game. They have no value and create no claim against the developer or anyone else.</li>
       <li>We may adjust, reset, or remove chip balances to fix bugs, stop abuse, or balance the game.</li>
+      <li>You may <strong>not sell, buy, gift, or trade chips or your account</strong> for money or anything of value, on or off the app — doing so is grounds for an immediate ban.</li>
     </ul>
     <p>If you're ever offered a way to convert chips into money or value, that is <strong>not us, not authorised, and against these terms</strong> — don't use it, and please report it.</p>`,
   },
