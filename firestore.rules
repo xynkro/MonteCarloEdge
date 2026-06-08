@@ -1,28 +1,62 @@
 rules_version = '2';
-// MonteCarloEdge — Firestore security rules (Phase 1: auth + presence).
-// Paste into Firebase Console → Firestore → Rules → Publish.
+// MonteCarloEdge — Firestore security rules.
+// Paste into Firebase Console → Firestore → Rules → Publish (or `firebase deploy --only firestore:rules`).
+//
+// Model: Cloud Functions (Admin SDK, bypasses rules) are the SOLE writer of all
+// game + chip state. Clients read public projections + their OWN private hand,
+// and may only touch a couple of non-authoritative presence fields.
 service cloud.firestore {
   match /databases/{database}/documents {
     function signedIn() { return request.auth != null; }
 
-    // Presence: anyone signed in can SEE who's online; you can only write your own.
+    // ── Presence lobby (Phase 1) ──
     match /presence/{uid} {
       allow read: if signedIn();
       allow write: if signedIn() && request.auth.uid == uid;
     }
 
-    // User profiles: readable by signed-in users; you may create/update only your own.
-    // (Chip balances become server-authoritative via Cloud Functions in Phase 3 —
-    //  this rule will then forbid client writes to the `chips` field.)
+    // ── User profiles ──
+    // HARDENED: a client may write ONLY `name`. chips + strategyEntitled are
+    // server-authoritative (Cloud Functions only) so a client cannot mint
+    // play-chips or unlock the paywalled strategy by writing its own doc.
     match /users/{uid} {
       allow read: if signedIn();
-      allow create, update: if signedIn() && request.auth.uid == uid;
+      allow create: if signedIn() && request.auth.uid == uid
+        && request.resource.data.diff({}).affectedKeys().hasOnly(['name']);
+      allow update: if signedIn() && request.auth.uid == uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name']);
     }
 
-    // Tables & hands are written ONLY by Cloud Functions (server-authoritative
-    // dealing) — added in Phase 2. Until then, deny all client access.
-    match /{document=**} {
-      allow read, write: if false;
+    // ── Tables (Phase 2) ──
+    match /tables/{tableId} {
+      allow read: if signedIn();    // public projection = publicState() — NO hole cards
+      allow write: if false;        // written only by Cloud Functions
+
+      // The secret authority: deck + every player's holes + serialized engine.
+      // No client may ever read or write this.
+      match /private/state {
+        allow read, write: if false;
+      }
+      // Per-player private hand: you read ONLY your own; nobody writes from a client.
+      match /private/holes/{uid} {
+        allow read: if signedIn() && request.auth.uid == uid;
+        allow write: if false;
+      }
+      // Seat presence: everyone sees who's seated; you heartbeat ONLY your own
+      // non-authoritative fields. Seat assignment / chips / sit-out are function-only.
+      match /seats/{uid} {
+        allow read: if signedIn();
+        allow update: if signedIn() && request.auth.uid == uid
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastSeen', 'connected']);
+        allow create, delete: if false;
+      }
     }
+
+    // Server-only rate-limit buckets.
+    match /rateLimits/{uid} { allow read, write: if false; }
+
+    // Default deny. (Rule grants are additive and cannot be revoked by another
+    // match, so this never overrides the specific allows above.)
+    match /{document=**} { allow read, write: if false; }
   }
 }

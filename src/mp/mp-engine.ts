@@ -222,8 +222,15 @@ function settle(t: AuthTable): void {
       if (eligibleWinners.length > 0) {
         const best = Math.max(...eligibleWinners.map((i) => rank[i]!));
         const winners = eligibleWinners.filter((i) => rank[i]! === best);
-        const share = layer / winners.length;
-        for (const w of winners) won[w] += share;
+        // Integer-exact split: floor share + odd chips to the first winners by
+        // seat order (deterministic), so sum(awarded) === layer to the chip.
+        const k = winners.length;
+        const base = Math.floor(layer / k);
+        let odd = layer - base * k;
+        for (const w of [...winners].sort((a, b) => a - b)) {
+          won[w] += base + (odd > 0 ? 1 : 0);
+          if (odd > 0) odd--;
+        }
       }
       prev = lvl;
     }

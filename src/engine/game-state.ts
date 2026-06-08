@@ -319,4 +319,62 @@ export class GameState {
     });
     return gs;
   }
+
+  /** Minimum legal raise-TO total for a player facing the current bet
+   *  (= current bet + the last full raise increment). Exposes _lastRaiseSize. */
+  minRaiseTo(): number { return this.currentBet + this._lastRaiseSize; }
+
+  /** Plain-JSON snapshot (Maps→records, Sets→arrays) — for Firestore persistence
+   *  by the server-authoritative engine. Mirrors clone() exactly. */
+  toSnapshot(): GameStateSnapshot {
+    return {
+      tableSize: this.tableSize, bb: this.bb, sb: this.sb,
+      heroSeat: this.heroSeat, heroCards: this.heroCards,
+      dealerSeat: this.dealerSeat, positions: [...this.positions],
+      street: this.street, board: [...this.board], pot: this.pot,
+      stacks: [...this.stacks], folded: [...this.folded],
+      invested: [...this.invested], streetInvested: [...this.streetInvested],
+      currentBet: this.currentBet, actions: this.actions.map((a) => ({ ...a })),
+      villainStories: Object.fromEntries(this.villainStories),
+      _needsAct: [...this._needsAct], _lastActor: this._lastActor,
+      _lastRaiseSize: this._lastRaiseSize, _raiseReopened: this._raiseReopened,
+      _actedThisStreet: [...this._actedThisStreet],
+    };
+  }
+
+  /** Rebuild a GameState from a snapshot WITHOUT re-running the constructor
+   *  (which would re-post blinds) — same Object.create trick as clone(). */
+  static fromSnapshot(s: GameStateSnapshot): GameState {
+    const gs = Object.create(GameState.prototype) as GameState;
+    Object.assign(gs, {
+      tableSize: s.tableSize, bb: s.bb, sb: s.sb,
+      heroSeat: s.heroSeat, heroCards: s.heroCards,
+      dealerSeat: s.dealerSeat, positions: s.positions,
+      street: s.street, board: [...s.board], pot: s.pot,
+      stacks: [...s.stacks], folded: [...s.folded],
+      invested: [...s.invested], streetInvested: [...s.streetInvested],
+      currentBet: s.currentBet, actions: s.actions.map((a) => ({ ...a })),
+      villainStories: new Map(Object.entries(s.villainStories).map(([k, v]) => [Number(k), v] as const)),
+      _needsAct: new Set(s._needsAct), _lastActor: s._lastActor,
+      _lastRaiseSize: s._lastRaiseSize, _raiseReopened: s._raiseReopened,
+      _actedThisStreet: new Set(s._actedThisStreet),
+    });
+    return gs;
+  }
+}
+
+/** The value type stored in GameState.villainStories. */
+export type VillainStory = GameState["villainStories"] extends Map<number, infer V> ? V : never;
+
+/** Plain-JSON form of a GameState (JSON-safe: no Map/Set/class instances). */
+export interface GameStateSnapshot {
+  tableSize: number; bb: number; sb: number;
+  heroSeat: number; heroCards: readonly [Card, Card];
+  dealerSeat: number; positions: readonly string[];
+  street: Street; board: Card[]; pot: number;
+  stacks: number[]; folded: boolean[]; invested: number[]; streetInvested: number[];
+  currentBet: number; actions: Action[];
+  villainStories: Record<number, VillainStory>;
+  _needsAct: number[]; _lastActor: number; _lastRaiseSize: number;
+  _raiseReopened: boolean; _actedThisStreet: number[];
 }
