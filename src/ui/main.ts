@@ -3441,8 +3441,8 @@ function renderHome(): void {
 
       <header class="mc-topbar">
         <button class="mc-profile" id="home-profile">
-          <span class="mc-ring">${avatarChip(p.avatar, p.nickname, 38)}</span>
-          <span class="mc-pmeta"><span class="mc-pname">${p.nickname}</span><span class="mc-pchips">🪙 ${p.chips.toLocaleString()}</span></span>
+          <span class="mc-ring">${avatarChip(p.avatar, p.nickname, 36)}</span>
+          <span class="mc-pchips-big">🪙 ${p.chips.toLocaleString()}</span>
         </button>
         <div class="mc-top-right">
           <button class="mc-gear" id="home-settings" aria-label="Settings">⚙</button>
