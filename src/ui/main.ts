@@ -137,6 +137,10 @@ interface AppState {
   dealAnim: { kind: "hero" | "board"; from: number } | null;
   // One-shot: seat that just acted (for an action flash on the next render).
   flashSeat: number | null;
+  // One-shot: seat that just folded → plays a card-muck toss animation.
+  foldAnim: number | null;
+  // Per-seat player names (session-stable; positions still rotate per hand).
+  seatNames: string[];
   // Training tournament: end state + the configured starting table size (so
   // "New Game" can rebuild the full table after players have busted out).
   trainingOver: "win" | "bust" | null;
@@ -206,6 +210,8 @@ const S: AppState = {
   seatMenuSeat: null,
   dealAnim: null,
   flashSeat: null,
+  foldAnim: null,
+  seatNames: [],
   trainingOver: null,
   trainingStartSize: 6,
 };
@@ -781,8 +787,10 @@ const ARCH_DESC: Record<string, string> = {
 function renderSetup(): void {
   cancelVillainTimer();
   // Returning to setup starts a fresh session: clear running stacks so they
-  // re-initialise to the (possibly changed) buy-in on the next hand.
+  // re-initialise to the (possibly changed) buy-in on the next hand, and clear
+  // names so the next table gets a fresh cast.
   S.seatStacks = [];
+  S.seatNames = [];
   const positions = getPositions(S.tableSize);
   app.innerHTML = `
     <div class="setup">
@@ -1272,6 +1280,23 @@ function seatCoord(seatIdx: number): { left: number; top: number } {
 // just labels. Colour varies per seat for distinction; hero is emerald.
 const AVATAR_COLORS = ["#5b8def", "#e0566a", "#f59e0b", "#a78bfa", "#3fd6c4",
   "#ec4899", "#f97316", "#22c55e", "#eab308", "#38bdf8"];
+
+// Short first names so each opponent reads as a person, not just a position.
+// Kept ≤5 chars to fit the seat chip. Position (BTN/SB/…) stays as a sub-label.
+const NAMES = ["Mia", "Leo", "Ava", "Kai", "Zoe", "Max", "Eli", "Ivy", "Sam",
+  "Nina", "Rio", "Ada", "Jax", "Remy", "Tom", "Ben", "Cleo", "Dex", "Lola", "Gus"];
+// Assign a stable, shuffled name to every seat for the session. Regenerated only
+// when the table size changes (or a new session clears S.seatNames).
+function ensureSeatNames(n: number): void {
+  if (S.seatNames.length === n) return;
+  const pool = NAMES.slice();
+  for (let i = pool.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [pool[i], pool[j]] = [pool[j]!, pool[i]!];
+  }
+  S.seatNames = Array.from({ length: n }, (_, i) => pool[i % pool.length]!);
+}
+function seatName(i: number): string { return S.seatNames[i] ?? `P${i + 1}`; }
 // Animate the current street's bet chips sliding into the pot. Spawns transient
 // chip elements on document.body (so the imminent re-render doesn't kill them),
 // reading live positions from the rendered .seat-bet tokens and the pot.
@@ -1323,6 +1348,7 @@ function renderGame(): void {
   const positions = gs ? gs.positions
     : positionsForButton(S.tableSize, S.dealerSeat < 0 ? S.tableSize - 3 : S.dealerSeat);
   const next = gs?.nextToAct() ?? null;
+  ensureSeatNames(positions.length);
   const needsBoard = gs && gs.roundComplete() && !gs.isComplete() && !S.handOver;
   const isHeroTurn = next === S.heroSeat;
 
@@ -1393,10 +1419,11 @@ function renderGame(): void {
       ${tag ? `<div class="seat-tag tag-${tag.toLowerCase()}">${tag}</div>` : ""}
       ${avatar}
       <div class="seat-chip" ${chipAttr}>
-        <div class="seat-pos">${isHero ? `YOU <span class="seat-subpos">${pos}</span>` : pos}</div>
+        <div class="seat-pos">${isHero ? "YOU" : seatName(i)} <span class="seat-subpos">${pos}</span></div>
         <div class="seat-stack">${chips(stack)}</div>
         ${actText ? `<div class="seat-act">${actText}</div>` : ""}
       </div>
+      ${S.foldAnim === i ? `<div class="muck"><span class="muck-card"></span><span class="muck-card"></span></div>` : ""}
       ${holeCards}
       ${betChip}
       ${seatMenu}
@@ -1627,6 +1654,7 @@ function renderGame(): void {
     </div>`;
   S.dealAnim = null; // one-shot: consumed by this render
   S.flashSeat = null;
+  S.foldAnim = null; // one-shot muck animation consumed
   S.flashVerdict = null; // one-shot verdict animation consumed
   S.celebrate = false; // one-shot win glow consumed
 
@@ -1906,6 +1934,7 @@ function doAction(seat: number, type: ActionType): void {
   playSound(type === "fold" ? "fold" : type === "check" ? "check"
     : type === "call" ? "bet" : "bet");
 
+  if (type === "fold") S.foldAnim = seat; // muck-toss animation on the next render
   S.gs.applyAction({ seat, type, amount });
 
   if (S.gs.activeSeatCount <= 1) {
@@ -2220,6 +2249,7 @@ function villainStep(): void {
   if (action === "bet" && !legal.includes("bet")) { action = "check"; amount = 0; }
   if (action === "fold" && !legal.includes("fold")) { action = "check"; amount = 0; }
 
+  if (action === "fold") S.foldAnim = next; // muck-toss animation
   S.gs.applyAction({ seat: next, type: action, amount });
   S.flashSeat = next; // pulse the seat that just acted
   playSound(action === "fold" ? "fold" : action === "check" ? "check" : "bet");

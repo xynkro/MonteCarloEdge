@@ -289,10 +289,28 @@ body {
   backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
   box-shadow: var(--shadow-1);
 }
-.seat-pos { font-size: 11px; font-weight: 800; color: var(--text); letter-spacing: .3px; }
-.seat-subpos { font-size: 9px; font-weight: 700; color: var(--gold); opacity: .85; }
+.seat-pos { font-size: 11px; font-weight: 800; color: var(--text); letter-spacing: .3px; white-space: nowrap; }
+.seat-subpos { font-size: 9px; font-weight: 700; color: var(--gold); opacity: .85; margin-left: 1px; }
 .seat-stack { font-size: 10px; color: var(--muted); margin-top: 1px; }
 .seat-act { font-size: 10px; color: var(--gold); font-weight: 700; margin-top: 2px; }
+
+/* Card-muck toss when a player folds — two mini card-backs flick toward the
+   muck and fade. One-shot via S.foldAnim. */
+.muck {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  display: flex; gap: 2px; pointer-events: none; z-index: 1;
+  animation: muckToss .5s cubic-bezier(.4,0,.7,1) forwards;
+}
+.muck-card {
+  width: 13px; height: 18px; border-radius: 3px;
+  background: linear-gradient(160deg, #2c2456, #15122e);
+  border: 1px solid rgba(124,92,255,.55); box-shadow: 0 1px 3px rgba(0,0,0,.5);
+}
+.muck-card:nth-child(2) { transform: rotate(9deg); }
+@keyframes muckToss {
+  0%   { opacity: .95; transform: translate(-50%, -50%) scale(1) rotate(0); }
+  100% { opacity: 0;   transform: translate(-50%, -165%) scale(.5) rotate(24deg); }
+}
 
 .seat-tag {
   position: absolute; top: -9px; left: -4px; z-index: 3;
@@ -913,6 +931,7 @@ body {
   .board-card.deal-in .flip-inner, .hero-card.deal-in .flip-inner { animation: none !important; }
   .hero-card { transform: none !important; transition: none !important; }
   .hero-card.dealt .flip-front::after { display: none; }
+  .muck { animation: none !important; display: none; }
 }
 
 .lbl-sub { font-weight: 600; font-size: 10px; color: var(--muted); letter-spacing: .5px; }
