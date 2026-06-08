@@ -21,6 +21,8 @@ import {
   credibleRep,
   repIsPolar,
   scoreRunout,
+  sizeClass,
+  repsCapped,
 } from "./opponent.js";
 
 // ── Short-stack push/fold (jam-or-fold) ──
@@ -675,20 +677,47 @@ function postflopRecommend(
   const clamp01 = (lo: number, hi: number, x: number) => Math.max(lo, Math.min(hi, x));
   let bluffCatchAdj = 0;        // +need more to call (fold more) · −call lighter
   let bluffCatchNote = "";
+  // Carrier so the counter-bluff branch reuses this context (no recompute).
+  let cb: { ap: OpponentProfile; cls: ReturnType<typeof sizeClass>; phase: "scare" | "brick" | "kill"; repLabel: string; baseBluff: number } | null = null;
   if (tc > 0 && state.board.length >= 3) {
-    let aggrSeat = -1;
+    let aggrSeat = -1, aggrBet = 0;
     for (const a of state.actions) {
-      if (a.seat !== seat && a.street !== "preflop" && (a.type === "bet" || a.type === "raise")) aggrSeat = a.seat;
+      if (a.seat !== seat && a.street !== "preflop" && (a.type === "bet" || a.type === "raise")) {
+        aggrSeat = a.seat; if (a.amount > 0) aggrBet = Math.max(aggrBet, a.amount);
+      }
     }
     if (aggrSeat >= 0) {
       const ap = profiles?.get(aggrSeat) ?? villainProfile;
       const rep = credibleRep(state.board);
       const phase = scoreRunout({ ...rep, coherence: 1, openedStreet: state.street }, state.board);
+      const cls = sizeClass(aggrBet / Math.max(1, state.pot)); // bet-sizing tell
       const streetsBet = new Set(state.actions
         .filter((a) => a.seat === aggrSeat && a.street !== "preflop" && (a.type === "bet" || a.type === "raise"))
         .map((a) => a.street)).size;
       const baseBluff = streetsBet >= 2 ? ap.barrelFreq : ap.bluffFreq;
-      if (phase === "brick") {
+      const valueType = ap.coherence >= 0.6; // honest / under-bluffed (TAG, Nit)
+      cb = { ap, cls, phase, repLabel: rep.label, baseBluff };
+      // The SIZE shapes the read (one nudge, never two summed):
+      if (cls === "small" || cls === "min") {
+        // CAPPED — rarely the nuts; never hero-FOLD a made hand to a cheap bet.
+        bluffCatchAdj = -0.04;
+        bluffCatchNote = ` — his ${cls} bet is capped, don't fold a made hand`;
+      } else if (cls === "merged") {
+        // Half-pot merged = the least exploitable size; no nudge.
+      } else if (cls === "overbet") {
+        // Max-polar: nuts or air. Type decides which.
+        if (phase === "scare") {
+          bluffCatchAdj = Math.min(0.12, ap.coherence * 0.16);
+          bluffCatchNote = ` — overbet & ${rep.label} got there, value-heavy — fold`;
+        } else if (phase === "brick" && valueType) {
+          bluffCatchAdj = Math.min(0.12, ap.coherence * 0.14);
+          bluffCatchNote = ` — overbet from a value-heavy type, that's the nuts — fold`;
+        } else {
+          const bluffPct = clamp01(0.05, 0.9, baseBluff * (1.25 - ap.coherence));
+          bluffCatchAdj = -Math.min(0.12, Math.max(0, bluffPct - 0.30) * 0.40);
+          if (bluffCatchAdj <= -0.01) bluffCatchNote = ` — overbet on a brick (~${pct(bluffPct)} air), call wider`;
+        }
+      } else if (phase === "brick") { // pot-size, existing ±0.08
         const bluffPct = clamp01(0.05, 0.9, baseBluff * (1.25 - ap.coherence)); // incoherent types barrel bricks with air
         bluffCatchAdj = -Math.min(0.08, Math.max(0, bluffPct - 0.30) * 0.28);
         if (bluffCatchAdj <= -0.01) bluffCatchNote = ` — he barrels this brick (~${pct(bluffPct)} bluffs), call lighter`;
@@ -717,6 +746,50 @@ function postflopRecommend(
         reasoning: `Raise — ${handLabel} (${posTag}), ${pct(eq)} equity vs ${pct(odds)} pot odds${wayTag}`,
       });
     }
+
+    // ── COUNTER-BLUFF (re-bluff) ────────────────────────────────────────────
+    // Punish a CAPPED bet (small/min — he can't have the nuts) by raising to rep
+    // the polar hand he doesn't have. Tightly gated so it's a +EV semi-bluff vs
+    // a FOLDER, never spew: heads-up only, vs a coherent/foldy type (NOT a
+    // station/maniac/lag), with a blocker or a live draw, a complete (non-lever)
+    // raise, and a hard pFold>need + ev>0 check. This is the "mind game".
+    if (cb && canRaise && repsCapped(cb.cls)) {
+      const post = state.actions.filter((a) => a.seat !== seat && a.street !== "preflop");
+      const villainLeadBet = post.some((a) => a.type === "bet") && !post.some((a) => a.type === "raise");
+      const heroConn = heroConnection(hero, state.board);
+      const hiCard = Math.max(rankOf(hero[0]), rankOf(hero[1]));
+      const hasBackup = hiCard >= 12 || heroConn.hasFlushDraw || heroConn.hasStraightDraw;
+      const nv = villainSeats.length;
+      if (
+        villainLeadBet &&
+        nv === 1 &&                                   // heads-up
+        cb.ap.foldToRaise >= 0.5 && cb.ap.calldownPct < 0.6 && cb.ap.coherence >= 0.6 && // foldy + reliable tell (excludes Station/LAG/Maniac)
+        dq < callBar && dq > 0.12 &&                  // not a value hand, not pure air
+        hasBackup &&                                  // semi-bluff, never bare air
+        state.spr() <= 6                              // a complete bet, not a lever
+      ) {
+        const heroTotal = state.stacks[seat]! + state.streetInvested[seat]!;
+        const amt = Math.min(Math.max(state.currentBet * 2.8, state.pot + tc), heroTotal);
+        const riskAdded = amt - tc;
+        const be = riskAdded / (riskAdded + state.pot);
+        const blockerCredit = hiCard >= 12 ? 0.05 : 0;
+        const backupEquityCredit = Math.min(0.08, dq * 0.25);
+        const need = be + 0.06 * (nv - 1) - blockerCredit - backupEquityCredit;
+        const pFold = clamp01(0.1, 0.92, cb.ap.foldToRaise * (cb.cls === "min" ? 1.15 : 1.0) * (cb.phase === "brick" ? 1.1 : 0.9));
+        const evRaise = pFold * state.pot - (1 - pFold) * riskAdded;
+        if (pFold > need && evRaise > 0 && amt > state.currentBet) {
+          const f = clamp01(0.20, 0.45, 0.20 + (pFold - need) * 1.2 + (style.aggression - 1) * 0.2);
+          const alt: ActionType = dq > callBar ? "call" : "fold";
+          return fin({
+            action: "raise", amount: amt, equity: eq, potOdds: odds,
+            mix: [{ action: "raise", amount: amt, freq: f }, { action: alt, amount: 0, freq: 1 - f }],
+            ev: { fold: 0, call: evCall, raise: evRaise },
+            reasoning: `Re-bluff — his ${cb.cls} bet is capped, can't have ${cb.repLabel}; you block it, folds ~${pct(pFold)} (mix ${pct(f)}) (${posTag})${wayTag}`,
+          });
+        }
+      }
+    }
+
     if (dq > callBar) {
       return fin({
         action: "call", amount: 0, equity: eq, potOdds: odds,

@@ -184,12 +184,26 @@ function narrowPostflop(
   let combos: Combo[];
   if (raised) {
     combos = slice(0, 0.30); // raises are strong
-  } else if (aggressed && betFrac >= 0.66) {
-    // Polarized big bet: top value + a thin bluff tail, drop the middle.
-    combos = [...slice(0, 0.26), ...scored.slice(Math.floor(0.88 * n)).map((s) => s[0])];
   } else if (aggressed) {
-    // Merged bet: top/continuing portion (foldy fields bet a touch wider).
-    combos = slice(0, profile.betWhenCheckedTo > 0.5 ? 0.62 : 0.5);
+    // Range SHAPE follows the bet SIZE (sizing tell):
+    const cls = sizeClass(betFrac);
+    if (cls === "overbet") {
+      // Max-polar: tighter nut value + a WIDER air tail (overbets are nuts-or-air).
+      combos = [...slice(0, 0.20), ...scored.slice(Math.floor(0.82 * n)).map((s) => s[0])];
+    } else if (cls === "pot") {
+      // Polar: top value + a thin bluff tail, drop the middle.
+      combos = [...slice(0, 0.26), ...scored.slice(Math.floor(0.88 * n)).map((s) => s[0])];
+    } else if (cls === "merged") {
+      // Merged: top/continuing portion (foldy fields bet a touch wider).
+      combos = slice(0, profile.betWhenCheckedTo > 0.5 ? 0.62 : 0.5);
+    } else {
+      // CAPPED small/min bet: the nuts are removed (they'd bet bigger for value),
+      // so it's a medium/weak band — UNLESS an incoherent type, whose small bet is
+      // a weak stab, so re-add an air tail.
+      const lo = cls === "min" ? 0.10 : 0.06;
+      combos = slice(lo, 0.55);
+      if (profile.coherence < 0.3) combos = [...combos, ...scored.slice(Math.floor(0.90 * n)).map((s) => s[0])];
+    }
   } else if (called) {
     combos = slice(0.10, 0.65); // condensed medium band
   } else if (onlyChecked) {
@@ -397,6 +411,23 @@ export function credibleRep(board: readonly Card[]): Pick<VillainStory, "rep" | 
 export function repIsPolar(rep: StoryRep): boolean {
   return rep !== "pair_plus";
 }
+
+// ── Bet-sizing tells ──────────────────────────────────────────────────────
+// Classify a villain bet by its pot-fraction. The geometry of the size implies
+// the SHAPE of his range: overbet/pot = polar (nuts or air), merged = medium,
+// small/min = CAPPED (rarely the nuts — he'd bet bigger for value). The TYPE then
+// tells you which end (a Nit overbet = nuts; a Maniac overbet = air). One shared
+// classifier so the engine's range slice and the read panel never disagree.
+export type SizeClass = "overbet" | "pot" | "merged" | "small" | "min";
+export function sizeClass(potFraction: number): SizeClass {
+  if (potFraction >= 1.1) return "overbet";
+  if (potFraction >= 0.8) return "pot";
+  if (potFraction >= 0.4) return "merged";
+  if (potFraction >= 0.2) return "small";
+  return "min";
+}
+// A small/min bet is "capped" — rarely the nuts → the spot you can counter-bluff.
+export function repsCapped(c: SizeClass): boolean { return c === "small" || c === "min"; }
 
 export function commitStory(state: GameState, profile: OpponentProfile): VillainStory {
   return { ...credibleRep(state.board), coherence: profile.coherence, openedStreet: state.street };

@@ -3,7 +3,7 @@ import { type Combo, Range } from "../engine/range.js";
 import { mulberry32 } from "../engine/rng.js";
 import { GameState, type ActionType } from "../engine/game-state.js";
 import { getPositions, positionsForButton, getRfiRange, getBbDefenseRange } from "../engine/charts/index.js";
-import { estimateVillainRange, credibleRep, scoreRunout } from "../engine/opponent.js";
+import { estimateVillainRange, credibleRep, scoreRunout, sizeClass, repsCapped } from "../engine/opponent.js";
 import { solveSubgame, type RiverResult, type ActionFreq } from "../engine/gto/river-solver.js";
 import { solvePushFold, handClassKey, type PushFoldResult } from "../engine/gto/pushfold.js";
 import { allCombos, topSlice } from "../engine/hand-strength.js";
@@ -130,7 +130,7 @@ interface AppState {
     equity: number | null; made: Threat[]; draws: Threat[];
     // "Story" reads: what aggression represents on this board (no hole-card peeking).
     heroStory: { label: string; cred: string } | null;
-    villainStory: { label: string; bluffPct: number; note: string; lean: "call" | "careful" | "" } | null;
+    villainStory: { label: string; bluffPct: number; note: string; lean: "call" | "careful" | "raise" | ""; size: string } | null;
   } | null;
   boardReadKey: string;
   message: string;
@@ -1219,26 +1219,36 @@ function updateBoardRead(): void {
   // engine's bluff-catch read (decision.ts 3A) — the runout × the TYPE tells you
   // how bluff-heavy his line is: a BRICK barreled by a bluffy/incoherent type →
   // call lighter; a SCARE that completed the rep → be careful (credible story).
-  let villainStory: { label: string; bluffPct: number; note: string; lean: "call" | "careful" | "" } | null = null;
-  let aggr = -1;
-  for (const a of S.gs.actions) if (a.seat !== S.heroSeat && a.street !== "preflop" && (a.type === "bet" || a.type === "raise")) aggr = a.seat;
+  let villainStory: { label: string; bluffPct: number; note: string; lean: "call" | "careful" | "raise" | ""; size: string } | null = null;
+  let aggr = -1, aggrBet = 0;
+  for (const a of S.gs.actions) if (a.seat !== S.heroSeat && a.street !== "preflop" && (a.type === "bet" || a.type === "raise")) { aggr = a.seat; if (a.amount > 0) aggrBet = Math.max(aggrBet, a.amount); }
   if (aggr >= 0) {
     const prof = buildProfiles().get(aggr) ?? PROFILES[S.archetype]!;
     const streetsBet = new Set(S.gs.actions.filter(a => a.seat === aggr && a.street !== "preflop" && (a.type === "bet" || a.type === "raise")).map(a => a.street)).size;
     const baseBluff = streetsBet >= 2 ? prof.barrelFreq : prof.bluffFreq;
     const phase = scoreRunout({ ...rep, coherence: 1, openedStreet: S.gs.street }, board);
+    const cls = sizeClass(aggrBet / Math.max(1, S.gs.pot));
+    const headsUp = activeVillains().length === 1;
     const clampPct = (lo: number, hi: number, x: number) => Math.round(Math.max(lo, Math.min(hi, x)) * 100);
-    let bluffPct: number, note: string, lean: "call" | "careful" | "";
-    if (phase === "brick") {
-      bluffPct = clampPct(0.05, 0.9, baseBluff * (1.25 - prof.coherence));
-      note = "barrels a brick — call lighter"; lean = "call";
-    } else if (phase === "scare") {
-      bluffPct = clampPct(0.03, 0.6, baseBluff * (1 - prof.coherence) * 0.6);
-      note = `${rep.label} got there — be careful`; lean = "careful";
-    } else {
-      bluffPct = clampPct(0.05, 0.9, baseBluff); note = "bluffs here"; lean = "";
+    // SIZE word teaches: size → geometry → type-flip. Mirrors engine 3A reads.
+    const sizeWord = cls === "overbet" ? "Overbet, polar" : cls === "pot" ? "Pot-size, polar"
+      : cls === "merged" ? "Half-pot, merged" : cls === "min" ? "Min/blocker — capped" : "Small bet — capped";
+    let bluffPct: number, note: string, lean: "call" | "careful" | "raise" | "";
+    if (repsCapped(cls)) {
+      // HARD UI FIREWALL: only suggest a re-bluff under the EXACT engine gate.
+      const canReBluff = prof.coherence >= 0.6 && prof.foldToRaise >= 0.5 && prof.calldownPct < 0.6 && headsUp;
+      bluffPct = clampPct(0.05, 0.4, baseBluff * (1 - prof.coherence) + 0.1);
+      if (canReBluff) { note = "capped — you can raise-bluff"; lean = "raise"; }
+      else { note = "capped/weak — call, don't raise"; lean = "call"; }
+    } else if (cls === "overbet" || cls === "pot") {
+      if (phase === "scare") { bluffPct = clampPct(0.03, 0.6, baseBluff * (1 - prof.coherence) * 0.6); note = `${rep.label} got there — be careful`; lean = "careful"; }
+      else if (phase === "brick" && prof.coherence >= 0.6) { bluffPct = clampPct(0.03, 0.4, baseBluff * (1 - prof.coherence)); note = "value-heavy type — fold"; lean = "careful"; }
+      else if (phase === "brick") { bluffPct = clampPct(0.2, 0.9, baseBluff * (1.25 - prof.coherence)); note = "mostly air — call wider"; lean = "call"; }
+      else { bluffPct = clampPct(0.05, 0.6, baseBluff); note = "story died here"; lean = ""; }
+    } else { // merged
+      bluffPct = clampPct(0.1, 0.6, baseBluff); note = "merged range"; lean = "";
     }
-    villainStory = { label: rep.label, bluffPct, note, lean };
+    villainStory = { label: rep.label, bluffPct, note: `${sizeWord} · ${note}`, lean, size: cls };
   }
   S.boardRead = { equity, made: read.made.slice(0, 3), draws: read.draws.slice(0, 4), heroStory, villainStory };
 }

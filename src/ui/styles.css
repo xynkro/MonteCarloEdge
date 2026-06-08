@@ -602,6 +602,10 @@ body {
 .read-row.story.vil.lean-careful { background: rgba(239,71,111,.10); border-color: rgba(239,71,111,.34); }
 .read-row.story.vil.lean-careful .read-lead { color: var(--rose); }
 .read-row.story.vil.lean-careful .story-cred { color: #ff9bb3; }
+/* capped sizing → counter-bluff opportunity (raise as a bluff) */
+.read-row.story.vil.lean-raise { background: rgba(124,92,255,.13); border-color: rgba(124,92,255,.45); }
+.read-row.story.vil.lean-raise .read-lead { color: #b9a7ff; }
+.read-row.story.vil.lean-raise .story-cred { color: #cdbcff; }
 
 .hero-card {
   width: 52px; height: 72px; border-radius: 10px;
