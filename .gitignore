@@ -3,3 +3,10 @@ dist/
 ruvector.db
 dist/
 council/
+*-adminsdk-*.json
+*serviceAccount*.json
+**/serviceAccountKey.json
+.env
+.env.*
+functions/.env
+*.key
