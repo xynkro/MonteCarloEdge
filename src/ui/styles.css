@@ -1137,6 +1137,48 @@ body::before {
 @media (prefers-reduced-motion: reduce) {
   .mc-glow, .mc-fan, .mc-mode, .mc-stats { animation: none !important; opacity: 1 !important; transform: none !important; }
 }
+/* home topbar gear + footer links */
+.mc-top-right { display: flex; align-items: center; gap: 8px; }
+.mc-gear { width: 40px; height: 40px; border-radius: 50%; background: var(--glass); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); border: 1px solid var(--glass-edge); color: var(--text); font-size: 18px; cursor: pointer; line-height: 1; }
+.mc-gear:active { transform: scale(.94); }
+.mc-foot { display: flex; gap: 8px; justify-content: center; align-items: center; margin-top: 16px; }
+.mc-foot span { color: var(--faint); font-size: 12px; }
+.mc-foot-link { background: none; border: none; color: var(--muted); font-size: 12px; font-weight: 600; cursor: pointer; }
+.mc-foot-link:active { color: var(--text); }
+
+/* ── Settings ── */
+.set-group { background: var(--glass); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); border: 1px solid var(--glass-edge); border-radius: 14px; padding: 12px 14px; margin-bottom: 12px; }
+.set-head { font-size: 11px; font-weight: 800; letter-spacing: .6px; text-transform: uppercase; color: var(--muted); margin-bottom: 4px; }
+.set-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 9px 0; border-top: 1px solid var(--line); }
+.set-rl { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.set-label { font-size: 14px; font-weight: 700; }
+.set-note { font-size: 11px; color: var(--muted); line-height: 1.4; }
+.set-rc { flex-shrink: 0; }
+.set-toggle { width: 46px; height: 27px; border-radius: 999px; background: var(--surface-2); border: 1px solid var(--line-2); position: relative; cursor: pointer; transition: background .15s; }
+.set-toggle.on { background: linear-gradient(135deg, var(--emerald), var(--emerald-2)); border-color: transparent; }
+.set-toggle .knob { position: absolute; top: 2px; left: 2px; width: 21px; height: 21px; border-radius: 50%; background: #fff; transition: transform .16s; box-shadow: 0 1px 3px rgba(0,0,0,.4); }
+.set-toggle.on .knob { transform: translateX(19px); }
+.set-select { background: var(--glass); border: 1px solid var(--glass-edge); border-radius: 9px; color: var(--text); padding: 8px 11px; font-size: 13px; font-weight: 700; }
+.seg { display: flex; gap: 4px; background: var(--surface-2); border-radius: 9px; padding: 3px; }
+.seg-btn { border: none; background: none; color: var(--muted); font-size: 12px; font-weight: 700; padding: 5px 11px; border-radius: 7px; cursor: pointer; }
+.seg-btn.sel { background: var(--emerald); color: #042018; }
+.hdr-btn.danger { background: rgba(239,71,111,.12); border-color: rgba(239,71,111,.4); color: #ff9bb3; }
+.about-name { font-family: var(--display); font-weight: 800; font-size: 18px; background: var(--gold-foil); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+.about-links { margin-top: 8px; font-size: 13px; }
+.about-links a { color: var(--azure); text-decoration: none; }
+
+/* ── Doc pages (Legal / How-it-works) ── */
+.doc { max-width: 640px; }
+.doc-intro { font-size: 14px; color: var(--muted); line-height: 1.55; margin: 0 0 16px; }
+.doc-section { margin-bottom: 16px; }
+.doc-section h2 { font-family: var(--display); font-size: 16px; font-weight: 800; color: var(--text); margin: 0 0 6px; }
+.doc-body { font-size: 13.5px; color: var(--muted); line-height: 1.6; }
+.doc-body p { margin: 7px 0; }
+.doc-body ul { margin: 7px 0; padding-left: 20px; }
+.doc-body li { margin: 5px 0; }
+.doc-body strong { color: var(--text); }
+.doc-body a { color: var(--azure); }
+
 .avatar-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
 .avatar-pick { aspect-ratio: 1; display: flex; align-items: center; justify-content: center; font-size: 22px; border-radius: 10px; background: var(--surface-2); border: 1px solid var(--line-2); cursor: pointer; }
 .avatar-pick.sel { border-color: var(--gold); box-shadow: 0 0 0 2px rgba(255,209,102,.35); }

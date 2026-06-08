@@ -35,6 +35,7 @@ import * as MP from "../mp/mp-engine.js";
 import type { AuthTable } from "../mp/mp-engine.js";
 import type { MPAction, MPUser } from "../mp/types.js";
 import * as FB from "../mp/firebase-adapter.js";
+import { LEGAL_INTRO, LEGAL_SECTIONS, EXPLAINER_INTRO, EXPLAINER_SECTIONS, type Section } from "./content.js";
 import { playSound, setSoundEnabled, isSoundEnabled } from "./sound.js";
 
 const RANKS = "23456789TJQKA";
@@ -59,7 +60,7 @@ interface UndoSnapshot {
 }
 
 interface AppState {
-  screen: "home" | "setup" | "game" | "stats" | "leaks" | "mp-setup" | "mp-table" | "mp-lobby" | "profile";
+  screen: "home" | "setup" | "game" | "stats" | "leaks" | "mp-setup" | "mp-table" | "mp-lobby" | "profile" | "settings" | "legal" | "explainer";
   // Player profile (local-first; syncs name/avatar to Firestore when signed in).
   profile: { nickname: string; avatar: string; chips: number };
   // Multiplayer / benchmark (Phase 0 hot-seat + Phase 1 online lobby).
@@ -376,6 +377,9 @@ type NumpadTarget = "sb" | "bb" | "stack" | "seatstack";
 function render(): void {
   if (S.screen === "home") renderHome();
   else if (S.screen === "profile") renderProfile();
+  else if (S.screen === "settings") renderSettings();
+  else if (S.screen === "legal") renderLegal();
+  else if (S.screen === "explainer") renderExplainer();
   else if (S.screen === "setup") renderSetup();
   else if (S.screen === "stats") renderStats();
   else if (S.screen === "leaks") renderLeaks();
@@ -1403,8 +1407,12 @@ function seatName(i: number): string { return S.seatNames[i] ?? `P${i + 1}`; }
 // Animate the current street's bet chips sliding into the pot. Spawns transient
 // chip elements on document.body (so the imminent re-render doesn't kill them),
 // reading live positions from the rendered .seat-bet tokens and the pot.
-const reduceMotion = (): boolean =>
-  typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
+const reduceMotion = (): boolean => {
+  const pref = localStorage.getItem("mce-motion"); // "auto" | "on" | "off"
+  if (pref === "on") return true;
+  if (pref === "off") return false;
+  return typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
+};
 
 interface Pt { x: number; y: number }
 const centerOf = (el: Element): Pt => { const r = el.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; };
@@ -3436,7 +3444,10 @@ function renderHome(): void {
           <span class="mc-ring">${avatarChip(p.avatar, p.nickname, 38)}</span>
           <span class="mc-pmeta"><span class="mc-pname">${p.nickname}</span><span class="mc-pchips">🪙 ${p.chips.toLocaleString()}</span></span>
         </button>
-        <button class="mc-store" id="home-store">＋ Chips</button>
+        <div class="mc-top-right">
+          <button class="mc-gear" id="home-settings" aria-label="Settings">⚙</button>
+          <button class="mc-store" id="home-store">＋ Chips</button>
+        </div>
       </header>
 
       <div class="mc-hero">
@@ -3457,7 +3468,16 @@ function renderHome(): void {
       </div>
 
       <button class="mc-stats" id="home-stats" style="--d:.33s">📊 Stats &amp; Leak Report</button>
+      <div class="mc-foot">
+        <button class="mc-foot-link" id="home-explainer">How it works</button><span>·</span>
+        <button class="mc-foot-link" id="home-legal">Terms</button><span>·</span>
+        <button class="mc-foot-link" id="home-settings2">Settings</button>
+      </div>
     </div>`;
+  onId("home-settings", "click", () => { S.screen = "settings"; render(); });
+  onId("home-settings2", "click", () => { S.screen = "settings"; render(); });
+  onId("home-explainer", "click", () => { _docReturn = "home"; S.screen = "explainer"; render(); });
+  onId("home-legal", "click", () => { _docReturn = "home"; S.screen = "legal"; render(); });
   onId("home-profile", "click", () => { S.screen = "profile"; render(); });
   onId("home-profile2", "click", () => { S.screen = "profile"; render(); });
   onId("home-store", "click", () => { S.screen = "profile"; render(); });
@@ -3507,6 +3527,99 @@ function renderProfile(): void {
     if (canClaim) { S.profile.chips += 5000; saveProfile(); try { localStorage.setItem("mce-dailychips", String(Date.now())); } catch { /* */ } render(); }
   });
   onId("pf-back", "click", () => { S.screen = "home"; render(); });
+}
+
+/* ═══════════════════ SETTINGS / LEGAL / EXPLAINER ═══════════════════ */
+
+const APP_VERSION = "0.1.0";
+let _docReturn: "home" | "settings" = "home";
+
+const motionPref = (): "auto" | "on" | "off" => {
+  const v = localStorage.getItem("mce-motion");
+  return v === "on" || v === "off" ? v : "auto";
+};
+
+function docPage(title: string, intro: string, sections: Section[], extra = ""): void {
+  const body = `<p class="doc-intro">${intro}</p>` + sections.map((s) =>
+    `<section class="doc-section"><h2>${s.heading}</h2><div class="doc-body">${s.body}</div></section>`).join("");
+  app.innerHTML = `<div class="setup doc"><h1>${title}</h1>${body}${extra}
+    <button class="hdr-btn" id="doc-back" style="width:100%;padding:12px;margin-top:10px">Back</button></div>`;
+  onId("doc-back", "click", () => { S.screen = _docReturn; render(); });
+}
+
+function renderLegal(): void { cancelVillainTimer(); docPage("Terms &amp; Legal", LEGAL_INTRO, LEGAL_SECTIONS); }
+function renderExplainer(): void {
+  cancelVillainTimer();
+  docPage("How it works", EXPLAINER_INTRO, EXPLAINER_SECTIONS,
+    `<button class="start-btn" id="doc-train" style="margin-top:10px">🎯 Start Training</button>`);
+  onId("doc-train", "click", () => { S.screen = "setup"; render(); });
+}
+
+function renderSettings(): void {
+  cancelVillainTimer();
+  const auth = S.mp.auth;
+  const motion = motionPref();
+  const speed = trainingSpeed();
+  const toggle = (id: string, on: boolean) => `<button class="set-toggle ${on ? "on" : ""}" id="${id}" role="switch" aria-checked="${on}"><span class="knob"></span></button>`;
+  const row = (label: string, control: string, note = "") =>
+    `<div class="set-row"><div class="set-rl"><span class="set-label">${label}</span>${note ? `<span class="set-note">${note}</span>` : ""}</div><div class="set-rc">${control}</div></div>`;
+  app.innerHTML = `
+    <div class="setup doc">
+      <h1>⚙ Settings</h1>
+      <div class="set-group"><div class="set-head">Sound &amp; feel</div>
+        ${row("Sound effects", toggle("set-sound", isSoundEnabled()))}
+        ${row("Reduce motion", `<div class="seg" id="set-motion">${(["auto", "on", "off"] as const).map((v) => `<button class="seg-btn ${motion === v ? "sel" : ""}" data-motion="${v}">${v[0]!.toUpperCase() + v.slice(1)}</button>`).join("")}</div>`, "Auto follows your device. On cuts chip-fly &amp; card animations.")}
+      </div>
+      <div class="set-group"><div class="set-head">Gameplay</div>
+        ${row("Table speed", `<select class="set-select" id="set-speed">${SPEED_TIERS.map((t) => `<option value="${t}" ${speed === t ? "selected" : ""}>${SPEED_LABEL[t]}</option>`).join("")}</select>`, "Villain timing &amp; deal animations.")}
+        ${row("Quiz mode", toggle("set-quiz", quizMode()), "Hide the recommendation until after you act, then grade you.")}
+      </div>
+      <div class="set-group"><div class="set-head">Account</div>
+        ${auth
+          ? row("Signed in", `<button class="hdr-btn" id="set-signout">Sign out</button>`, `${auth.name} · Google. Sign-out keeps your local data.`)
+          : row("Online play", `<button class="hdr-btn" id="set-signin">Sign in</button>`, "Sign in with Google for presence &amp; sync. No ads, no data selling.")}
+      </div>
+      <div class="set-group"><div class="set-head">Your data</div>
+        <div class="set-note" style="margin-bottom:9px">Everything below lives in your browser. We don't sell it or show ads. Wipe any of it, any time.</div>
+        ${row("Reset session stats", `<button class="hdr-btn danger" id="set-reset-stats">Reset</button>`)}
+        ${row("Clear hand history", `<button class="hdr-btn danger" id="set-clear-history">Clear</button>`, "Resets your leak report. Chips &amp; profile stay.")}
+        ${row("Reset profile", `<button class="hdr-btn danger" id="set-reset-profile">Reset</button>`, "Nickname &amp; avatar back to default.")}
+        ${row("Reset chip wallet", `<button class="hdr-btn danger" id="set-reset-wallet">Reset</button>`, "Play-money only — no cash value, never cashable. A local reset, not a refund.")}
+        ${row("Delete all my data", `<button class="hdr-btn danger" id="set-delete-all">Delete</button>`, "Everything on this device. Cannot be undone.")}
+      </div>
+      <div class="set-group"><div class="set-head">Legal &amp; how it works</div>
+        ${row("How it works", `<button class="hdr-btn" id="set-explainer">Open</button>`)}
+        ${row("Terms &amp; legal", `<button class="hdr-btn" id="set-legal">Open</button>`, "Play-money, not gambling — the full terms.")}
+      </div>
+      <div class="set-group"><div class="set-head">About</div>
+        <div class="about-name">MONTECARLO EDGE</div>
+        <div class="set-note">A free NLHE GTO trainer + social play-money app. Built by Caspar, a solo developer in Singapore. No ads · no data selling · no real-money wagering. v${APP_VERSION}</div>
+        <div class="about-links"><a href="https://github.com/xynkro/MonteCarloEdge" target="_blank" rel="noopener">GitHub</a> · <a href="https://xynkro.github.io/MonteCarloEdge/" target="_blank" rel="noopener">Live app</a></div>
+      </div>
+      <button class="hdr-btn" id="set-back" style="width:100%;padding:12px;margin-top:6px">Back to Home</button>
+    </div>`;
+
+  onId("set-sound", "click", () => { setSoundEnabled(!isSoundEnabled()); render(); });
+  app.querySelectorAll("[data-motion]").forEach((b) => onEl(b, "click", () => { try { localStorage.setItem("mce-motion", (b as HTMLElement).dataset.motion!); } catch { /* */ } render(); }));
+  onId("set-speed", "change", (e) => { try { localStorage.setItem("mce-speed", (e.target as HTMLSelectElement).value); } catch { /* */ } });
+  onId("set-quiz", "click", () => { toggleQuiz(); render(); });
+  onId("set-signin", "click", () => { void goOnline(); });
+  onId("set-signout", "click", () => { if (confirm("Sign out of online play? Your profile, chips and stats on this device are NOT touched.")) void goOffline().then(render); });
+  onId("set-reset-stats", "click", () => { if (confirm("Reset your session stats and best streak? Your hand history and chips stay.")) { S.gradeStats = { n: 0, pts: 0, gto: 0, mixed: 0, off: 0 }; S.streak = 0; S.bestStreak = 0; try { localStorage.removeItem("mce-beststreak"); } catch { /* */ } render(); } });
+  onId("set-clear-history", "click", () => { if (confirm("Erase your saved hand + decision log? Your leak report resets to empty. Chips and profile stay.")) { clearHistory(); S.decisionLog = []; try { localStorage.removeItem(DECISIONS_KEY); } catch { /* */ } render(); } });
+  onId("set-reset-profile", "click", () => { if (confirm('Reset your nickname to "You" and clear your avatar? Your chips, stats and history stay.')) { S.profile.nickname = "You"; S.profile.avatar = ""; saveProfile(); render(); } });
+  onId("set-reset-wallet", "click", () => { if (confirm("Reset your play-money chip balance to the 10,000 starting stack and your daily-claim timer? Chips have no cash value and are never cashable — this is a local reset, not a refund.")) { S.profile.chips = 10000; saveProfile(); try { localStorage.removeItem("mce-dailychips"); } catch { /* */ } render(); } });
+  onId("set-delete-all", "click", () => {
+    if (confirm("Permanently delete EVERYTHING on this device — profile, chips, stats, hand history and settings — and sign you out? This cannot be undone.")) {
+      ["mce-sound", "mce-motion", "mce-speed", "mce-quiz", "mce-beststreak", "mce-dailychips", "mce-player-stats", DECISIONS_KEY, "mce-profile"].forEach((k) => { try { localStorage.removeItem(k); } catch { /* */ } });
+      try { clearHistory(); } catch { /* */ }
+      if (S.mp.auth) void goOffline();
+      location.reload();
+    }
+  });
+  onId("set-explainer", "click", () => { _docReturn = "settings"; S.screen = "explainer"; render(); });
+  onId("set-legal", "click", () => { _docReturn = "settings"; S.screen = "legal"; render(); });
+  onId("set-back", "click", () => { S.screen = "home"; render(); });
 }
 
 // ── Online (Phase 1): Google sign-in + presence lobby ──
