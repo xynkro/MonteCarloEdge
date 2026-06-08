@@ -80,6 +80,7 @@ interface AppState {
   stackBB: number;
   bbValue: number;
   sbValue: number;
+  currency: "usd" | "chips"; // table money display ($ for train/live, 🪙 for Create Room)
   sbManual: boolean; // true once SB is edited directly → stops auto-tracking BB/2
   heroSeat: number;
   dealerSeat: number;
@@ -193,6 +194,7 @@ const S: AppState = {
   tableSize: 6,
   stackBB: 100,
   bbValue: 1,
+  currency: "usd",
   sbValue: 0.5,
   sbManual: false,
   heroSeat: 3,
@@ -360,6 +362,7 @@ function roundBet(bb: number): number {
 
 function chips(bb: number): string {
   const v = bb * S.bbValue;
+  if (S.currency === "chips") return `🪙 ${Math.round(v).toLocaleString()}`;
   if (v === 0) return "$0";
   return v % 1 === 0 ? `$${v}` : `$${v.toFixed(2)}`;
 }
@@ -375,7 +378,9 @@ function fmtMoney(v: number): string {
 type NumpadTarget = "sb" | "bb" | "stack" | "seatstack";
 
 function render(): void {
-  if (!ageConfirmed()) { renderAgeGate(); return; }
+  // Age gate blocks everything EXCEPT the Terms/How-it-works docs, so they're
+  // readable from the gate itself before confirming.
+  if (!ageConfirmed() && S.screen !== "legal" && S.screen !== "explainer") { renderAgeGate(); return; }
   if (S.screen === "home") renderHome();
   else if (S.screen === "profile") renderProfile();
   else if (S.screen === "settings") renderSettings();
@@ -1023,9 +1028,10 @@ function renderSetup(): void {
   app.querySelectorAll(".seat-btn").forEach(btn =>
     onEl(btn, "click", () => { S.heroSeat = +(btn as HTMLElement).dataset.seat!; render(); }),
   );
-  onEl($("#start"), "click", () => { S.mode = "live"; startHand(); });
+  onEl($("#start"), "click", () => { S.mode = "live"; S.currency = "usd"; startHand(); });
   onId("start-training", "click", () => {
     S.mode = "training";
+    S.currency = "usd";
     S.trainingOver = null;
     S.trainingStartSize = S.tableSize;
     S.dealerSeat = -1;
@@ -3279,7 +3285,11 @@ const ROOM_TIERS = [
   { name: "High", sb: 5000, bb: 10000, max: 1000000 },
 ];
 // AI styles map to the trainer's opponent archetypes (keys of PROFILES).
+// "rand" = a random style assigned at room start (so you can spam-add a varied
+// table without configuring each seat).
+const AI_ARCHES = ["Station", "Nit", "TAG", "LAG", "Auto"];
 const AI_SKILLS = [
+  { key: "rand", label: "🎲 Random" },
   { key: "Station", label: "🐟 Fish" },
   { key: "Nit", label: "🪨 Rock" },
   { key: "TAG", label: "🎯 Reg" },
@@ -3294,33 +3304,35 @@ function renderMpSetup(): void {
   const su = S.mp.setup;
   const tier = ROOM_TIERS[su.tier]!;
   const minBuy = 20 * su.bb;
+  if (su.players[0]) { su.players[0].ai = null; su.players[0].name = S.profile.nickname || "You"; } // seat 0 = the human hero
   app.innerHTML = `
     <div class="setup">
       <h1>👥 Create Room</h1>
-      <span class="hint" style="text-align:center;display:block;margin-bottom:12px">Play vs AI or pass-and-play with friends. Pick stakes, your buy-in, and who's at the table. Assisted seats (🧠) get the GTO tool — benchmark them against blind seats.</span>
+      <span class="hint" style="text-align:center;display:block;margin-bottom:14px">Play a table vs the AI. Pick stakes + your buy-in, add opponents and set their skill. (Playing a friend? Use <strong>Play Online</strong> — you each play on your own phone.)</span>
 
       <div class="field"><label>Stakes</label>
-        <div class="seg" id="room-tier">${ROOM_TIERS.map((t, i) => `<button class="seg-btn ${su.tier === i ? "sel" : ""}" data-tier="${i}">${t.name}<br><small>${t.sb}/${t.bb}</small></button>`).join("")}</div>
+        <div class="seg room-stakes" id="room-tier">${ROOM_TIERS.map((t, i) => `<button class="seg-btn ${su.tier === i ? "sel" : ""}" data-tier="${i}"><span class="rs-name">${t.name}</span><span class="rs-blinds">🪙 ${t.sb.toLocaleString()}/${t.bb.toLocaleString()}</span></button>`).join("")}</div>
       </div>
 
-      <div class="field"><label>Buy-in <span class="lbl-sub">${su.buyIn.toLocaleString()} chips · ${Math.round(su.buyIn / su.bb)}bb</span></label>
-        <input class="buyin-slider" id="room-buyin" type="range" min="${minBuy}" max="${tier.max}" step="${su.bb}" value="${su.buyIn}"/>
-        <div class="buyin-ends"><span>${minBuy.toLocaleString()}</span><span>max ${tier.max.toLocaleString()} (100bb)</span></div>
+      <div class="field"><label>Buy-in</label>
+        <div class="buyin-value">🪙 ${su.buyIn.toLocaleString()}<span> · ${Math.round(su.buyIn / su.bb)}bb</span></div>
+        <input class="buyin-slider" id="room-buyin" type="range" min="${minBuy}" max="${tier.max}" step="${Math.max(1, Math.round(su.bb))}" value="${su.buyIn}"/>
+        <div class="buyin-ends"><span>min ${minBuy.toLocaleString()}</span><span>max ${tier.max.toLocaleString()} · 100bb</span></div>
       </div>
 
-      <div class="field"><label>Seats</label>
-        ${su.players.map((p, i) => `
+      <div class="field"><label>Players</label>
+        <div class="mp-prow you-row"><span class="you-tag">🧠 You</span><span class="hint">your seat — full GTO tool</span></div>
+        ${su.players.slice(1).map((p, oi) => { const i = oi + 1; return `
           <div class="mp-prow">
             <input class="mp-name" id="mp-name-${i}" value="${p.name.replace(/"/g, "&quot;")}" maxlength="14" />
-            <select class="mp-type" id="mp-type-${i}"><option value="" ${!p.ai ? "selected" : ""}>🧑 Human</option>${AI_SKILLS.map((s) => `<option value="${s.key}" ${p.ai === s.key ? "selected" : ""}>${s.label} AI</option>`).join("")}</select>
-            ${!p.ai ? `<label class="mp-assist" title="Gets the GTO tool">${p.assisted ? "🧠" : "🙈"}<input type="checkbox" id="mp-assist-${i}" ${p.assisted ? "checked" : ""} style="display:none"/></label>` : `<span class="mp-aibadge">AI</span>`}
-            ${su.players.length > 2 ? `<button class="hdr-btn mp-rm" id="mp-rm-${i}">✕</button>` : ""}
-          </div>`).join("")}
-        ${su.players.length < 6 ? `<div class="mp-addrow"><button class="hdr-btn" id="mp-add">+ Human</button><button class="hdr-btn" id="mp-add-ai">+ AI player</button></div>` : ""}
+            <select class="mp-type" id="mp-type-${i}">${AI_SKILLS.map((s) => `<option value="${s.key}" ${(p.ai || "rand") === s.key ? "selected" : ""}>${s.label}</option>`).join("")}</select>
+            <button class="hdr-btn mp-rm" id="mp-rm-${i}" title="Remove">✕</button>
+          </div>`; }).join("")}
+        ${su.players.length < 9 ? `<button class="hdr-btn" id="mp-add-ai" style="width:100%;margin-top:6px">+ AI opponent</button>` : ""}
       </div>
 
       <button class="start-btn" id="mp-start" style="background:linear-gradient(135deg,#f59e0b,#b45309);color:#fff">START ROOM</button>
-      <button class="start-btn" id="mp-online" style="background:linear-gradient(135deg,#4285F4,#1a73e8);color:#fff;margin-top:8px">🌐 Play Online</button>
+      <button class="start-btn" id="mp-online" style="background:linear-gradient(135deg,#4285F4,#1a73e8);color:#fff;margin-top:8px">🌐 Play Online (vs friends)</button>
       <button class="hdr-btn" id="mp-back" style="width:100%;padding:12px;margin-top:6px">Back</button>
     </div>`;
 
@@ -3331,27 +3343,39 @@ function renderMpSetup(): void {
   }));
   onId("room-buyin", "input", (e) => { su.buyIn = Math.max(minBuy, Math.min(tier.max, +(e.target as HTMLInputElement).value)); render(); });
   su.players.forEach((_, i) => {
+    if (i === 0) return;
     onId(`mp-name-${i}`, "change", (e) => { su.players[i]!.name = (e.target as HTMLInputElement).value.trim() || `P${i + 1}`; });
-    onId(`mp-type-${i}`, "change", (e) => { su.players[i]!.ai = (e.target as HTMLSelectElement).value || null; render(); });
-    onId(`mp-assist-${i}`, "change", (e) => { su.players[i]!.assisted = (e.target as HTMLInputElement).checked; render(); });
+    onId(`mp-type-${i}`, "change", (e) => { su.players[i]!.ai = (e.target as HTMLSelectElement).value; });
     onId(`mp-rm-${i}`, "click", () => { su.players.splice(i, 1); render(); });
   });
-  onId("mp-add", "click", () => { su.players.push({ name: seatName(su.players.length), assisted: false, ai: null }); render(); });
-  onId("mp-add-ai", "click", () => { su.players.push({ name: seatName(su.players.length), assisted: false, ai: "TAG" }); render(); });
+  onId("mp-add-ai", "click", () => { su.players.push({ name: seatName(su.players.length), assisted: false, ai: "rand" }); render(); });
   onId("mp-back", "click", () => { S.screen = "home"; render(); });
   onId("mp-online", "click", () => { void goOnline(); });
   onId("mp-start", "click", () => {
-    const names = su.players.map((p, i) => p.name.trim() || `P${i + 1}`);
-    const t = MP.createAuthTable(`local-${Date.now()}`, { uid: "u0", name: names[0]! }, {
-      name: `${tier.name} Room`, blinds: { sb: su.sb, bb: su.bb }, startingStack: su.buyIn, maxSeats: su.players.length,
-    });
-    MP.setAssisted(t, "u0", 0, su.players[0]!.assisted);
-    for (let i = 1; i < su.players.length; i++) {
-      MP.sit(t, `u${i}`, names[i]!, i);
-      MP.setAssisted(t, "u0", i, su.players[i]!.assisted);
+    // A local room = you (hero) vs AI = exactly the Training engine. Launch the
+    // training table so it looks/sounds/animates identically — no pass-the-phone.
+    const n = su.players.length;
+    S.tableSize = n;
+    S.heroSeat = 0;
+    S.bbValue = su.bb; S.sbValue = su.sb;
+    S.stackBB = Math.max(2, Math.round(su.buyIn / su.bb));
+    S.currency = "chips";
+    S.archetype = "TAG";
+    S.seatTypes = new Map();
+    S.seatNames = su.players.map((p, i) => p.name.trim() || (i === 0 ? "You" : `P${i + 1}`));
+    for (let i = 1; i < n; i++) {
+      let a = su.players[i]!.ai;
+      if (!a || a === "rand") a = AI_ARCHES[Math.floor(Math.random() * AI_ARCHES.length)]!;
+      S.seatTypes.set(i, a);
     }
-    MP.startHand(t, () => Math.random());
-    S.mp.table = t; S.mp.reveal = false; S.mp.rec = null; S.screen = "mp-table"; render();
+    S.mode = "training";
+    S.trainingOver = null;
+    S.trainingStartSize = n;
+    S.dealerSeat = -1;
+    S.handNumber = 0;
+    S.seatStacks = [];
+    S.streak = 0;
+    startTrainingHand();
   });
 }
 
@@ -3512,10 +3536,13 @@ function renderAgeGate(): void {
         <p class="age-fine">Chips are <strong>play-money only</strong> — no cash value, never cashable or redeemable. This is a poker trainer and social game, <strong>not gambling</strong>. No real-money wagering, ever.</p>
         <button class="start-btn" id="age-yes">I'm 18 or older — enter</button>
         <button class="hdr-btn" id="age-no" style="width:100%;padding:12px;margin-top:8px">Under 18 — leave</button>
+        <p class="age-agree">By entering you confirm you're 18+ and agree to the <button class="age-link" id="age-terms">Terms</button> &amp; <button class="age-link" id="age-explain">How it works</button>.</p>
       </div>
     </div>`;
   onId("age-yes", "click", () => { try { localStorage.setItem("mce-age-ok", "1"); } catch { /* */ } S.screen = "home"; render(); });
   onId("age-no", "click", () => { app.innerHTML = `<div class="age-gate"><div class="age-card"><div class="age-mark">🚫</div><p class="age-lead">Come back when you're 18.</p></div></div>`; });
+  onId("age-terms", "click", () => { _docReturn = "home"; S.screen = "legal"; render(); }); // readable pre-confirm; Back → gate
+  onId("age-explain", "click", () => { _docReturn = "home"; S.screen = "explainer"; render(); });
 }
 
 // Cosmetics — the ONLY chip sink (play-money in, in-app flair out; never anything
@@ -3786,7 +3813,21 @@ async function goOnline(): Promise<void> {
     if (_onlineUnsub) _onlineUnsub();
     _onlineUnsub = await FB.subscribeOnline((list) => { S.mp.online = list; if (S.screen === "mp-lobby") render(); });
   } catch (e) {
-    S.mp.authErr = (e as Error)?.message ?? "Sign-in failed";
+    const code = (e as { code?: string })?.code ?? "";
+    // Map the common Firebase setup errors to a clear, actionable message —
+    // "The requested action is invalid" almost always = the Google provider isn't
+    // enabled, or this domain isn't authorized, in the Firebase console.
+    if (code === "auth/operation-not-allowed" || /requested action is invalid|invalid/i.test((e as Error)?.message ?? "")) {
+      S.mp.authErr = "Google sign-in isn't switched on yet. In the Firebase console: Authentication → Sign-in method → enable Google, and add xynkro.github.io under Authorized domains.";
+    } else if (code === "auth/unauthorized-domain") {
+      S.mp.authErr = "This domain isn't authorized. Add xynkro.github.io in Firebase → Authentication → Settings → Authorized domains.";
+    } else if (code === "auth/popup-closed-by-user" || code === "auth/cancelled-popup-request") {
+      S.mp.authErr = "Sign-in was cancelled.";
+    } else if (code === "auth/popup-blocked") {
+      S.mp.authErr = "Your browser blocked the sign-in popup — allow popups for this site and retry.";
+    } else {
+      S.mp.authErr = (e as Error)?.message ?? "Sign-in failed";
+    }
   } finally {
     S.mp.authBusy = false;
     render();

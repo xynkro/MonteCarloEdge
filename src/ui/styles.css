@@ -1176,6 +1176,8 @@ body::before {
 .age-card h1 b { display: block; color: var(--emerald); -webkit-text-fill-color: var(--emerald); }
 .age-lead { font-size: 16px; color: var(--text); margin: 0 0 10px; line-height: 1.45; }
 .age-fine { font-size: 12.5px; color: var(--muted); margin: 0 0 18px; line-height: 1.5; }
+.age-agree { font-size: 11px; color: var(--faint); margin: 14px 0 0; line-height: 1.5; }
+.age-link { background: none; border: none; color: var(--azure); font-size: 11px; cursor: pointer; text-decoration: underline; padding: 0; }
 
 /* ── Store ── */
 .store-bal { text-align: center; font-size: 15px; margin-bottom: 14px; }
@@ -1244,11 +1246,23 @@ body::before {
 .mp-score-row { display: flex; justify-content: space-between; font-size: 13px; font-weight: 700; padding: 3px 0; }
 
 /* ── Create Room ── */
-.buyin-slider { width: 100%; accent-color: var(--gold-2); height: 30px; cursor: pointer; }
-.buyin-ends { display: flex; justify-content: space-between; font-size: 10px; color: var(--muted); margin-top: 1px; }
-#room-tier .seg-btn { flex: 1; line-height: 1.25; padding: 9px 4px; }
-#room-tier .seg-btn small { font-size: 10px; opacity: .8; font-weight: 700; }
-.mp-type { background: var(--glass); border: 1px solid var(--glass-edge); border-radius: 9px; color: var(--text); font-size: 12px; font-weight: 700; padding: 8px 6px; max-width: 110px; }
+.room-stakes { gap: 7px; }
+.room-stakes .seg-btn { flex: 1; display: flex; flex-direction: column; gap: 3px; padding: 12px 4px; }
+.rs-name { font-size: 16px; font-weight: 800; }
+.rs-blinds { font-size: 11px; font-weight: 700; opacity: .8; }
+.buyin-value { font-family: var(--display); font-size: 28px; font-weight: 800; text-align: center; margin: 2px 0 10px; line-height: 1;
+  background: var(--gold-foil); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+.buyin-value span { font-size: 14px; color: var(--muted); -webkit-text-fill-color: var(--muted); font-weight: 700; }
+.buyin-slider { -webkit-appearance: none; appearance: none; width: 100%; height: 9px; border-radius: 999px; outline: none; cursor: pointer;
+  background: linear-gradient(90deg, var(--gold-2), var(--gold-3)); }
+.buyin-slider::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 28px; height: 28px; border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #fff7da, var(--gold-2)); border: 2px solid #fff; box-shadow: 0 2px 9px rgba(0,0,0,.55); cursor: pointer; }
+.buyin-slider::-moz-range-thumb { width: 26px; height: 26px; border-radius: 50%; background: var(--gold-2); border: 2px solid #fff; cursor: pointer; }
+.buyin-ends { display: flex; justify-content: space-between; font-size: 10.5px; color: var(--muted); margin-top: 4px; }
+.mp-prow.you-row { background: rgba(0,214,143,.08); border: 1px solid rgba(0,214,143,.3); border-radius: 11px; padding: 10px 13px; align-items: center; }
+.you-tag { font-weight: 800; font-size: 14px; color: var(--emerald); }
+.mp-prow.you-row .hint { margin-left: auto; text-align: right; }
+.mp-type { background: var(--glass); border: 1px solid var(--glass-edge); border-radius: 9px; color: var(--text); font-size: 13px; font-weight: 700; padding: 9px 8px; flex: 1; max-width: 150px; }
 .mp-aibadge { font-size: 10px; font-weight: 800; color: var(--azure); background: rgba(74,168,255,.15); border: 1px solid rgba(74,168,255,.4); border-radius: 6px; padding: 4px 8px; }
 .mp-addrow { display: flex; gap: 8px; margin-top: 6px; }
 .mp-addrow .hdr-btn { flex: 1; }
