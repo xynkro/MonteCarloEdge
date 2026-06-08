@@ -3,7 +3,7 @@ import { type Combo, Range } from "../engine/range.js";
 import { mulberry32 } from "../engine/rng.js";
 import { GameState, type ActionType } from "../engine/game-state.js";
 import { getPositions, positionsForButton, getRfiRange, getBbDefenseRange } from "../engine/charts/index.js";
-import { estimateVillainRange, credibleRep, scoreRunout, sizeClass, repsCapped } from "../engine/opponent.js";
+import { estimateVillainRange, credibleRep, repIsPolar, scoreRunout, sizeClass, repsCapped } from "../engine/opponent.js";
 import { solveSubgame, type RiverResult, type ActionFreq } from "../engine/gto/river-solver.js";
 import { solvePushFold, handClassKey, type PushFoldResult } from "../engine/gto/pushfold.js";
 import { allCombos, topSlice } from "../engine/hand-strength.js";
@@ -148,7 +148,7 @@ interface AppState {
   boardRead: {
     equity: number | null; made: Threat[]; draws: Threat[];
     // "Story" reads: what aggression represents on this board (no hole-card peeking).
-    heroStory: { label: string; cred: string } | null;
+    heroStory: { label: string; cred: string; betToRep: string; capped: boolean } | null;
     villainStory: { label: string; bluffPct: number; note: string; lean: "call" | "careful" | "raise" | ""; size: string } | null;
   } | null;
   boardReadKey: string;
@@ -1222,7 +1222,10 @@ function updateRec(): void {
 function updateBoardRead(): void {
   if (!S.gs || !S.heroCards || S.gs.board.length < 3) { S.boardRead = null; S.boardReadKey = ""; return; }
   const vils = activeVillains();
-  const key = `${S.gs.board.join(",")}|${vils.join(",")}`;
+  // Key includes the action count + current bet so the read (esp. the villain
+  // story + range-narrowed equity) refreshes when someone bets/raises, not just
+  // when the board changes.
+  const key = `${S.gs.board.join(",")}|${vils.join(",")}|${S.gs.actions.length}|${S.gs.currentBet}`;
   if (key === S.boardReadKey && S.boardRead) return;
   S.boardReadKey = key;
 
@@ -1259,7 +1262,10 @@ function updateBoardRead(): void {
   const heroCapped = heroPost.some((a, i) => a.type === "check" && heroPost.slice(i + 1).some(b => b.type === "bet" || b.type === "raise"));
   const heroCred = heroCapped ? "but you checked earlier — looks capped"
     : repBacked ? "the board backs it" : "thin — board doesn't fully back it yet";
-  const heroStory = { label: rep.label, cred: heroCred };
+  // Size that credibly tells this story: a polar rep (flush/straight/trips+) needs
+  // a pot-ish bet; a merged rep (pair+) ~half-pot. Concrete "bet X to rep Y".
+  const betToRep = chips((repIsPolar(rep.rep) ? 1.0 : 0.55) * Math.max(S.gs.bb, S.gs.pot));
+  const heroStory = { label: rep.label, cred: heroCred, betToRep, capped: heroCapped };
   // Villain's story: the seat that has bet/raised postflop this hand. Mirrors the
   // engine's bluff-catch read (decision.ts 3A) — the runout × the TYPE tells you
   // how bluff-heavy his line is: a BRICK barreled by a bluffy/incoherent type →
@@ -1646,30 +1652,29 @@ function renderGame(): void {
   // (within a realistic range) could hold that BEATS YOU now, and what's DRAWING
   // to beat you on the next card. Draws die automatically when no card completes
   // them and on the river. Replaces the old nuts / 2nd-nuts / nuts-out grid. ──
-  let boardReadHtml = "";
+  // Compact read: "Beats you" boxes flank the LEFT of the hero cards, "Drawing"
+  // the RIGHT, freeing the row below for the story lines (Villain reps / Bet-to-rep).
+  let beatsFlank = "", drawsFlank = "", storyLinesHtml = "";
   if (S.boardRead && !S.handOver && !S.trainingOver) {
-    const made = S.boardRead.made;
-    const draws = S.boardRead.draws;
-    const chip = (t: Threat) => `<span class="threat">${t.label}</span>`;
-    let beatsRow: string;
-    if (made.length === 0) {
-      beatsRow = `<div class="read-row nuts"><span class="read-lead">You're ahead</span><span class="threat ok">Nothing beats you yet</span></div>`;
-    } else {
-      beatsRow = `<div class="read-row beats"><span class="read-lead">Beats you</span>${made.map(chip).join("")}</div>`;
-    }
-    const drawsRow = draws.length
-      ? `<div class="read-row draws"><span class="read-lead">Drawing</span>${draws.map(chip).join("")}</div>`
-      : "";
-    // "Story" rows — what your aggression represents, and what the villain's reps.
+    const made = S.boardRead.made.slice(0, 2);
+    const draws = S.boardRead.draws.slice(0, 2);
+    const tag = (t: Threat) => `<span class="flank-chip">${t.label}</span>`;
+    beatsFlank = made.length
+      ? `<div class="read-flank beats"><span class="flank-lead">Beats you</span>${made.map(tag).join("")}</div>`
+      : `<div class="read-flank ahead"><span class="flank-lead">Beats you</span><span class="flank-chip ok">none yet</span></div>`;
+    drawsFlank = draws.length
+      ? `<div class="read-flank draws"><span class="flank-lead">Drawing</span>${draws.map(tag).join("")}</div>`
+      : `<div class="read-flank draws dim"><span class="flank-lead">Drawing</span><span class="flank-chip">—</span></div>`;
     const hs = S.boardRead.heroStory;
     const vs = S.boardRead.villainStory;
-    const heroStoryRow = hs
-      ? `<div class="read-row story"><span class="read-lead">Your bet reps</span><span class="threat story-rep">${hs.label}</span><span class="story-cred">${hs.cred}</span></div>`
+    const leanWord = (l: string) => l === "call" ? "call lighter" : l === "careful" ? "be careful" : l === "raise" ? "raise-bluff spot" : "";
+    const vilLine = vs
+      ? `<div class="story-line vil ${vs.lean ? "lean-" + vs.lean : ""}">🎭 Villain reps <b>${vs.label}</b> · ~${vs.bluffPct}% bluff${vs.lean ? ` · ${leanWord(vs.lean)}` : ""}</div>`
       : "";
-    const vilStoryRow = vs
-      ? `<div class="read-row story vil ${vs.lean ? "lean-" + vs.lean : ""}"><span class="read-lead">Villain reps</span><span class="threat story-rep">${vs.label}</span><span class="story-cred">~${vs.bluffPct}% bluffs · ${vs.note}</span></div>`
+    const heroLine = hs
+      ? `<div class="story-line you ${hs.capped ? "capped" : ""}" title="${hs.cred}">🂠 Rep <b>${hs.label}</b> → bet <b>${hs.betToRep}</b>${hs.capped ? ` <span class="story-warn">capped</span>` : ""}</div>`
       : "";
-    boardReadHtml = `<div class="read-panel">${beatsRow}${drawsRow}${vilStoryRow}${heroStoryRow}</div>`;
+    storyLinesHtml = (vilLine || heroLine) ? `<div class="story-lines">${vilLine}${heroLine}</div>` : "";
   }
 
   // ── Recommendation ──
@@ -1818,9 +1823,9 @@ function renderGame(): void {
 
           <div class="hero-area">
             ${handSummaryHtml}
-            <div class="hero-cards">${heroHtml}</div>
+            <div class="hero-read-row">${beatsFlank}<div class="hero-cards">${heroHtml}</div>${drawsFlank}</div>
             ${gs ? `<div class="pot-line"><span class="table-pot">${chips(gs.pot)}</span><span class="pot-street">${gs.street.toUpperCase()}</span></div>` : ""}
-            ${boardReadHtml}
+            ${storyLinesHtml}
             ${recHtml}
             ${canSolveGto() ? `<button class="gto-btn" id="gto-solve">${S.gtoSolving ? "Solving…" : "🧠 Solve GTO"}</button>` : ""}
           </div>
