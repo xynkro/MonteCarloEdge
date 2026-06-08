@@ -3041,3 +3041,46 @@ if ("serviceWorker" in navigator) {
 
 loadPlayerStats();
 render();
+initCardTilt();
+
+// Interactive 3D tilt on the hero hole cards: move/drag a pointer over them and
+// they rotate in space toward it with a moving glare (holographic-card feel).
+// Attached once on document (survives morphdom; cards are targeted live by
+// selector). Pure CSS-variable writes — no per-render wiring, no 3D engine.
+function initCardTilt(): void {
+  let queued = false;
+  const setVars = (px: number, py: number): boolean => {
+    const wrap = document.querySelector<HTMLElement>(".hero-cards");
+    if (!wrap) return false;
+    const r = wrap.getBoundingClientRect();
+    if (!r.width || !r.height) return false;
+    const pad = 48; // a little grace so it engages just before you touch them
+    if (px < r.left - pad || px > r.right + pad || py < r.top - pad || py > r.bottom + pad) return false;
+    const nx = Math.max(-1, Math.min(1, (px - (r.left + r.width / 2)) / (r.width / 2)));
+    const ny = Math.max(-1, Math.min(1, (py - (r.top + r.height / 2)) / (r.height / 2)));
+    wrap.querySelectorAll<HTMLElement>(".hero-card").forEach((c) => {
+      c.style.setProperty("--ry", (nx * 16).toFixed(1) + "deg");
+      c.style.setProperty("--rx", (-ny * 16).toFixed(1) + "deg");
+      c.style.setProperty("--gx", (nx * 34).toFixed(0) + "px");
+      c.style.setProperty("--gy", (ny * 34).toFixed(0) + "px");
+      c.style.setProperty("--glare", "0.34");
+    });
+    return true;
+  };
+  const reset = (): void => {
+    document.querySelectorAll<HTMLElement>(".hero-card").forEach((c) => {
+      c.style.setProperty("--rx", "0deg");
+      c.style.setProperty("--ry", "0deg");
+      c.style.setProperty("--glare", "0");
+    });
+  };
+  const onMove = (px: number, py: number): void => {
+    if (queued) return;
+    queued = true;
+    requestAnimationFrame(() => { queued = false; if (!setVars(px, py)) reset(); });
+  };
+  document.addEventListener("pointermove", (e) => onMove(e.clientX, e.clientY), { passive: true });
+  document.addEventListener("pointerdown", (e) => onMove(e.clientX, e.clientY), { passive: true });
+  document.addEventListener("pointerup", reset);
+  document.addEventListener("pointercancel", reset);
+}
