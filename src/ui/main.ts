@@ -375,6 +375,7 @@ function fmtMoney(v: number): string {
 type NumpadTarget = "sb" | "bb" | "stack" | "seatstack";
 
 function render(): void {
+  if (!ageConfirmed()) { renderAgeGate(); return; }
   if (S.screen === "home") renderHome();
   else if (S.screen === "profile") renderProfile();
   else if (S.screen === "settings") renderSettings();
@@ -3496,6 +3497,26 @@ function loadProfile(): void {
   bustRescue();
 }
 function saveProfile(): void { try { localStorage.setItem("mce-profile", JSON.stringify(S.profile)); } catch { /* quota */ } }
+
+// One-time 18+ age gate (flagged by both the monetization council AND the legal
+// review as a defensibility table-stake for a poker-themed app).
+function ageConfirmed(): boolean { try { return localStorage.getItem("mce-age-ok") === "1"; } catch { return true; } }
+function renderAgeGate(): void {
+  cancelVillainTimer();
+  app.innerHTML = `
+    <div class="age-gate">
+      <div class="age-card">
+        <div class="age-mark">🂡</div>
+        <h1>MONTECARLO<b>EDGE</b></h1>
+        <p class="age-lead">You must be <strong>18 or older</strong> (or your local age of majority) to use MonteCarloEdge.</p>
+        <p class="age-fine">Chips are <strong>play-money only</strong> — no cash value, never cashable or redeemable. This is a poker trainer and social game, <strong>not gambling</strong>. No real-money wagering, ever.</p>
+        <button class="start-btn" id="age-yes">I'm 18 or older — enter</button>
+        <button class="hdr-btn" id="age-no" style="width:100%;padding:12px;margin-top:8px">Under 18 — leave</button>
+      </div>
+    </div>`;
+  onId("age-yes", "click", () => { try { localStorage.setItem("mce-age-ok", "1"); } catch { /* */ } S.screen = "home"; render(); });
+  onId("age-no", "click", () => { app.innerHTML = `<div class="age-gate"><div class="age-card"><div class="age-mark">🚫</div><p class="age-lead">Come back when you're 18.</p></div></div>`; });
+}
 
 // Cosmetics — the ONLY chip sink (play-money in, in-app flair out; never anything
 // of value, never the killed chips→goods cash-out).

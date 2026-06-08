@@ -1168,6 +1168,15 @@ body::before {
 .about-links { margin-top: 8px; font-size: 13px; }
 .about-links a { color: var(--azure); text-decoration: none; }
 
+/* ── 18+ age gate ── */
+.age-gate { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; padding: 24px; background: radial-gradient(120% 90% at 50% 0%, #0d1626, var(--bg)); z-index: 100; }
+.age-card { max-width: 380px; text-align: center; }
+.age-mark { font-size: 44px; margin-bottom: 4px; }
+.age-card h1 { font-family: var(--display); font-size: 30px; font-weight: 800; letter-spacing: -1px; line-height: 1; background: var(--gold-foil); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; margin: 0 0 18px; }
+.age-card h1 b { display: block; color: var(--emerald); -webkit-text-fill-color: var(--emerald); }
+.age-lead { font-size: 16px; color: var(--text); margin: 0 0 10px; line-height: 1.45; }
+.age-fine { font-size: 12.5px; color: var(--muted); margin: 0 0 18px; line-height: 1.5; }
+
 /* ── Store ── */
 .store-bal { text-align: center; font-size: 15px; margin-bottom: 14px; }
 .store-bal strong { font-size: 18px; background: var(--gold-foil); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
