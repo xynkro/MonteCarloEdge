@@ -59,7 +59,9 @@ interface UndoSnapshot {
 }
 
 interface AppState {
-  screen: "setup" | "game" | "stats" | "leaks" | "mp-setup" | "mp-table" | "mp-lobby";
+  screen: "home" | "setup" | "game" | "stats" | "leaks" | "mp-setup" | "mp-table" | "mp-lobby" | "profile";
+  // Player profile (local-first; syncs name/avatar to Firestore when signed in).
+  profile: { nickname: string; avatar: string; chips: number };
   // Multiplayer / benchmark (Phase 0 hot-seat + Phase 1 online lobby).
   mp: {
     table: AuthTable | null;
@@ -168,7 +170,8 @@ interface AppState {
 }
 
 const S: AppState = {
-  screen: "setup",
+  screen: "home",
+  profile: { nickname: "You", avatar: "", chips: 10000 },
   mp: {
     table: null,
     setup: {
@@ -367,7 +370,9 @@ function fmtMoney(v: number): string {
 type NumpadTarget = "sb" | "bb" | "stack" | "seatstack";
 
 function render(): void {
-  if (S.screen === "setup") renderSetup();
+  if (S.screen === "home") renderHome();
+  else if (S.screen === "profile") renderProfile();
+  else if (S.screen === "setup") renderSetup();
   else if (S.screen === "stats") renderStats();
   else if (S.screen === "leaks") renderLeaks();
   else if (S.screen === "mp-setup") renderMpSetup();
@@ -957,6 +962,7 @@ function renderSetup(): void {
       </div>
 
       <div class="setup-footer">
+        <button class="hdr-btn" id="home-btn">🏠 Home</button>
         <button class="hdr-btn" id="view-stats">Session Stats</button>
         <button class="hdr-btn" id="sound-toggle">${isSoundEnabled() ? "🔊 Sound On" : "🔇 Sound Off"}</button>
       </div>
@@ -1021,6 +1027,7 @@ function renderSetup(): void {
   onId("view-stats", "click", () => {
     S.screen = "stats"; render();
   });
+  onId("home-btn", "click", () => { S.screen = "home"; render(); });
   onId("start-mp", "click", () => { S.screen = "mp-setup"; render(); });
 }
 
@@ -3300,6 +3307,93 @@ function renderMpTable(): void {
   });
 }
 
+/* ═══════════════════ HOME HUB + PROFILE ═══════════════════ */
+
+const PRESET_AVATARS = ["🦈", "🐺", "🦊", "🐉", "🦁", "🃏", "👑", "🤠", "🥷", "🐯", "🦅", "🐊", "🎩", "💎", "🔥", "🐧", "🦉", "🐸", "🦄", "👽"];
+function hashHue(s: string): number { let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0; return h % 360; }
+function avatarChip(av: string, seed: string, size = 40): string {
+  const dim = `width:${size}px;height:${size}px;font-size:${Math.round(size * 0.5)}px`;
+  if (av && av !== "auto") return `<span class="avatar" style="${dim}">${av}</span>`;
+  const mono = (seed || "?").trim().charAt(0).toUpperCase() || "?";
+  return `<span class="avatar identicon" style="${dim};background:hsl(${hashHue(seed || "x")} 55% 42%)">${mono}</span>`;
+}
+function loadProfile(): void {
+  try {
+    const p = JSON.parse(localStorage.getItem("mce-profile") || "null");
+    if (p && typeof p === "object") {
+      S.profile = { nickname: p.nickname || "You", avatar: p.avatar || "", chips: typeof p.chips === "number" ? p.chips : 10000 };
+    }
+  } catch { /* default */ }
+}
+function saveProfile(): void { try { localStorage.setItem("mce-profile", JSON.stringify(S.profile)); } catch { /* quota */ } }
+
+function renderHome(): void {
+  cancelVillainTimer();
+  const p = S.profile;
+  app.innerHTML = `
+    <div class="home">
+      <div class="home-header">
+        <div class="brand"><img class="brand-logo" src="${import.meta.env.BASE_URL}logo.png" alt="" onerror="this.style.display='none'" /><h1 style="font-size:20px;margin:0;line-height:1.15">MonteCarloEdge<small style="display:block;font-size:10.5px;color:var(--muted);font-weight:600;letter-spacing:.4px">poker GTO + play</small></h1></div>
+        <button class="profile-chip" id="home-profile">${avatarChip(p.avatar, p.nickname, 34)}<span class="pc-meta"><span class="pc-name">${p.nickname}</span><span class="pc-chips">🪙 ${p.chips.toLocaleString()}</span></span></button>
+      </div>
+      <div class="home-tiles">
+        <button class="home-tile" id="home-train"><span class="ht-ico">🎯</span><span class="ht-t">Train</span><span class="ht-d">Solo vs the GTO AI</span></button>
+        <button class="home-tile" id="home-online"><span class="ht-ico">🌐</span><span class="ht-t">Play Online</span><span class="ht-d">Sign in · see who's on</span></button>
+        <button class="home-tile" id="home-pass"><span class="ht-ico">👥</span><span class="ht-t">Pass &amp; Play</span><span class="ht-d">Benchmark on one device</span></button>
+        <button class="home-tile" id="home-profile2"><span class="ht-ico">👤</span><span class="ht-t">Profile</span><span class="ht-d">Avatar · name · chips</span></button>
+      </div>
+      <button class="hdr-btn" id="home-stats" style="width:100%;padding:13px;margin-top:10px">📊 Stats / Leak Report</button>
+    </div>`;
+  onId("home-profile", "click", () => { S.screen = "profile"; render(); });
+  onId("home-profile2", "click", () => { S.screen = "profile"; render(); });
+  onId("home-train", "click", () => { S.screen = "setup"; render(); });
+  onId("home-online", "click", () => { void goOnline(); });
+  onId("home-pass", "click", () => {
+    if (S.mp.setup.players[0]) S.mp.setup.players[0]!.name = S.profile.nickname;
+    S.screen = "mp-setup"; render();
+  });
+  onId("home-stats", "click", () => { S.screen = "stats"; render(); });
+}
+
+function renderProfile(): void {
+  cancelVillainTimer();
+  const p = S.profile;
+  const last = +(localStorage.getItem("mce-dailychips") || 0);
+  const canClaim = Date.now() - last > 20 * 3600 * 1000;
+  const packs: [string, string][] = [["50,000", "$4.99"], ["150,000", "$9.99"], ["500,000", "$24.99"]];
+  app.innerHTML = `
+    <div class="setup">
+      <h1>👤 Profile</h1>
+      <div style="text-align:center;margin-bottom:10px">${avatarChip(p.avatar, p.nickname, 76)}</div>
+      <div class="field"><label>Nickname</label><input class="mp-num" id="pf-nick" maxlength="14" value="${p.nickname.replace(/"/g, "&quot;")}"/></div>
+      <div class="field"><label>Avatar</label>
+        <div class="avatar-grid">
+          <button class="avatar-pick ${!p.avatar ? "sel" : ""}" id="pf-av-auto" title="Auto identicon">${avatarChip("", p.nickname, 38)}</button>
+          ${PRESET_AVATARS.map((a) => `<button class="avatar-pick ${p.avatar === a ? "sel" : ""}" data-av="${a}">${a}</button>`).join("")}
+        </div>
+      </div>
+      <div class="mp-scoreboard">
+        <div class="mp-score-row"><span>🪙 Chip balance</span><span class="g-ok">${p.chips.toLocaleString()}</span></div>
+        <button class="start-btn" id="pf-daily" style="margin-top:8px;${canClaim ? "" : "opacity:.5"}">${canClaim ? "🎁 Claim daily free chips (+5,000)" : "🎁 Claimed — come back tomorrow"}</button>
+      </div>
+      <div class="field" style="margin-top:12px"><label>Buy chips</label>
+        <div class="chip-store">
+          ${packs.map(([c, pr]) => `<button class="chip-pack" disabled>🪙 ${c}<br><span>${pr}</span></button>`).join("")}
+        </div>
+        <span class="hint">Purchases unlock with Stripe (next phase). Chips are play-money — <strong>no cash value, never withdrawable</strong>.</span>
+      </div>
+      <div class="hint" style="text-align:center;margin-top:8px">${S.mp.auth ? `✓ Synced to your Google account (${S.mp.auth.name})` : "Sign in under Play Online to sync your profile across devices."}</div>
+      <button class="hdr-btn" id="pf-back" style="width:100%;padding:12px;margin-top:8px">Back to Home</button>
+    </div>`;
+  onId("pf-nick", "change", (e) => { S.profile.nickname = (e.target as HTMLInputElement).value.trim() || "You"; saveProfile(); render(); });
+  onId("pf-av-auto", "click", () => { S.profile.avatar = ""; saveProfile(); render(); });
+  app.querySelectorAll("[data-av]").forEach((b) => onEl(b, "click", () => { S.profile.avatar = (b as HTMLElement).dataset.av!; saveProfile(); render(); }));
+  onId("pf-daily", "click", () => {
+    if (canClaim) { S.profile.chips += 5000; saveProfile(); try { localStorage.setItem("mce-dailychips", String(Date.now())); } catch { /* */ } render(); }
+  });
+  onId("pf-back", "click", () => { S.screen = "home"; render(); });
+}
+
 // ── Online (Phase 1): Google sign-in + presence lobby ──
 let _onlineUnsub: (() => void) | null = null;
 
@@ -3364,6 +3458,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
+loadProfile();
 loadPlayerStats();
 render();
 initCardTilt();
