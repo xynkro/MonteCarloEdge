@@ -33,7 +33,8 @@ import { saveHand, getSessionHands, clearHistory, computeStats, type HandRecord,
 import { emptyStats, observeHand, blendProfile, playerRead, playerTag, type PlayerStats } from "../engine/player-model.js";
 import * as MP from "../mp/mp-engine.js";
 import type { AuthTable } from "../mp/mp-engine.js";
-import type { MPAction } from "../mp/types.js";
+import type { MPAction, MPUser } from "../mp/types.js";
+import * as FB from "../mp/firebase-adapter.js";
 import { playSound, setSoundEnabled, isSoundEnabled } from "./sound.js";
 
 const RANKS = "23456789TJQKA";
@@ -58,13 +59,17 @@ interface UndoSnapshot {
 }
 
 interface AppState {
-  screen: "setup" | "game" | "stats" | "leaks" | "mp-setup" | "mp-table";
-  // Multiplayer / benchmark (Phase 0: local hot-seat, single tab).
+  screen: "setup" | "game" | "stats" | "leaks" | "mp-setup" | "mp-table" | "mp-lobby";
+  // Multiplayer / benchmark (Phase 0 hot-seat + Phase 1 online lobby).
   mp: {
     table: AuthTable | null;
     setup: { players: { name: string; assisted: boolean }[]; sb: number; bb: number; stack: number };
     reveal: boolean;          // hot-seat: active player's hole cards revealed
     rec: Recommendation | null;
+    auth: MPUser | null;      // signed-in Google user (Phase 1)
+    online: { uid: string; name: string }[]; // live presence list
+    authBusy: boolean;        // sign-in in flight
+    authErr: string;
   };
   mode: "live" | "training";
   sessionStart: number;
@@ -172,6 +177,10 @@ const S: AppState = {
     },
     reveal: false,
     rec: null,
+    auth: null,
+    online: [],
+    authBusy: false,
+    authErr: "",
   },
   mode: "live",
   sessionStart: Date.now(),
@@ -362,6 +371,7 @@ function render(): void {
   else if (S.screen === "stats") renderStats();
   else if (S.screen === "leaks") renderLeaks();
   else if (S.screen === "mp-setup") renderMpSetup();
+  else if (S.screen === "mp-lobby") renderMpLobby();
   else if (S.screen === "mp-table") renderMpTable();
   else renderGame();
   if (S.pickerOpen) renderPicker();
@@ -3173,7 +3183,9 @@ function renderMpSetup(): void {
         <div class="field"><label>Big blind</label><input class="mp-num" id="mp-bb" type="number" min="2" value="${su.bb}"/></div>
       </div>
       <div class="field"><label>Starting chips (each)</label><input class="mp-num" id="mp-stack" type="number" min="20" step="20" value="${su.stack}"/></div>
-      <button class="start-btn" id="mp-start" style="background:linear-gradient(135deg,#f59e0b,#b45309);color:#fff">START TABLE</button>
+      <button class="start-btn" id="mp-start" style="background:linear-gradient(135deg,#f59e0b,#b45309);color:#fff">START PASS-AND-PLAY TABLE</button>
+      <button class="start-btn" id="mp-online" style="background:linear-gradient(135deg,#4285F4,#1a73e8);color:#fff;margin-top:8px">🌐 Play Online — Sign in with Google</button>
+      <span class="hint" style="text-align:center;display:block">Online: see who's on, deal friends in from their own phones. (Networked hands are the next phase — login + lobby are live now.)</span>
       <button class="hdr-btn" id="mp-back" style="width:100%;padding:12px;margin-top:6px">Back</button>
     </div>`;
 
@@ -3187,6 +3199,7 @@ function renderMpSetup(): void {
   onId("mp-bb", "change", (e) => { su.bb = Math.max(2, +(e.target as HTMLInputElement).value || 2); });
   onId("mp-stack", "change", (e) => { su.stack = Math.max(20, +(e.target as HTMLInputElement).value || 200); });
   onId("mp-back", "click", () => { S.screen = "setup"; render(); });
+  onId("mp-online", "click", () => { void goOnline(); });
   onId("mp-start", "click", () => {
     const names = su.players.map((p, i) => p.name.trim() || `P${i + 1}`);
     const t = MP.createAuthTable(`local-${Date.now()}`, { uid: "u0", name: names[0]! }, {
@@ -3285,6 +3298,61 @@ function renderMpTable(): void {
     const seat = ps.seats[ps.toAct]!;
     doAct({ type: ps.currentBet > 0 ? "raise" : "bet", amount: seat.chips + seat.bet });
   });
+}
+
+// ── Online (Phase 1): Google sign-in + presence lobby ──
+let _onlineUnsub: (() => void) | null = null;
+
+async function goOnline(): Promise<void> {
+  if (S.mp.authBusy) return;
+  S.mp.authBusy = true; S.mp.authErr = ""; S.screen = "mp-lobby"; render();
+  try {
+    const user = await FB.signInWithGoogle();
+    S.mp.auth = user;
+    await FB.startPresence(user);
+    if (_onlineUnsub) _onlineUnsub();
+    _onlineUnsub = await FB.subscribeOnline((list) => { S.mp.online = list; if (S.screen === "mp-lobby") render(); });
+  } catch (e) {
+    S.mp.authErr = (e as Error)?.message ?? "Sign-in failed";
+  } finally {
+    S.mp.authBusy = false;
+    render();
+  }
+}
+
+async function goOffline(): Promise<void> {
+  if (_onlineUnsub) { _onlineUnsub(); _onlineUnsub = null; }
+  await FB.signOutUser().catch(() => {});
+  S.mp.auth = null; S.mp.online = [];
+}
+
+function renderMpLobby(): void {
+  cancelVillainTimer();
+  const u = S.mp.auth;
+  const body = !u
+    ? (S.mp.authBusy
+        ? `<div class="mp-result">Opening Google sign-in…</div><span class="hint" style="text-align:center;display:block">Pick your Google account in the popup.</span>`
+        : `<div class="mp-result" style="color:var(--red)">${S.mp.authErr || "Not signed in."}</div>
+           <button class="start-btn" id="lobby-retry" style="background:linear-gradient(135deg,#4285F4,#1a73e8);color:#fff">Retry Google sign-in</button>
+           ${S.mp.authErr ? `<span class="hint" style="text-align:center;display:block">If this keeps failing: enable Google sign-in + add this domain in your Firebase console (see setup notes).</span>` : ""}`)
+    : `<div class="mp-result" style="color:var(--emerald)">✓ Signed in as ${u.name}</div>
+       <div class="mp-scoreboard">
+         <div class="hint">🟢 Online now (${S.mp.online.length})</div>
+         ${S.mp.online.length
+           ? S.mp.online.map((o) => `<div class="mp-score-row"><span>🟢 ${o.name}${o.uid === u.uid ? " (you)" : ""}</span></div>`).join("")
+           : `<div class="mp-score-row"><span class="hint">Just you so far — open this on another device & sign in to see them here.</span></div>`}
+       </div>
+       <span class="hint" style="text-align:center;display:block;margin-top:10px">🛠 Networked hands (deal friends in from their phones) land next phase — needs server-side dealing. Login + presence are live.</span>
+       <button class="hdr-btn" id="lobby-signout" style="width:100%;padding:12px;margin-top:8px">Sign out</button>`;
+  app.innerHTML = `
+    <div class="setup">
+      <h1>🌐 Online Lobby</h1>
+      ${body}
+      <button class="hdr-btn" id="lobby-back" style="width:100%;padding:12px;margin-top:6px">Back</button>
+    </div>`;
+  onId("lobby-retry", "click", () => { void goOnline(); });
+  onId("lobby-signout", "click", () => { void goOffline().then(render); });
+  onId("lobby-back", "click", () => { S.screen = "mp-setup"; render(); });
 }
 
 /* ═══════════════════ INIT ═══════════════════ */
