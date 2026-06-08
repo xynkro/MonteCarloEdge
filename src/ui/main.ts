@@ -133,6 +133,8 @@ interface AppState {
   bestStreak: number;
   flashVerdict: "ok" | "bad" | null;
   celebrate: boolean; // one-shot: hero won the pot → table glow
+  winnerSeat: number[] | null;   // seats that won the last hand (highlight); cleared on new hand
+  potFlyPending: number[] | null; // one-shot: play pot→winner chip travel after next render
   // Generic numpad (blinds / stack)
   numpadTarget: NumpadTarget | null;
   numpadSeat: number;
@@ -233,6 +235,8 @@ const S: AppState = {
   bestStreak: Number(localStorage.getItem("mce-beststreak") || 0),
   flashVerdict: null,
   celebrate: false,
+  winnerSeat: null,
+  potFlyPending: null,
   numpadTarget: null,
   numpadSeat: -1,
   numpadRaw: "",
@@ -1050,7 +1054,7 @@ function startHand(): void {
   S.allDealt = new Set();
   S.gs = null;
   S.rec = null;
-  S.handOver = false;
+  S.handOver = false; S.winnerSeat = null;
   S.handResult = "";
   S.showdownCards = new Map();
   S.allInPrompt = false;
@@ -1122,7 +1126,7 @@ function startTrainingHand(): void {
   const dealt: Card[] = [heroCards[0], heroCards[1], ...boardCards];
   for (const h of villainHands.values()) dealt.push(h[0], h[1]);
   S.allDealt = new Set(dealt);
-  S.handOver = false;
+  S.handOver = false; S.winnerSeat = null;
   S.handResult = "";
   S.showdownCards = new Map();
   S.allInPrompt = false;
@@ -1393,31 +1397,104 @@ function seatName(i: number): string { return S.seatNames[i] ?? `P${i + 1}`; }
 // Animate the current street's bet chips sliding into the pot. Spawns transient
 // chip elements on document.body (so the imminent re-render doesn't kill them),
 // reading live positions from the rendered .seat-bet tokens and the pot.
-function animateChipsToPot(): void {
-  // Chips converge to the middle of the felt (the board area).
-  const target = document.querySelector(".board-center") ?? document.querySelector(".poker-table");
-  const bets = [...document.querySelectorAll(".seat-bet")] as HTMLElement[];
-  if (!target || bets.length === 0) return;
-  const pr = target.getBoundingClientRect();
-  const tx = pr.left + pr.width / 2, ty = pr.top + pr.height / 2;
-  for (const b of bets) {
-    const r = b.getBoundingClientRect();
-    const x = r.left + r.width / 2, y = r.top + r.height / 2;
-    const chip = document.createElement("div");
-    chip.className = "fly-chip";
-    chip.style.left = `${x}px`;
-    chip.style.top = `${y}px`;
-    document.body.appendChild(chip);
-    setTimeout(() => { chip.style.transform = `translate(${tx - x}px, ${ty - y}px) scale(.45)`; chip.style.opacity = "0.15"; }, 16);
-    setTimeout(() => chip.remove(), 460);
-  }
+const reduceMotion = (): boolean =>
+  typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+interface Pt { x: number; y: number }
+const centerOf = (el: Element): Pt => { const r = el.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; };
+
+// Shared transient-chip spawner. Nodes live on document.body (position:fixed) so
+// the imminent morphdom re-render — which only touches #app — can't kill them.
+// transform/opacity ONLY (compositor) + reduced-motion guarded by the caller.
+function spawnChips(froms: Pt[], to: Pt, opts: { count?: number; cls?: string; stagger?: number; life?: number; spread?: number } = {}): void {
+  const { count = 2, cls = "", stagger = 32, life = 480, spread = 0 } = opts;
+  froms.forEach((f, fi) => {
+    for (let k = 0; k < count; k++) {
+      const chip = document.createElement("div");
+      chip.className = "fly-chip" + (cls ? " " + cls : "");
+      chip.style.left = `${f.x}px`;
+      chip.style.top = `${f.y - k * 3}px`;
+      document.body.appendChild(chip);
+      const delay = fi * stagger + k * 26;
+      const dx = to.x - f.x + (spread ? (Math.random() * 2 - 1) * spread : 0);
+      const dy = to.y - f.y + (spread ? (Math.random() * 2 - 1) * spread : 0);
+      requestAnimationFrame(() => {
+        chip.style.transition = `transform ${life}ms cubic-bezier(.34,1.3,.64,1) ${delay}ms, opacity ${life}ms ease-in ${delay}ms`;
+        chip.style.transform = `translate(${dx}px, ${dy}px) scale(.5)`;
+        chip.style.opacity = "0.1";
+      });
+      setTimeout(() => chip.remove(), life + delay + 80);
+    }
+  });
+}
+
+function pulsePot(): void {
   const potLine = document.querySelector(".pot-line");
-  if (potLine) {
+  if (potLine && !reduceMotion()) {
     potLine.classList.remove("pot-collect");
     void (potLine as HTMLElement).offsetWidth; // restart the animation
     potLine.classList.add("pot-collect");
   }
 }
+
+// Sweep every seat's street bet into the pot (street-end).
+function animateChipsToPot(): void {
+  pulsePot();
+  if (reduceMotion()) return;
+  const target = document.querySelector(".board-center") ?? document.querySelector(".poker-table");
+  const bets = [...document.querySelectorAll(".seat-bet")] as HTMLElement[];
+  if (!target || bets.length === 0) return;
+  spawnChips(bets.map(centerOf), centerOf(target), { count: 2 });
+}
+
+// A single seat's wager flies into the pot (per-action).
+function animateChipBet(seat: number): void {
+  pulsePot();
+  if (reduceMotion()) return;
+  const target = document.querySelector(".board-center") ?? document.querySelector(".poker-table");
+  const seatEl = document.querySelector(`.table-seat[data-seat="${seat}"] .seat-bet`)
+    ?? document.querySelector(`.table-seat[data-seat="${seat}"]`);
+  if (!target || !seatEl) return;
+  spawnChips([centerOf(seatEl)], centerOf(target), { count: 3 });
+}
+
+// The pot slides out to the winner(s) at showdown — the payoff moment.
+function animatePotToWinner(seats: number[]): void {
+  if (reduceMotion() || !seats.length) return;
+  const potEl = document.querySelector(".pot-line") ?? document.querySelector(".board-center");
+  if (!potEl) return;
+  const from = centerOf(potEl);
+  for (const seat of seats) {
+    const seatEl = document.querySelector(`.table-seat[data-seat="${seat}"]`);
+    if (!seatEl) continue;
+    spawnChips(Array.from({ length: 6 }, () => from), centerOf(seatEl), { count: 1, cls: "win", stagger: 42, life: 560, spread: 10 });
+  }
+}
+
+// Gold coins rain from the winning seat (celebration).
+function animateCoinShower(seat: number): void {
+  if (reduceMotion()) return;
+  const seatEl = document.querySelector(`.table-seat[data-seat="${seat}"]`);
+  if (!seatEl) return;
+  const c = centerOf(seatEl);
+  for (let i = 0; i < 10; i++) {
+    const coin = document.createElement("div");
+    coin.className = "fly-chip coin win";
+    coin.style.left = `${c.x + Math.sin(i * 1.7) * 26}px`;
+    coin.style.top = `${c.y}px`;
+    document.body.appendChild(coin);
+    const dx = (i % 2 ? 1 : -1) * (18 + i * 4), dy = 70 + (i % 3) * 28, delay = i * 38;
+    requestAnimationFrame(() => {
+      coin.style.transition = `transform .9s cubic-bezier(.4,.2,.5,1) ${delay}ms, opacity .9s ease-in ${delay}ms`;
+      coin.style.transform = `translate(${dx}px, ${dy}px) rotate(${dx * 2}deg)`;
+      coin.style.opacity = "0";
+    });
+    setTimeout(() => coin.remove(), 1000 + delay);
+  }
+}
+
+// Stash winners for the highlight + queue the one-shot pot→winner travel.
+function markWinners(w: number[]): void { S.winnerSeat = w.slice(); S.potFlyPending = w.slice(); }
 
 function avatarHtml(seat: number, isHero: boolean): string {
   const color = isHero ? "#00d68f" : AVATAR_COLORS[seat % AVATAR_COLORS.length]!;
@@ -1463,6 +1540,7 @@ function renderGame(): void {
       folded ? "folded" : "",
       active ? "active" : "",
       S.flashSeat === i ? "flash" : "",
+      S.winnerSeat?.includes(i) ? "winner" : "",
     ].filter(Boolean).join(" ");
 
     // Chips this player has wagered on the current street, shown on the felt
@@ -1503,11 +1581,12 @@ function renderGame(): void {
     // (instead of a separate box below). Above the chip for bottom-half seats.
     const sdc = !isHero && !folded ? S.showdownCards.get(i) : undefined;
     const showCards = (S.handOver || S.trainingOver) && sdc;
+    const winC = S.winnerSeat?.includes(i) ? "win" : (S.winnerSeat ? "lose" : "");
     const holeCards = showCards
-      ? `<div class="seat-cards ${top < 50 ? "below" : "above"}">${sdc!.map(c =>
-          `<span class="seat-hole ${isRed(c) ? "red" : ""}">${cardDisplay(c)}</span>`).join("")}</div>`
+      ? `<div class="seat-cards ${top < 50 ? "below" : "above"}">${sdc!.map((c, ci) =>
+          `<span class="seat-hole reveal ${isRed(c) ? "red" : ""} ${winC}" style="animation-delay:${ci * 130}ms">${cardDisplay(c)}</span>`).join("")}</div>`
       : "";
-    return `<div class="${cls} ${oppActor ? "tappable" : ""}" style="left:${left.toFixed(1)}%;top:${top.toFixed(1)}%">
+    return `<div class="${cls} ${oppActor ? "tappable" : ""}" data-seat="${i}" style="left:${left.toFixed(1)}%;top:${top.toFixed(1)}%">
       ${isDealer ? '<div class="dealer-btn">D</div>' : ""}
       ${tag ? `<div class="seat-tag tag-${tag.toLowerCase()}">${tag}</div>` : ""}
       ${avatar}
@@ -1759,6 +1838,10 @@ function renderGame(): void {
   S.foldAnim = null; // one-shot muck animation consumed
   S.flashVerdict = null; // one-shot verdict animation consumed
   S.celebrate = false; // one-shot win glow consumed
+  if (S.potFlyPending) { // one-shot: pot slides to the winner(s), then coin-shower the hero
+    const w = S.potFlyPending; S.potFlyPending = null;
+    requestAnimationFrame(() => { animatePotToWinner(w); if (w.includes(S.heroSeat)) animateCoinShower(S.heroSeat); });
+  }
 
   // ── Events ──
   onEl($("#new-hand"), "click", () => { S.screen = "setup"; S.dealerSeat = -1; S.handNumber = 0; render(); });
@@ -1774,7 +1857,7 @@ function renderGame(): void {
     S.dealerSeat = -1;
     S.handNumber = 0;
     S.seatStacks = [];
-    S.handOver = false;
+    S.handOver = false; S.winnerSeat = null;
     startTrainingHand();
   });
   onId("review-hand", "click", () => { S.reviewOpen = true; renderReview(); });
@@ -1786,6 +1869,7 @@ function renderGame(): void {
       const val = (btn as HTMLElement).dataset.winner!;
       const remaining = S.gs!.folded.map((f, i) => f ? -1 : i).filter((i) => i >= 0);
       const winners = val === "split" ? remaining : [+val];
+      markWinners(winners);
       const who = winners.length > 1 ? "Split pot"
         : winners[0] === S.heroSeat ? "You won" : `${S.gs!.positions[winners[0]!]!} won`;
       resolveLive(strengthFromWinners(S.gs!.stacks.length, winners), who);
@@ -2041,6 +2125,7 @@ function doAction(seat: number, type: ActionType): void {
 
   if (S.gs.activeSeatCount <= 1) {
     const winnerSeat = S.gs.folded.findIndex(f => !f);
+    markWinners([winnerSeat]);
     const winnerPos = winnerSeat === S.heroSeat ? "You" : S.gs.positions[winnerSeat]!;
     const folderPos = seat === S.heroSeat ? "You" : S.gs.positions[seat]!;
     const text = `${folderPos} folded — ${winnerPos} won`;
@@ -2359,6 +2444,7 @@ function villainStep(): void {
   // Villain folded everyone else out → hero (or last seat) wins outright.
   if (S.gs.activeSeatCount <= 1) {
     const winnerSeat = S.gs.folded.findIndex(f => !f);
+    markWinners([winnerSeat]);
     const winnerPos = winnerSeat === S.heroSeat ? "You" : S.gs.positions[winnerSeat]!;
     const folderPos = S.gs.positions[next]!;
     const won = trainingSettle(strengthFromWinners(S.gs.stacks.length, [winnerSeat]));
@@ -2480,6 +2566,7 @@ function trainingShowdown(): void {
   for (let i = 0; i < n; i++) if (inHand[i] && strength[i]! > best) best = strength[i]!;
   const winners = [];
   for (let i = 0; i < n; i++) if (inHand[i] && strength[i] === best) winners.push(i);
+  markWinners(winners);
   const label = best >= 0 ? nutLabel(
     (winners[0] === S.heroSeat ? S.heroCards : S.villainHands.get(winners[0]!))!, board5,
   ) : "";
@@ -2513,8 +2600,8 @@ function saveHandRecord(heroPnl: number): void {
 
   // Win/lose sound.
   playSound(heroPnl > 0 ? "win" : heroPnl < 0 ? "lose" : "check");
-  // Training win → one-shot celebratory table glow (consumed by the next render).
-  if (S.mode === "training" && heroPnl > 0) S.celebrate = true;
+  // Win → one-shot celebratory table glow (every mode now, consumed by next render).
+  if (heroPnl > 0) S.celebrate = true;
 
   saveHand({
     timestamp: Date.now(),
@@ -2571,6 +2658,7 @@ function resolveLive(strength: number[], resultText: string): void {
 function recordShowdownResult(winners: number[], label: string, strength?: number[]): void {
   const gs = S.gs;
   if (!gs) return;
+  markWinners(winners);
   const str = strength ?? strengthFromWinners(gs.stacks.length, winners);
   const who = winners.length > 1 ? "Split pot"
     : winners[0] === S.heroSeat ? "You" : gs.positions[winners[0]!]!;
