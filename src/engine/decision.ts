@@ -247,6 +247,13 @@ function reRaiseDecision(
     ev: { fold: 0, call: -0.4, raise: -1 }, reasoning: `Fold — ${label} vs 3-bet` };
 }
 
+// Short-handed games play looser than the full-ring positional twin (blinds come
+// round faster, more heads-up pots). The hand-authored charts are 6-max/9-max, so
+// 3/4/5-max get an explicit widen on top of the chart. 1.0 = no change (6-max+).
+function shortHandedMult(tableSize: number): number {
+  return tableSize === 3 || tableSize === 4 ? 1.28 : tableSize === 5 ? 1.13 : 1.0;
+}
+
 function preflopRecommend(
   state: GameState,
   villainProfile: OpponentProfile = TAG,
@@ -316,17 +323,32 @@ function preflopRecommend(
     }
     try {
       const rfi = getRfiRange(state.tableSize, pos);
-      if (rfi.has([hero[0], hero[1]])) {
+      // Opens scale with shorthandedness AND the hero's looseness. The chart is
+      // the GTO baseline (keyed to players-behind via position); on top of it we
+      // only ever WIDEN, never tighten below it:
+      //  • short-handed games open wider than the full-ring positional twin
+      //    (blinds come round faster, more heads-up pots) — the chart is 6-max,
+      //    so 3/4/5-max get an explicit bump;
+      //  • a looser play style (LAG/Maniac) opens wider, a tighter one (Nit) just
+      //    sticks to the chart.
+      const shMult = shortHandedMult(state.tableSize);
+      const widen = style.looseness * shMult;
+      const inChart = rfi.has([hero[0], hero[1]]);
+      const openCap = Math.min(0.9, (rfi.percentage / 100) * widen);
+      const widened = !inChart && widen > 1.0 && comboPercentile([hero[0], hero[1]]) <= openCap;
+      if (inChart || widened) {
         const amt = openSizeFor(state, villainProfile, profiles);
         const bbN = (amt / state.bb);
-        const note = bbN >= 4 ? " (sized up vs loose field)" : "";
+        const note = widened
+          ? (shMult > 1.0 ? " (short-handed open)" : " (loose-style open)")
+          : bbN >= 4 ? " (sized up vs loose field)" : "";
         return {
           action: "raise",
           amount: amt,
           equity: 0.55,
           potOdds: 0,
           ev: { fold: 0, call: 0.5, raise: 1 },
-          reasoning: `Open raise to ${bbN.toFixed(1)}bb — ${label} in ${pos} RFI range${note}`,
+          reasoning: `Open raise to ${bbN.toFixed(1)}bb — ${label} in ${pos} open range${note}`,
         };
       }
     } catch {
@@ -338,7 +360,7 @@ function preflopRecommend(
       equity: 0,
       potOdds: 0,
       ev: { fold: 0, call: -1, raise: -1 },
-      reasoning: `Fold — ${label} not in ${pos} RFI range`,
+      reasoning: `Fold — ${label} below the ${pos} open range (${state.tableSize}-max)`,
     };
   }
 
@@ -369,7 +391,13 @@ function preflopRecommend(
       const openerPos = state.positions[opener.seat]!;
       try {
         const defRange = getBbDefenseRange(state.tableSize, openerPos);
-        if (defRange.has([hero[0], hero[1]])) {
+        const inDef = defRange.has([hero[0], hero[1]]);
+        // Short-handed / loose styles defend wider than the 6-max chart; the
+        // widened hands flat (the 3-bet branch stays reserved for top-of-chart).
+        const widen = style.looseness * shortHandedMult(state.tableSize);
+        const defWidened = !inDef && widen > 1.0
+          && comboPercentile([hero[0], hero[1]]) <= Math.min(0.92, (defRange.percentage / 100) * widen);
+        if (inDef) {
           const sorted = sortedCombos(defRange);
           const idx = sorted.findIndex(
             (c) =>
@@ -399,6 +427,16 @@ function preflopRecommend(
             reasoning: `Call — ${label} in BB defense vs ${openerPos}`,
           };
         }
+        if (defWidened) {
+          return {
+            action: "call",
+            amount: 0,
+            equity: 0.42,
+            potOdds: state.potOdds(seat),
+            ev: { fold: 0, call: 0.2, raise: 0 },
+            reasoning: `Call — ${label}, short-handed BB defense vs ${openerPos}`,
+          };
+        }
       } catch {
         // fallthrough
       }
@@ -409,7 +447,7 @@ function preflopRecommend(
       equity: 0,
       potOdds: state.potOdds(seat),
       ev: { fold: 0, call: -0.5, raise: -1 },
-      reasoning: `Fold — ${label} not in BB defense range`,
+      reasoning: `Fold — ${label} below BB defense range (${state.tableSize}-max)`,
     };
   }
 
