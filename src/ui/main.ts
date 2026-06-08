@@ -3331,21 +3331,43 @@ function renderHome(): void {
   cancelVillainTimer();
   const p = S.profile;
   app.innerHTML = `
-    <div class="home">
-      <div class="home-header">
-        <div class="brand"><img class="brand-logo" src="${import.meta.env.BASE_URL}logo.png" alt="" onerror="this.style.display='none'" /><h1 style="font-size:20px;margin:0;line-height:1.15">MonteCarloEdge<small style="display:block;font-size:10.5px;color:var(--muted);font-weight:600;letter-spacing:.4px">poker GTO + play</small></h1></div>
-        <button class="profile-chip" id="home-profile">${avatarChip(p.avatar, p.nickname, 34)}<span class="pc-meta"><span class="pc-name">${p.nickname}</span><span class="pc-chips">🪙 ${p.chips.toLocaleString()}</span></span></button>
+    <div class="mc-home">
+      <div class="mc-bg" aria-hidden="true">
+        <span class="mc-glow g-emerald"></span><span class="mc-glow g-gold"></span>
+        <span class="mc-suit s1">♠</span><span class="mc-suit s2">♥</span><span class="mc-suit s3">♦</span><span class="mc-suit s4">♣</span>
+        <span class="mc-grain"></span>
       </div>
-      <div class="home-tiles">
-        <button class="home-tile" id="home-train"><span class="ht-ico">🎯</span><span class="ht-t">Train</span><span class="ht-d">Solo vs the GTO AI</span></button>
-        <button class="home-tile" id="home-online"><span class="ht-ico">🌐</span><span class="ht-t">Play Online</span><span class="ht-d">Sign in · see who's on</span></button>
-        <button class="home-tile" id="home-pass"><span class="ht-ico">👥</span><span class="ht-t">Pass &amp; Play</span><span class="ht-d">Benchmark on one device</span></button>
-        <button class="home-tile" id="home-profile2"><span class="ht-ico">👤</span><span class="ht-t">Profile</span><span class="ht-d">Avatar · name · chips</span></button>
+
+      <header class="mc-topbar">
+        <button class="mc-profile" id="home-profile">
+          <span class="mc-ring">${avatarChip(p.avatar, p.nickname, 38)}</span>
+          <span class="mc-pmeta"><span class="mc-pname">${p.nickname}</span><span class="mc-pchips">🪙 ${p.chips.toLocaleString()}</span></span>
+        </button>
+        <button class="mc-store" id="home-store">＋ Chips</button>
+      </header>
+
+      <div class="mc-hero">
+        <div class="mc-fan" aria-hidden="true">
+          <span class="mc-hc back"></span>
+          <span class="mc-hc red">A<i>♥</i></span>
+          <span class="mc-hc">A<i>♠</i></span>
+        </div>
+        <h1 class="mc-wordmark"><span>MONTECARLO</span><b>EDGE</b></h1>
+        <p class="mc-tag">Play the math. Own the table.</p>
       </div>
-      <button class="hdr-btn" id="home-stats" style="width:100%;padding:13px;margin-top:10px">📊 Stats / Leak Report</button>
+
+      <div class="mc-modes">
+        <button class="mc-mode train" id="home-train" style="--d:.05s"><span class="mc-mi">🎯</span><span class="mc-mtext"><span class="mc-mt">Train</span><span class="mc-md">Solo vs the GTO engine</span></span><span class="mc-arrow">→</span></button>
+        <button class="mc-mode online" id="home-online" style="--d:.12s"><span class="mc-mi">🌐</span><span class="mc-mtext"><span class="mc-mt">Play Online</span><span class="mc-md">Sign in · see who's on</span></span><span class="mc-arrow">→</span></button>
+        <button class="mc-mode pass" id="home-pass" style="--d:.19s"><span class="mc-mi">👥</span><span class="mc-mtext"><span class="mc-mt">Pass &amp; Play</span><span class="mc-md">Benchmark on one device</span></span><span class="mc-arrow">→</span></button>
+        <button class="mc-mode profile" id="home-profile2" style="--d:.26s"><span class="mc-mi">👤</span><span class="mc-mtext"><span class="mc-mt">Profile</span><span class="mc-md">Avatar · name · chips</span></span><span class="mc-arrow">→</span></button>
+      </div>
+
+      <button class="mc-stats" id="home-stats" style="--d:.33s">📊 Stats &amp; Leak Report</button>
     </div>`;
   onId("home-profile", "click", () => { S.screen = "profile"; render(); });
   onId("home-profile2", "click", () => { S.screen = "profile"; render(); });
+  onId("home-store", "click", () => { S.screen = "profile"; render(); });
   onId("home-train", "click", () => { S.screen = "setup"; render(); });
   onId("home-online", "click", () => { void goOnline(); });
   onId("home-pass", "click", () => {
