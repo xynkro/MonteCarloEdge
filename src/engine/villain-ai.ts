@@ -2,7 +2,7 @@ import { type GameState, type ActionInput, type ActionType } from "./game-state.
 import { type Combo } from "./range.js";
 import { type Rng } from "./rng.js";
 import { recommend } from "./decision.js";
-import { type OpponentProfile, TAG, comboPercentile } from "./opponent.js";
+import { type OpponentProfile, TAG, comboPercentile, commitStory, scoreRunout } from "./opponent.js";
 import { openRaiseSize } from "./sizing.js";
 
 // A tough, realistic, NON-CHEATING villain. It decides by running the same
@@ -113,6 +113,37 @@ export function villainDecision(
       if (roll < 0.45) { type = "fold"; amount = 0; } // only premiums
     } else if (n === "LAG" && roll < 0.3 && canRaise) {
       if (type === "call") { type = "raise"; amount = Math.min(facing ? clampRaiseTo(3, state, seat) : openRaiseSize(state.bb) * 1.2, maxBet); }
+    }
+  }
+
+  // ── Story coherence ──────────────────────────────────────────────────────
+  // Make BLUFFS represent ONE board-credible hand across streets instead of
+  // re-rolling each street. Commit a story on the first bluff bet; on later
+  // streets keep barrelling the cards that complete the rep (scare) but ABANDON
+  // bricked/killed bluffs (scaled by the type's coherence) — and fire a barrel on
+  // a scare card even if we'd otherwise check. This is what makes the villain
+  // tell a believable story instead of betting random air.
+  if (!preflop && canRaise) {
+    const board = state.board;
+    if (type === "bet" && eq < 0.5) {
+      // a bluff bet (value bets have eq ≥ 0.5 → left alone)
+      const story = state.villainStories.get(seat);
+      if (!story) {
+        state.villainStories.set(seat, commitStory(state, profile)); // open the story
+      } else {
+        const phase = scoreRunout(story, board);
+        if (phase !== "scare") {
+          const giveUp = phase === "kill" ? 0.55 + story.coherence * 0.45 : story.coherence * 0.7;
+          if (rng() < giveUp) { type = "check"; amount = 0; } // abandon a bricked/killed bluff
+        }
+      }
+    } else if (type === "check" && !facing && eq < 0.55) {
+      // checked this street, but a committed story just got there → barrel it
+      const story = state.villainStories.get(seat);
+      if (story && scoreRunout(story, board) === "scare"
+          && rng() < profile.barrelFreq * (0.5 + story.coherence * 0.5)) {
+        type = "bet"; amount = clampBetTarget(0.85, state, seat);
+      }
     }
   }
 

@@ -3,7 +3,7 @@ import { type Combo, Range } from "../engine/range.js";
 import { mulberry32 } from "../engine/rng.js";
 import { GameState, type ActionType } from "../engine/game-state.js";
 import { getPositions, positionsForButton, getRfiRange, getBbDefenseRange } from "../engine/charts/index.js";
-import { estimateVillainRange } from "../engine/opponent.js";
+import { estimateVillainRange, credibleRep, scoreRunout } from "../engine/opponent.js";
 import { solveSubgame, type RiverResult, type ActionFreq } from "../engine/gto/river-solver.js";
 import { solvePushFold, handClassKey, type PushFoldResult } from "../engine/gto/pushfold.js";
 import { allCombos, topSlice } from "../engine/hand-strength.js";
@@ -126,7 +126,12 @@ interface AppState {
   // GTO preflop push/fold readout
   gtoPreflop: { title: string; rows: { label: string; freq: number }[]; note: string } | null;
   // Board read: hero win% vs villain range(s) + the nuts on this board
-  boardRead: { equity: number | null; made: Threat[]; draws: Threat[] } | null;
+  boardRead: {
+    equity: number | null; made: Threat[]; draws: Threat[];
+    // "Story" reads: what aggression represents on this board (no hole-card peeking).
+    heroStory: { label: string; cred: string } | null;
+    villainStory: { label: string; bluffPct: number } | null;
+  } | null;
   boardReadKey: string;
   message: string;
   // Undo: reversible snapshots of mid-hand state (live mode only).
@@ -1198,7 +1203,31 @@ function updateBoardRead(): void {
   const read = readThreats([S.heroCards[0], S.heroCards[1]], S.gs.board, rangeCombos);
   // Made threats: top 3 by likelihood. Draws: show all types (≤4: flush/straight/
   // set/overcards) so a flush or straight draw is never hidden behind overcards.
-  S.boardRead = { equity, made: read.made.slice(0, 3), draws: read.draws.slice(0, 4) };
+  // ── "What story am I telling?" — board-credible representation reads. These
+  // use only the BOARD + action history + the type's bluff frequency (never any
+  // hole cards), so they teach range-reading without cheating. ──
+  const board = S.gs.board;
+  const rep = credibleRep(board);
+  const repBacked = scoreRunout({ ...rep, coherence: 1, openedStreet: S.gs.street }, board) === "scare";
+  // Hero's story: did hero check before betting on a street (capped) → less credible.
+  const heroPost = S.gs.actions.filter(a => a.seat === S.heroSeat && a.street !== "preflop");
+  const heroCapped = heroPost.some((a, i) => a.type === "check" && heroPost.slice(i + 1).some(b => b.type === "bet" || b.type === "raise"));
+  const heroCred = heroCapped ? "but you checked earlier — looks capped"
+    : repBacked ? "the board backs it" : "thin — board doesn't fully back it yet";
+  const heroStory = { label: rep.label, cred: heroCred };
+  // Villain's story: the seat that has bet/raised postflop this hand. Show what
+  // their line reps on this board + how often THIS TYPE bluffs here (a frequency,
+  // not their actual hand).
+  let villainStory: { label: string; bluffPct: number } | null = null;
+  let aggr = -1;
+  for (const a of S.gs.actions) if (a.seat !== S.heroSeat && a.street !== "preflop" && (a.type === "bet" || a.type === "raise")) aggr = a.seat;
+  if (aggr >= 0) {
+    const prof = buildProfiles().get(aggr) ?? PROFILES[S.archetype]!;
+    const streetsBet = new Set(S.gs.actions.filter(a => a.seat === aggr && a.street !== "preflop" && (a.type === "bet" || a.type === "raise")).map(a => a.street)).size;
+    const bluffPct = Math.round((streetsBet >= 2 ? prof.barrelFreq : prof.bluffFreq) * 100);
+    villainStory = { label: rep.label, bluffPct };
+  }
+  S.boardRead = { equity, made: read.made.slice(0, 3), draws: read.draws.slice(0, 4), heroStory, villainStory };
 }
 
 // Common one-tap raise/bet sizes for the seat about to act. Facing a bet →
@@ -1488,7 +1517,16 @@ function renderGame(): void {
     const drawsRow = draws.length
       ? `<div class="read-row draws"><span class="read-lead">Drawing</span>${draws.map(chip).join("")}</div>`
       : "";
-    boardReadHtml = `<div class="read-panel">${beatsRow}${drawsRow}</div>`;
+    // "Story" rows — what your aggression represents, and what the villain's reps.
+    const hs = S.boardRead.heroStory;
+    const vs = S.boardRead.villainStory;
+    const heroStoryRow = hs
+      ? `<div class="read-row story"><span class="read-lead">Your bet reps</span><span class="threat story-rep">${hs.label}</span><span class="story-cred">${hs.cred}</span></div>`
+      : "";
+    const vilStoryRow = vs
+      ? `<div class="read-row story vil"><span class="read-lead">Villain reps</span><span class="threat story-rep">${vs.label}</span><span class="story-cred">bluffs ~${vs.bluffPct}% here</span></div>`
+      : "";
+    boardReadHtml = `<div class="read-panel">${beatsRow}${drawsRow}${vilStoryRow}${heroStoryRow}</div>`;
   }
 
   // ── Recommendation ──

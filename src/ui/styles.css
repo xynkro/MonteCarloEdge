@@ -587,6 +587,15 @@ body {
 .read-row.draws .threat { background: rgba(255,209,102,.16); }
 .threat.ok { background: rgba(6,214,160,.16); color: var(--emerald); }
 
+/* "Story" reads — what aggression represents (range-reading, no hole-card peek). */
+.read-row.story { background: rgba(124,92,255,.10); border: 1px solid rgba(124,92,255,.30); }
+.read-row.story .read-lead { color: #b9a7ff; }
+.read-row.story .threat.story-rep { background: rgba(124,92,255,.20); color: #d6ccff; }
+.read-row.story.vil { background: rgba(255,159,67,.09); border-color: rgba(255,159,67,.30); }
+.read-row.story.vil .read-lead { color: #ffb45e; }
+.read-row.story.vil .threat.story-rep { background: rgba(255,159,67,.18); color: #ffd9a8; }
+.story-cred { font-size: 10.5px; color: var(--muted); align-self: center; }
+
 .hero-card {
   width: 52px; height: 72px; border-radius: 10px;
   display: flex; align-items: center; justify-content: center;

@@ -46,6 +46,20 @@ export class GameState {
   currentBet = 0;
   actions: Action[] = [];
 
+  // Opponent-modeling annotation (NOT core game rules): the bluff "story" each
+  // villain has committed to THIS hand, so a multi-street bluff barrels one
+  // board-credible hand coherently instead of re-rolling each street. Written by
+  // the opponent model (opponent.ts). Per-hand by construction — every hand is a
+  // fresh GameState, so it never needs resetting. Keyed by seat.
+  villainStories: Map<number, {
+    rep: "flush" | "straight" | "trips_plus";
+    suit: number;        // for a flush story; -1 otherwise
+    hiRank: number;      // top rank of the represented hand
+    coherence: number;   // 0..1 — how credibly/consistently this type bluffs
+    openedStreet: Street;
+    label: string;       // plain-English rep, e.g. "the flush", "a set"
+  }> = new Map();
+
   private _needsAct: Set<number>;
   private _lastActor = -1;
   // Min-raise / reopening tracking. `_lastRaiseSize` is the increment of the
@@ -296,6 +310,7 @@ export class GameState {
       streetInvested: [...this.streetInvested],
       currentBet: this.currentBet,
       actions: this.actions.map((a) => ({ ...a })),
+      villainStories: new Map(this.villainStories),
       _needsAct: new Set(this._needsAct),
       _lastActor: this._lastActor,
       _lastRaiseSize: this._lastRaiseSize,

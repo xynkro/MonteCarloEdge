@@ -33,34 +33,35 @@ export interface OpponentProfile {
   semiBluffFreq: number; // how often it bets/raises DRAWS (semi-bluff)
   barrelFreq: number; // how often it continues a bluff on the next street
   stickiness: number; // sunk-cost / curiosity: continues beyond pot-odds
+  coherence: number; // 0..1 — how credibly it tells a board-consistent bluff story
 }
 
 export const TAG: OpponentProfile = {
   name: "TAG",
   vpip: 0.22, pfr: 0.18, threeBetPct: 0.08, foldTo3Bet: 0.65,
   cbetPct: 0.7, foldToCbet: 0.55, betWhenCheckedTo: 0.45, foldToRaise: 0.6, calldownPct: 0.3,
-  bluffFreq: 0.45, semiBluffFreq: 0.55, barrelFreq: 0.50, stickiness: 0.30,
+  bluffFreq: 0.45, semiBluffFreq: 0.55, barrelFreq: 0.50, stickiness: 0.30, coherence: 0.85,
 };
 
 export const LAG: OpponentProfile = {
   name: "LAG",
   vpip: 0.30, pfr: 0.26, threeBetPct: 0.12, foldTo3Bet: 0.45,
   cbetPct: 0.8, foldToCbet: 0.35, betWhenCheckedTo: 0.6, foldToRaise: 0.4, calldownPct: 0.5,
-  bluffFreq: 0.70, semiBluffFreq: 0.75, barrelFreq: 0.65, stickiness: 0.50,
+  bluffFreq: 0.70, semiBluffFreq: 0.75, barrelFreq: 0.65, stickiness: 0.50, coherence: 0.55,
 };
 
 export const STATION: OpponentProfile = {
   name: "Station",
   vpip: 0.42, pfr: 0.08, threeBetPct: 0.03, foldTo3Bet: 0.3,
   cbetPct: 0.35, foldToCbet: 0.2, betWhenCheckedTo: 0.2, foldToRaise: 0.15, calldownPct: 0.8,
-  bluffFreq: 0.10, semiBluffFreq: 0.30, barrelFreq: 0.20, stickiness: 0.85,
+  bluffFreq: 0.10, semiBluffFreq: 0.30, barrelFreq: 0.20, stickiness: 0.85, coherence: 0.0,
 };
 
 export const NIT: OpponentProfile = {
   name: "Nit",
   vpip: 0.12, pfr: 0.10, threeBetPct: 0.06, foldTo3Bet: 0.75,
   cbetPct: 0.75, foldToCbet: 0.6, betWhenCheckedTo: 0.35, foldToRaise: 0.7, calldownPct: 0.2,
-  bluffFreq: 0.30, semiBluffFreq: 0.45, barrelFreq: 0.25, stickiness: 0.15,
+  bluffFreq: 0.30, semiBluffFreq: 0.45, barrelFreq: 0.25, stickiness: 0.15, coherence: 0.80,
 };
 
 // A loose-aggressive overbluffer — bets/raises nearly everything. Hero counter:
@@ -69,7 +70,7 @@ export const MANIAC: OpponentProfile = {
   name: "Maniac",
   vpip: 0.50, pfr: 0.40, threeBetPct: 0.16, foldTo3Bet: 0.30,
   cbetPct: 0.9, foldToCbet: 0.30, betWhenCheckedTo: 0.8, foldToRaise: 0.3, calldownPct: 0.55,
-  bluffFreq: 0.85, semiBluffFreq: 0.90, barrelFreq: 0.80, stickiness: 0.50,
+  bluffFreq: 0.85, semiBluffFreq: 0.90, barrelFreq: 0.80, stickiness: 0.50, coherence: 0.25,
 };
 
 // Neutral "average player" prior for when the opponent type is unknown. The
@@ -79,7 +80,7 @@ export const AUTO: OpponentProfile = {
   name: "Auto",
   vpip: 0.25, pfr: 0.18, threeBetPct: 0.06, foldTo3Bet: 0.55,
   cbetPct: 0.6, foldToCbet: 0.45, betWhenCheckedTo: 0.4, foldToRaise: 0.5, calldownPct: 0.45,
-  bluffFreq: 0.40, semiBluffFreq: 0.55, barrelFreq: 0.45, stickiness: 0.35,
+  bluffFreq: 0.40, semiBluffFreq: 0.55, barrelFreq: 0.45, stickiness: 0.35, coherence: 0.60,
 };
 
 let _pctMap: Map<number, number> | null = null;
@@ -344,6 +345,83 @@ function villainPreflopAct(
   return { seat, type: "fold", amount: 0 };
 }
 
+// ── Bluff "story" engine ────────────────────────────────────────────────────
+// A coherent bluff represents ONE board-credible hand across streets. The villain
+// commits to a story on its first bluff bet, then barrels the cards that complete
+// the rep (scare), mostly gives up on bricks, and checks on kills. `coherence`
+// (per profile) controls how sharp that scare-vs-brick contrast is: a TAG tells
+// tight credible stories; a Maniac over-barrels everything; a Station has no story.
+type StoryRep = "flush" | "straight" | "trips_plus";
+type VillainStory = NonNullable<ReturnType<GameState["villainStories"]["get"]>>;
+
+function suitCounts(board: readonly Card[]): number[] {
+  const sc = [0, 0, 0, 0];
+  for (const c of board) sc[suitOf(c)]!++;
+  return sc;
+}
+function boardPaired(board: readonly Card[]): boolean {
+  const r = new Array<number>(13).fill(0);
+  for (const c of board) r[rankOf(c)]!++;
+  return r.some((x) => x >= 2);
+}
+// Does some 5-rank window (incl. the wheel) contain >= want distinct board ranks?
+function rankWindow(board: readonly Card[], want: number): boolean {
+  const present = new Set(board.map(rankOf));
+  for (let hi = 12; hi >= 4; hi--) {
+    let cnt = 0;
+    for (let k = 0; k < 5; k++) if (present.has(hi - k)) cnt++;
+    if (cnt >= want) return true;
+  }
+  let wheel = 0;
+  for (const r of [12, 0, 1, 2, 3]) if (present.has(r)) wheel++;
+  return wheel >= want;
+}
+
+// The most board-credible big hand to represent given the texture at commit time.
+export function credibleRep(board: readonly Card[]): Pick<VillainStory, "rep" | "suit" | "hiRank" | "label"> {
+  const sc = suitCounts(board);
+  let ms = 0, msSuit = 0;
+  for (let s = 0; s < 4; s++) if (sc[s]! > ms) { ms = sc[s]!; msSuit = s; }
+  const hiRank = board.reduce((m, c) => Math.max(m, rankOf(c)), 0);
+  if (ms >= 2) return { rep: "flush", suit: msSuit, hiRank, label: "the flush" };
+  if (rankWindow(board, 3)) return { rep: "straight", suit: -1, hiRank, label: "a straight" };
+  return { rep: "trips_plus", suit: -1, hiRank, label: "a set" };
+}
+
+export function commitStory(state: GameState, profile: OpponentProfile): VillainStory {
+  return { ...credibleRep(state.board), coherence: profile.coherence, openedStreet: state.street };
+}
+
+// Did the runout help, brick, or kill the represented story?
+export function scoreRunout(story: VillainStory, board: readonly Card[]): "scare" | "brick" | "kill" {
+  const paired = boardPaired(board);
+  const sc = suitCounts(board);
+  const flushThere = Math.max(...sc) >= 3;
+  if (story.rep === "flush") {
+    if (paired) return "kill"; // a boat now beats the repped flush
+    if (sc[story.suit]! >= 3) return "scare"; // flush completed → sell it
+    return "brick";
+  }
+  if (story.rep === "straight") {
+    if (paired || flushThere) return "kill";
+    if (rankWindow(board, 4)) return "scare"; // a one-card straight is there
+    return "brick";
+  }
+  // trips_plus: a made-hand rep from the flop
+  if (flushThere || rankWindow(board, 4)) return "kill"; // board now credibly beats a set
+  if (paired) return "scare"; // rep the full house
+  return "brick";
+}
+
+// One-line read of the villain's story for the UI (Phase 4 / hero read panel).
+export function villainStoryNote(story: VillainStory, board: readonly Card[]): string {
+  switch (scoreRunout(story, board)) {
+    case "scare": return `repping ${story.label} — the board got there`;
+    case "kill": return `${story.label} story died on this runout`;
+    default: return `repping ${story.label}`;
+  }
+}
+
 function villainPostflopAct(
   state: GameState,
   seat: number,
@@ -356,11 +434,6 @@ function villainPostflopAct(
   const maxBet = state.stacks[seat]! + state.streetInvested[seat]!;
   const pot = state.pot;
 
-  // Did THIS villain already bet/raise on a prior postflop street? Used to barrel
-  // (continue a bluff) coherently instead of re-rolling to ~0 each street.
-  const wasAggressor = state.actions.some(
-    (a) => a.seat === seat && a.street !== "preflop" && (a.type === "bet" || a.type === "raise"),
-  );
   // Already invested chips this hand → sunk-cost stickiness kicks in harder.
   const invested = state.invested[seat]! > state.bb;
 
@@ -387,20 +460,50 @@ function villainPostflopAct(
     return { seat, type: "fold", amount: 0 };
   }
 
-  // No bet to call — decide whether to bet (value / semi-bluff / bluff) or check.
-  // Polarized: strong bets for value; draws semi-bluff; air bluffs (sometimes a
-  // barrel); medium mostly checks back (merge-bet only a fraction).
+  // No bet to call — value-bet, merge, or tell a coherent bluff STORY.
+  //  • strong → value;  • medium → mostly check back;
+  //  • air/draw → commit to ONE board-credible rep on the first bluff bet, then
+  //    barrel scare cards (rep completes), mostly give up on bricks, check on kills.
   let betProb: number;
-  if (strength === "strong") betProb = Math.min(0.95, profile.cbetPct * 1.25);
-  else if (strength === "draw") betProb = wasAggressor ? profile.barrelFreq : profile.semiBluffFreq;
-  else if (strength === "medium") betProb = profile.betWhenCheckedTo * 0.5; // mostly check back
-  else betProb = wasAggressor ? profile.barrelFreq * 0.7 : profile.bluffFreq; // air bluff / barrel
+  let scareBarrel = false;
+  if (strength === "strong") {
+    betProb = Math.min(0.95, profile.cbetPct * 1.25);
+  } else if (strength === "medium") {
+    betProb = profile.betWhenCheckedTo * 0.5; // mostly check back
+  } else {
+    // air or draw → the bluff story
+    const existing = state.villainStories.get(seat);
+    if (!existing) {
+      // First bluff bet — decide whether to OPEN a story and commit to it.
+      const openProb = strength === "draw" ? profile.semiBluffFreq : profile.bluffFreq;
+      if (rng() < openProb) {
+        state.villainStories.set(seat, commitStory(state, profile));
+        betProb = 1; // committed → bet now
+      } else {
+        betProb = 0;
+      }
+    } else {
+      // Story already committed earlier — barrel/give-up by how the runout scores.
+      const phase = scoreRunout(existing, state.board);
+      if (phase === "scare") {
+        betProb = Math.min(0.95, profile.barrelFreq * (0.7 + existing.coherence * 0.6));
+        scareBarrel = true;
+      } else if (phase === "brick") {
+        // Coherent players give up bricks; incoherent ones keep firing. Small
+        // floor so they're never PERFECTLY readable.
+        betProb = profile.barrelFreq * (1 - existing.coherence) * 0.5 + 0.05;
+      } else {
+        betProb = 0.03; // kill: almost always check
+      }
+    }
+  }
 
   if (rng() < betProb) {
-    // Texture-aware sizing: smaller with merged (medium/value) hands, bigger when
-    // polar (a draw or air on a later street wants fold equity).
+    // Texture-aware sizing: merged (value) smaller; polar (bluff) bigger; a scare
+    // barrel sizes UP to sell the completed story.
     const polar = strength === "draw" || strength === "air";
-    const frac = polar ? (state.board.length >= 4 ? 0.75 : 0.6) : 0.4 + (strength === "strong" ? 0.2 : 0);
+    let frac = polar ? (state.board.length >= 4 ? 0.75 : 0.6) : 0.4 + (strength === "strong" ? 0.2 : 0);
+    if (scareBarrel) frac = state.board.length >= 4 ? 0.92 : 0.72;
     const size = Math.min(pot * frac, state.stacks[seat]!);
     if (size > 0) return { seat, type: "bet", amount: size };
   }
