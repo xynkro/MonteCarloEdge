@@ -20,6 +20,7 @@ import {
   comboPercentile,
   credibleRep,
   repIsPolar,
+  scoreRunout,
 } from "./opponent.js";
 
 // ── Short-stack push/fold (jam-or-fold) ──
@@ -664,6 +665,42 @@ function postflopRecommend(
   const tc = state.toCall(seat);
   const odds = state.potOdds(seat);
 
+  // ── Bluff-catch read ───────────────────────────────────────────────────────
+  // Facing a bet, how likely is it a bluff? Read the board RUNOUT vs the credible
+  // rep + the bettor's TYPE. A BRICK barreled by a bluffy/incoherent type → polar,
+  // lots of air → call LIGHTER. A SCARE that completed the rep, barreled by a
+  // coherent type → credible value → fold MORE. A bounded (±0.08) correction on
+  // top of the range-equity, plus a teachable note. (eq already reflects his range;
+  // this nudges for type-specific bluffing the generic range estimate misses.)
+  const clamp01 = (lo: number, hi: number, x: number) => Math.max(lo, Math.min(hi, x));
+  let bluffCatchAdj = 0;        // +need more to call (fold more) · −call lighter
+  let bluffCatchNote = "";
+  if (tc > 0 && state.board.length >= 3) {
+    let aggrSeat = -1;
+    for (const a of state.actions) {
+      if (a.seat !== seat && a.street !== "preflop" && (a.type === "bet" || a.type === "raise")) aggrSeat = a.seat;
+    }
+    if (aggrSeat >= 0) {
+      const ap = profiles?.get(aggrSeat) ?? villainProfile;
+      const rep = credibleRep(state.board);
+      const phase = scoreRunout({ ...rep, coherence: 1, openedStreet: state.street }, state.board);
+      const streetsBet = new Set(state.actions
+        .filter((a) => a.seat === aggrSeat && a.street !== "preflop" && (a.type === "bet" || a.type === "raise"))
+        .map((a) => a.street)).size;
+      const baseBluff = streetsBet >= 2 ? ap.barrelFreq : ap.bluffFreq;
+      if (phase === "brick") {
+        const bluffPct = clamp01(0.05, 0.9, baseBluff * (1.25 - ap.coherence)); // incoherent types barrel bricks with air
+        bluffCatchAdj = -Math.min(0.08, Math.max(0, bluffPct - 0.30) * 0.28);
+        if (bluffCatchAdj <= -0.01) bluffCatchNote = ` — he barrels this brick (~${pct(bluffPct)} bluffs), call lighter`;
+      } else if (phase === "scare") {
+        const bluffPct = clamp01(0.03, 0.6, baseBluff * (1 - ap.coherence) * 0.6);
+        bluffCatchAdj = Math.min(0.08, ap.coherence * 0.12);
+        if (bluffCatchAdj >= 0.01) bluffCatchNote = ` — ${rep.label} got there (~${pct(bluffPct)} bluffs), respect it`;
+      }
+    }
+  }
+  const callBar = odds + callCushion + bluffCatchAdj;
+
   if (tc > 0) {
     const evCall = eq * state.potAfterCall(seat) - tc;
     const canRaise = state.stacks[seat]! > tc;
@@ -680,11 +717,11 @@ function postflopRecommend(
         reasoning: `Raise — ${handLabel} (${posTag}), ${pct(eq)} equity vs ${pct(odds)} pot odds${wayTag}`,
       });
     }
-    if (dq > odds + callCushion) {
+    if (dq > callBar) {
       return fin({
         action: "call", amount: 0, equity: eq, potOdds: odds,
         ev: { fold: 0, call: evCall, raise: 0 },
-        reasoning: `Call — ${handLabel} (${posTag}), ${pct(eq)} equity > ${pct(odds)} pot odds${wayTag}`,
+        reasoning: `Call — ${handLabel} (${posTag}), ${pct(eq)} equity vs ${pct(odds)} pot odds${bluffCatchNote}${wayTag}`,
       });
     }
     // IMPLIED-ODDS PEEL: a draw that fails DIRECT pot odds can still be a +EV call
@@ -714,7 +751,7 @@ function postflopRecommend(
     return fin({
       action: "fold", amount: 0, equity: eq, potOdds: odds,
       ev: { fold: 0, call: evCall, raise: -tc },
-      reasoning: `Fold — ${handLabel} (${posTag}), ${pct(eq)} equity < ${pct(odds)} pot odds${wayTag}`,
+      reasoning: `Fold — ${handLabel} (${posTag}), ${pct(eq)} equity < ${pct(odds)} pot odds${bluffCatchNote}${wayTag}`,
     });
   }
 
@@ -829,7 +866,10 @@ function postflopRecommend(
   // calling station (low foldy).
   const isAir = eq < 0.34 && dq < THIN_VALUE && !conn.hasFlushDraw && !conn.hasStraightDraw;
   const nVil = villainSeats.length;
-  if (isAir && nVil <= 2) {
+  // Bluffing is allowed MULTIWAY now (no hard heads-up gate) — the per-caller
+  // `need` term below makes it collapse to ~0 with extra players instead of a
+  // cliff, so 3+ way it almost never fires but there's no artificial wall.
+  if (isAir) {
     const wasAggressor = state.actions.some(
       (a) => a.seat === seat && a.street !== "preflop" && (a.type === "bet" || a.type === "raise"),
     );
@@ -853,10 +893,20 @@ function postflopRecommend(
     if (foldy > need && heroStack > pot * frac) {
       const size = Math.min(pot * frac, betCap);
       const kind = wasAggressor ? "Barrel" : "Bluff";
+      // BALANCE: don't bluff EVERY time — bluffing is a mixed-frequency play so
+      // you're not transparent. f scales with fold-equity surplus, blockers, and
+      // your aggression (Nit checks more, LAG bluffs more). Showing the split (and
+      // grading both actions as fine) teaches "bluff some of your air, not all".
+      const f = Math.max(0.2, Math.min(0.85,
+        0.5 + (foldy - need) * 1.6 + blockerCredit + barrelCredit + (style.aggression - 1) * 0.25));
+      const mix = [
+        { action: "bet" as ActionType, amount: size, freq: f },
+        { action: "check" as ActionType, amount: 0, freq: 1 - f },
+      ];
       return fin({
-        action: "bet", amount: size, equity: eq, potOdds: 0,
+        action: "bet", amount: size, equity: eq, potOdds: 0, mix,
         ev: { fold: foldy * pot, call: 0, raise: foldy * pot - (1 - foldy) * size },
-        reasoning: `${kind} ${pct(frac)} pot — represent ${rep.label} on ${texNote}, opp folds ~${pct(foldy)} (${posTag})${wayTag}`,
+        reasoning: `${kind} ${pct(frac)} pot — represent ${rep.label}; mix ~${pct(f)} bluff / ${pct(1 - f)} check (balance) on ${texNote}, opp folds ~${pct(foldy)} (${posTag})${wayTag}`,
       });
     }
   }
