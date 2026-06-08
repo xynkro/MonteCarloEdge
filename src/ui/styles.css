@@ -1218,6 +1218,22 @@ body::before {
 .mp-scoreboard { margin-top: 12px; padding: 11px 13px; border-radius: 13px; background: var(--glass); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); border: 1px solid var(--glass-edge); }
 .mp-score-row { display: flex; justify-content: space-between; font-size: 13px; font-weight: 700; padding: 3px 0; }
 
+/* ── Create Room ── */
+.buyin-slider { width: 100%; accent-color: var(--gold-2); height: 30px; cursor: pointer; }
+.buyin-ends { display: flex; justify-content: space-between; font-size: 10px; color: var(--muted); margin-top: 1px; }
+#room-tier .seg-btn { flex: 1; line-height: 1.25; padding: 9px 4px; }
+#room-tier .seg-btn small { font-size: 10px; opacity: .8; font-weight: 700; }
+.mp-type { background: var(--glass); border: 1px solid var(--glass-edge); border-radius: 9px; color: var(--text); font-size: 12px; font-weight: 700; padding: 8px 6px; max-width: 110px; }
+.mp-aibadge { font-size: 10px; font-weight: 800; color: var(--azure); background: rgba(74,168,255,.15); border: 1px solid rgba(74,168,255,.4); border-radius: 6px; padding: 4px 8px; }
+.mp-addrow { display: flex; gap: 8px; margin-top: 6px; }
+.mp-addrow .hdr-btn { flex: 1; }
+.mp-thinking { text-align: center; font-size: 15px; color: var(--muted); padding: 16px 0 22px; font-weight: 700; letter-spacing: .5px; }
+.mp-thinking span { animation: mcBlink 1.2s infinite; }
+.mp-thinking span:nth-child(2) { animation-delay: .2s; }
+.mp-thinking span:nth-child(3) { animation-delay: .4s; }
+@keyframes mcBlink { 0%, 100% { opacity: .2; } 50% { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .mp-thinking span { animation: none !important; opacity: .7; } }
+
 /* ── Leak report ── */
 .leak-row { margin: 8px 0; }
 .leak-head { display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 4px; }

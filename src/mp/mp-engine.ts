@@ -139,6 +139,9 @@ export function startHand(t: AuthTable, rng: Rng): boolean {
 
 const tableToGs = (t: AuthTable, tableSeat: number): number => t.liveSeats.indexOf(tableSeat);
 const gsToTable = (t: AuthTable, gsSeat: number): number => t.liveSeats[gsSeat]!;
+/** gs-seat index for a table seat (-1 if not in the live hand). Lets the UI build
+ *  an AI decision for that seat via villainDecision (AI is a local-only feature). */
+export const toGsSeat = (t: AuthTable, tableSeat: number): number => tableToGs(t, tableSeat);
 
 /** Whose table-seat is to act, or -1. */
 export function toActTableSeat(t: AuthTable): number {

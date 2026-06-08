@@ -66,7 +66,7 @@ interface AppState {
   // Multiplayer / benchmark (Phase 0 hot-seat + Phase 1 online lobby).
   mp: {
     table: AuthTable | null;
-    setup: { players: { name: string; assisted: boolean }[]; sb: number; bb: number; stack: number };
+    setup: { players: { name: string; assisted: boolean; ai: string | null }[]; tier: number; sb: number; bb: number; buyIn: number };
     reveal: boolean;          // hot-seat: active player's hole cards revealed
     rec: Recommendation | null;
     auth: MPUser | null;      // signed-in Google user (Phase 1)
@@ -178,8 +178,8 @@ const S: AppState = {
   mp: {
     table: null,
     setup: {
-      players: [{ name: "You", assisted: true }, { name: "Wife", assisted: false }],
-      sb: 1, bb: 2, stack: 200,
+      players: [{ name: "You", assisted: true, ai: null }, { name: "Rey", assisted: false, ai: "TAG" }],
+      tier: 0, sb: 50, bb: 100, buyIn: 10000,
     },
     reveal: false,
     rec: null,
@@ -3269,49 +3269,79 @@ const mpc = (n: number): string => Math.round(n).toLocaleString();
 const mpCard = (c: Card): string => `<span class="mp-card ${isRed(c) ? "red" : ""}">${cardDisplay(c)}</span>`;
 const capWord = (s: string): string => s.charAt(0).toUpperCase() + s.slice(1);
 
+// Stakes tiers — 100bb max buy-in per the monetization council (chips buy ACCESS,
+// never power; a 100bb cap defuses big-stack bullying on a friends table).
+const ROOM_TIERS = [
+  { name: "Micro", sb: 50, bb: 100, max: 10000 },
+  { name: "Mid", sb: 500, bb: 1000, max: 100000 },
+  { name: "High", sb: 5000, bb: 10000, max: 1000000 },
+];
+// AI styles map to the trainer's opponent archetypes (keys of PROFILES).
+const AI_SKILLS = [
+  { key: "Station", label: "🐟 Fish" },
+  { key: "Nit", label: "🪨 Rock" },
+  { key: "TAG", label: "🎯 Reg" },
+  { key: "LAG", label: "🔥 LAG" },
+  { key: "Auto", label: "🦈 Shark" },
+];
+let _aiTimer: ReturnType<typeof setTimeout> | null = null;
+const aiDelayMs = (): number => ({ slow: 1300, normal: 850, fast: 420, instant: 140 })[trainingSpeed()];
+
 function renderMpSetup(): void {
   cancelVillainTimer();
   const su = S.mp.setup;
+  const tier = ROOM_TIERS[su.tier]!;
+  const minBuy = 20 * su.bb;
   app.innerHTML = `
     <div class="setup">
-      <h1>👥 Multiplayer Benchmark</h1>
-      <span class="hint" style="text-align:center;display:block;margin-bottom:12px">Pass-and-play on one device — each player reveals their own cards on their turn. Toggle who gets the strategy tool (🧠 assisted) vs who plays blind (🙈), then benchmark the edge. Online play with Google accounts is coming.</span>
-      <div class="field">
-        <label>Players</label>
+      <h1>👥 Create Room</h1>
+      <span class="hint" style="text-align:center;display:block;margin-bottom:12px">Play vs AI or pass-and-play with friends. Pick stakes, your buy-in, and who's at the table. Assisted seats (🧠) get the GTO tool — benchmark them against blind seats.</span>
+
+      <div class="field"><label>Stakes</label>
+        <div class="seg" id="room-tier">${ROOM_TIERS.map((t, i) => `<button class="seg-btn ${su.tier === i ? "sel" : ""}" data-tier="${i}">${t.name}<br><small>${t.sb}/${t.bb}</small></button>`).join("")}</div>
+      </div>
+
+      <div class="field"><label>Buy-in <span class="lbl-sub">${su.buyIn.toLocaleString()} chips · ${Math.round(su.buyIn / su.bb)}bb</span></label>
+        <input class="buyin-slider" id="room-buyin" type="range" min="${minBuy}" max="${tier.max}" step="${su.bb}" value="${su.buyIn}"/>
+        <div class="buyin-ends"><span>${minBuy.toLocaleString()}</span><span>max ${tier.max.toLocaleString()} (100bb)</span></div>
+      </div>
+
+      <div class="field"><label>Seats</label>
         ${su.players.map((p, i) => `
           <div class="mp-prow">
             <input class="mp-name" id="mp-name-${i}" value="${p.name.replace(/"/g, "&quot;")}" maxlength="14" />
-            <label class="mp-assist"><input type="checkbox" id="mp-assist-${i}" ${p.assisted ? "checked" : ""}/> 🧠</label>
+            <select class="mp-type" id="mp-type-${i}"><option value="" ${!p.ai ? "selected" : ""}>🧑 Human</option>${AI_SKILLS.map((s) => `<option value="${s.key}" ${p.ai === s.key ? "selected" : ""}>${s.label} AI</option>`).join("")}</select>
+            ${!p.ai ? `<label class="mp-assist" title="Gets the GTO tool">${p.assisted ? "🧠" : "🙈"}<input type="checkbox" id="mp-assist-${i}" ${p.assisted ? "checked" : ""} style="display:none"/></label>` : `<span class="mp-aibadge">AI</span>`}
             ${su.players.length > 2 ? `<button class="hdr-btn mp-rm" id="mp-rm-${i}">✕</button>` : ""}
           </div>`).join("")}
-        ${su.players.length < 6 ? `<button class="hdr-btn" id="mp-add" style="margin-top:6px;width:100%">+ Add player</button>` : ""}
+        ${su.players.length < 6 ? `<div class="mp-addrow"><button class="hdr-btn" id="mp-add">+ Human</button><button class="hdr-btn" id="mp-add-ai">+ AI player</button></div>` : ""}
       </div>
-      <div class="field-row">
-        <div class="field"><label>Small blind</label><input class="mp-num" id="mp-sb" type="number" min="1" value="${su.sb}"/></div>
-        <div class="field"><label>Big blind</label><input class="mp-num" id="mp-bb" type="number" min="2" value="${su.bb}"/></div>
-      </div>
-      <div class="field"><label>Starting chips (each)</label><input class="mp-num" id="mp-stack" type="number" min="20" step="20" value="${su.stack}"/></div>
-      <button class="start-btn" id="mp-start" style="background:linear-gradient(135deg,#f59e0b,#b45309);color:#fff">START PASS-AND-PLAY TABLE</button>
-      <button class="start-btn" id="mp-online" style="background:linear-gradient(135deg,#4285F4,#1a73e8);color:#fff;margin-top:8px">🌐 Play Online — Sign in with Google</button>
-      <span class="hint" style="text-align:center;display:block">Online: see who's on, deal friends in from their own phones. (Networked hands are the next phase — login + lobby are live now.)</span>
+
+      <button class="start-btn" id="mp-start" style="background:linear-gradient(135deg,#f59e0b,#b45309);color:#fff">START ROOM</button>
+      <button class="start-btn" id="mp-online" style="background:linear-gradient(135deg,#4285F4,#1a73e8);color:#fff;margin-top:8px">🌐 Play Online</button>
       <button class="hdr-btn" id="mp-back" style="width:100%;padding:12px;margin-top:6px">Back</button>
     </div>`;
 
+  app.querySelectorAll("[data-tier]").forEach((b) => onEl(b, "click", () => {
+    const i = +(b as HTMLElement).dataset.tier!; const t = ROOM_TIERS[i]!;
+    su.tier = i; su.sb = t.sb; su.bb = t.bb; su.buyIn = t.max; // default to 100bb
+    render();
+  }));
+  onId("room-buyin", "input", (e) => { su.buyIn = Math.max(minBuy, Math.min(tier.max, +(e.target as HTMLInputElement).value)); render(); });
   su.players.forEach((_, i) => {
     onId(`mp-name-${i}`, "change", (e) => { su.players[i]!.name = (e.target as HTMLInputElement).value.trim() || `P${i + 1}`; });
-    onId(`mp-assist-${i}`, "change", (e) => { su.players[i]!.assisted = (e.target as HTMLInputElement).checked; });
+    onId(`mp-type-${i}`, "change", (e) => { su.players[i]!.ai = (e.target as HTMLSelectElement).value || null; render(); });
+    onId(`mp-assist-${i}`, "change", (e) => { su.players[i]!.assisted = (e.target as HTMLInputElement).checked; render(); });
     onId(`mp-rm-${i}`, "click", () => { su.players.splice(i, 1); render(); });
   });
-  onId("mp-add", "click", () => { su.players.push({ name: `P${su.players.length + 1}`, assisted: false }); render(); });
-  onId("mp-sb", "change", (e) => { su.sb = Math.max(1, +(e.target as HTMLInputElement).value || 1); });
-  onId("mp-bb", "change", (e) => { su.bb = Math.max(2, +(e.target as HTMLInputElement).value || 2); });
-  onId("mp-stack", "change", (e) => { su.stack = Math.max(20, +(e.target as HTMLInputElement).value || 200); });
-  onId("mp-back", "click", () => { S.screen = "setup"; render(); });
+  onId("mp-add", "click", () => { su.players.push({ name: seatName(su.players.length), assisted: false, ai: null }); render(); });
+  onId("mp-add-ai", "click", () => { su.players.push({ name: seatName(su.players.length), assisted: false, ai: "TAG" }); render(); });
+  onId("mp-back", "click", () => { S.screen = "home"; render(); });
   onId("mp-online", "click", () => { void goOnline(); });
   onId("mp-start", "click", () => {
     const names = su.players.map((p, i) => p.name.trim() || `P${i + 1}`);
     const t = MP.createAuthTable(`local-${Date.now()}`, { uid: "u0", name: names[0]! }, {
-      name: "Home Game", blinds: { sb: su.sb, bb: su.bb }, startingStack: su.stack, maxSeats: su.players.length,
+      name: `${tier.name} Room`, blinds: { sb: su.sb, bb: su.bb }, startingStack: su.buyIn, maxSeats: su.players.length,
     });
     MP.setAssisted(t, "u0", 0, su.players[0]!.assisted);
     for (let i = 1; i < su.players.length; i++) {
@@ -3323,8 +3353,31 @@ function renderMpSetup(): void {
   });
 }
 
+// AI seats auto-act (local rooms only) via the trainer's archetype-flavored villain AI.
+function scheduleAi(t: AuthTable, seat: number, archetype: string): void {
+  if (_aiTimer) { clearTimeout(_aiTimer); _aiTimer = null; }
+  _aiTimer = setTimeout(() => {
+    _aiTimer = null;
+    if (!t.gs || MP.publicState(t).toAct !== seat) return; // turn moved on
+    const g = MP.toGsSeat(t, seat);
+    const cards = t.holes.get(seat);
+    const uid = t.seats[seat]?.uid;
+    if (g < 0 || !cards || !uid) return;
+    const prof = PROFILES[archetype] ?? PROFILES.TAG!;
+    const dec = villainDecision(t.gs, g, cards, prof, Math.random);
+    let r = MP.act(t, uid, { type: dec.type, amount: dec.amount });
+    if (!r.ok) { // safety fallback: the AI's action was somehow illegal
+      const toCall = MP.publicState(t).currentBet - MP.publicState(t).seats[seat]!.bet;
+      r = MP.act(t, uid, { type: toCall > 0 ? "fold" : "check" });
+    }
+    S.mp.reveal = false; S.mp.rec = null;
+    render();
+  }, aiDelayMs());
+}
+
 function renderMpTable(): void {
   cancelVillainTimer();
+  if (_aiTimer) { clearTimeout(_aiTimer); _aiTimer = null; } // never double-schedule an AI
   const t = S.mp.table;
   if (!t) { S.screen = "mp-setup"; render(); return; }
   const ps = MP.publicState(t);
@@ -3346,7 +3399,11 @@ function renderMpTable(): void {
   } else if (ps.toAct >= 0) {
     const seat = ps.seats[ps.toAct]!;
     const toCall = ps.currentBet - seat.bet;
-    if (!S.mp.reveal) {
+    const aiArch = S.mp.setup.players[ps.toAct]?.ai;
+    if (aiArch) {
+      const label = AI_SKILLS.find((s) => s.key === aiArch)?.label ?? "AI";
+      panel = `<div class="mp-turn"><strong>${seat.name}</strong> · ${label}</div><div class="mp-thinking">thinking<span>.</span><span>.</span><span>.</span></div>`;
+    } else if (!S.mp.reveal) {
       panel = `<div class="mp-turn"><strong>${seat.name}</strong>'s turn</div>
         <button class="start-btn" id="mp-reveal">👁 Reveal cards & act</button>
         <span class="hint" style="text-align:center;display:block">Pass the device to ${seat.name}.</span>`;
@@ -3382,7 +3439,12 @@ function renderMpTable(): void {
       <div class="controls"><div class="controls-body">${panel}${sbHtml}</div></div>
     </div>`;
 
-  onId("mp-leave", "click", () => { S.mp.table = null; S.mp.reveal = false; S.mp.rec = null; S.screen = "mp-setup"; render(); });
+  onId("mp-leave", "click", () => { if (_aiTimer) { clearTimeout(_aiTimer); _aiTimer = null; } S.mp.table = null; S.mp.reveal = false; S.mp.rec = null; S.screen = "mp-setup"; render(); });
+  // If it's an AI seat's turn, auto-act after a delay (local rooms only).
+  if (ps.status === "in_hand" && ps.toAct >= 0) {
+    const aiArch = S.mp.setup.players[ps.toAct]?.ai;
+    if (aiArch) scheduleAi(t, ps.toAct, aiArch);
+  }
   onId("mp-next", "click", () => { MP.startHand(t, () => Math.random()); S.mp.reveal = false; S.mp.rec = null; render(); });
   onId("mp-reveal", "click", () => {
     S.mp.reveal = true;
@@ -3463,7 +3525,7 @@ function renderHome(): void {
       <div class="mc-modes">
         <button class="mc-mode train" id="home-train" style="--d:.05s"><span class="mc-mi">🎯</span><span class="mc-mtext"><span class="mc-mt">Train</span><span class="mc-md">Solo vs the GTO engine</span></span><span class="mc-arrow">→</span></button>
         <button class="mc-mode online" id="home-online" style="--d:.12s"><span class="mc-mi">🌐</span><span class="mc-mtext"><span class="mc-mt">Play Online</span><span class="mc-md">Sign in · see who's on</span></span><span class="mc-arrow">→</span></button>
-        <button class="mc-mode pass" id="home-pass" style="--d:.19s"><span class="mc-mi">👥</span><span class="mc-mtext"><span class="mc-mt">Pass &amp; Play</span><span class="mc-md">Benchmark on one device</span></span><span class="mc-arrow">→</span></button>
+        <button class="mc-mode pass" id="home-pass" style="--d:.19s"><span class="mc-mi">👥</span><span class="mc-mtext"><span class="mc-mt">Create Room</span><span class="mc-md">vs AI or friends · pick stakes</span></span><span class="mc-arrow">→</span></button>
         <button class="mc-mode profile" id="home-profile2" style="--d:.26s"><span class="mc-mi">👤</span><span class="mc-mtext"><span class="mc-mt">Profile</span><span class="mc-md">Avatar · name · chips</span></span><span class="mc-arrow">→</span></button>
       </div>
 
