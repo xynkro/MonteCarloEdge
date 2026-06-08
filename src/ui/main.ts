@@ -31,6 +31,9 @@ import { settlePots, strengthFromWinners } from "../engine/settle.js";
 import { openRaiseSize, minRaise } from "../engine/sizing.js";
 import { saveHand, getSessionHands, clearHistory, computeStats, type HandRecord, type SessionStats } from "../engine/hand-history.js";
 import { emptyStats, observeHand, blendProfile, playerRead, playerTag, type PlayerStats } from "../engine/player-model.js";
+import * as MP from "../mp/mp-engine.js";
+import type { AuthTable } from "../mp/mp-engine.js";
+import type { MPAction } from "../mp/types.js";
 import { playSound, setSoundEnabled, isSoundEnabled } from "./sound.js";
 
 const RANKS = "23456789TJQKA";
@@ -55,7 +58,14 @@ interface UndoSnapshot {
 }
 
 interface AppState {
-  screen: "setup" | "game" | "stats" | "leaks";
+  screen: "setup" | "game" | "stats" | "leaks" | "mp-setup" | "mp-table";
+  // Multiplayer / benchmark (Phase 0: local hot-seat, single tab).
+  mp: {
+    table: AuthTable | null;
+    setup: { players: { name: string; assisted: boolean }[]; sb: number; bb: number; stack: number };
+    reveal: boolean;          // hot-seat: active player's hole cards revealed
+    rec: Recommendation | null;
+  };
   mode: "live" | "training";
   sessionStart: number;
   tableSize: number;
@@ -154,6 +164,15 @@ interface AppState {
 
 const S: AppState = {
   screen: "setup",
+  mp: {
+    table: null,
+    setup: {
+      players: [{ name: "You", assisted: true }, { name: "Wife", assisted: false }],
+      sb: 1, bb: 2, stack: 200,
+    },
+    reveal: false,
+    rec: null,
+  },
   mode: "live",
   sessionStart: Date.now(),
   tableSize: 6,
@@ -342,6 +361,8 @@ function render(): void {
   if (S.screen === "setup") renderSetup();
   else if (S.screen === "stats") renderStats();
   else if (S.screen === "leaks") renderLeaks();
+  else if (S.screen === "mp-setup") renderMpSetup();
+  else if (S.screen === "mp-table") renderMpTable();
   else renderGame();
   if (S.pickerOpen) renderPicker();
   if (S.betPadOpen) renderBetPad();
@@ -908,6 +929,8 @@ function renderSetup(): void {
       <button class="start-btn" id="start">DEAL HAND</button>
       <button class="start-btn" id="start-training" style="background:linear-gradient(135deg,var(--violet),var(--violet-2));color:#fff;box-shadow:0 8px 22px rgba(124,92,255,.3);margin-top:8px">TRAINING MODE</button>
       <span class="hint" style="text-align:center">Training: practice against the AI. It deals cards, makes villain decisions, reveals hands at showdown.</span>
+      <button class="start-btn" id="start-mp" style="background:linear-gradient(135deg,#f59e0b,#b45309);color:#fff;box-shadow:0 8px 22px rgba(245,158,11,.3);margin-top:8px">👥 MULTIPLAYER / BENCHMARK</button>
+      <span class="hint" style="text-align:center">Pass-and-play with friends. Toggle who gets the strategy tool (assisted) vs who plays blind — then benchmark the edge. (Online play with accounts is coming.)</span>
 
       <div class="help-banner" id="help-toggle">
         <span class="help-icon">?</span> How does this work?
@@ -988,6 +1011,7 @@ function renderSetup(): void {
   onId("view-stats", "click", () => {
     S.screen = "stats"; render();
   });
+  onId("start-mp", "click", () => { S.screen = "mp-setup"; render(); });
 }
 
 function startHand(): void {
@@ -3119,6 +3143,148 @@ function exportCsv(hands: HandRecord[]): void {
   a.download = `montecarloedge-hands-${Date.now()}.csv`;
   a.click();
   URL.revokeObjectURL(url);
+}
+
+/* ═══════════════════ MULTIPLAYER (Phase 0: local hot-seat) ═══════════════════ */
+
+const mpc = (n: number): string => Math.round(n).toLocaleString();
+const mpCard = (c: Card): string => `<span class="mp-card ${isRed(c) ? "red" : ""}">${cardDisplay(c)}</span>`;
+const capWord = (s: string): string => s.charAt(0).toUpperCase() + s.slice(1);
+
+function renderMpSetup(): void {
+  cancelVillainTimer();
+  const su = S.mp.setup;
+  app.innerHTML = `
+    <div class="setup">
+      <h1>👥 Multiplayer Benchmark</h1>
+      <span class="hint" style="text-align:center;display:block;margin-bottom:12px">Pass-and-play on one device — each player reveals their own cards on their turn. Toggle who gets the strategy tool (🧠 assisted) vs who plays blind (🙈), then benchmark the edge. Online play with Google accounts is coming.</span>
+      <div class="field">
+        <label>Players</label>
+        ${su.players.map((p, i) => `
+          <div class="mp-prow">
+            <input class="mp-name" id="mp-name-${i}" value="${p.name.replace(/"/g, "&quot;")}" maxlength="14" />
+            <label class="mp-assist"><input type="checkbox" id="mp-assist-${i}" ${p.assisted ? "checked" : ""}/> 🧠</label>
+            ${su.players.length > 2 ? `<button class="hdr-btn mp-rm" id="mp-rm-${i}">✕</button>` : ""}
+          </div>`).join("")}
+        ${su.players.length < 6 ? `<button class="hdr-btn" id="mp-add" style="margin-top:6px;width:100%">+ Add player</button>` : ""}
+      </div>
+      <div class="field-row">
+        <div class="field"><label>Small blind</label><input class="mp-num" id="mp-sb" type="number" min="1" value="${su.sb}"/></div>
+        <div class="field"><label>Big blind</label><input class="mp-num" id="mp-bb" type="number" min="2" value="${su.bb}"/></div>
+      </div>
+      <div class="field"><label>Starting chips (each)</label><input class="mp-num" id="mp-stack" type="number" min="20" step="20" value="${su.stack}"/></div>
+      <button class="start-btn" id="mp-start" style="background:linear-gradient(135deg,#f59e0b,#b45309);color:#fff">START TABLE</button>
+      <button class="hdr-btn" id="mp-back" style="width:100%;padding:12px;margin-top:6px">Back</button>
+    </div>`;
+
+  su.players.forEach((_, i) => {
+    onId(`mp-name-${i}`, "change", (e) => { su.players[i]!.name = (e.target as HTMLInputElement).value.trim() || `P${i + 1}`; });
+    onId(`mp-assist-${i}`, "change", (e) => { su.players[i]!.assisted = (e.target as HTMLInputElement).checked; });
+    onId(`mp-rm-${i}`, "click", () => { su.players.splice(i, 1); render(); });
+  });
+  onId("mp-add", "click", () => { su.players.push({ name: `P${su.players.length + 1}`, assisted: false }); render(); });
+  onId("mp-sb", "change", (e) => { su.sb = Math.max(1, +(e.target as HTMLInputElement).value || 1); });
+  onId("mp-bb", "change", (e) => { su.bb = Math.max(2, +(e.target as HTMLInputElement).value || 2); });
+  onId("mp-stack", "change", (e) => { su.stack = Math.max(20, +(e.target as HTMLInputElement).value || 200); });
+  onId("mp-back", "click", () => { S.screen = "setup"; render(); });
+  onId("mp-start", "click", () => {
+    const names = su.players.map((p, i) => p.name.trim() || `P${i + 1}`);
+    const t = MP.createAuthTable(`local-${Date.now()}`, { uid: "u0", name: names[0]! }, {
+      name: "Home Game", blinds: { sb: su.sb, bb: su.bb }, startingStack: su.stack, maxSeats: su.players.length,
+    });
+    MP.setAssisted(t, "u0", 0, su.players[0]!.assisted);
+    for (let i = 1; i < su.players.length; i++) {
+      MP.sit(t, `u${i}`, names[i]!, i);
+      MP.setAssisted(t, "u0", i, su.players[i]!.assisted);
+    }
+    MP.startHand(t, () => Math.random());
+    S.mp.table = t; S.mp.reveal = false; S.mp.rec = null; S.screen = "mp-table"; render();
+  });
+}
+
+function renderMpTable(): void {
+  cancelVillainTimer();
+  const t = S.mp.table;
+  if (!t) { S.screen = "mp-setup"; render(); return; }
+  const ps = MP.publicState(t);
+
+  const boardHtml = ps.board.length ? ps.board.map(mpCard).join("") : `<span class="hint">— preflop —</span>`;
+  const seatsHtml = ps.seats.map((s, ti) => {
+    if (!s.uid) return "";
+    const active = ti === ps.toAct;
+    return `<div class="mp-seat ${active ? "active" : ""} ${s.folded ? "folded" : ""}">
+      <span class="mp-seat-name">${s.assisted ? "🧠" : "🙈"} ${s.name}${ti === ps.dealerSeat ? " Ⓓ" : ""}</span>
+      <span class="mp-seat-chips">🪙 ${mpc(s.chips)}${s.bet > 0 ? ` · bet ${mpc(s.bet)}` : ""}${s.folded ? " · folded" : ""}</span>
+    </div>`;
+  }).join("");
+
+  let panel = "";
+  if (ps.status === "hand_over") {
+    panel = `<div class="mp-result">${ps.lastResult || "Hand complete"}</div>
+      <button class="start-btn" id="mp-next">NEXT HAND</button>`;
+  } else if (ps.toAct >= 0) {
+    const seat = ps.seats[ps.toAct]!;
+    const toCall = ps.currentBet - seat.bet;
+    if (!S.mp.reveal) {
+      panel = `<div class="mp-turn"><strong>${seat.name}</strong>'s turn</div>
+        <button class="start-btn" id="mp-reveal">👁 Reveal cards & act</button>
+        <span class="hint" style="text-align:center;display:block">Pass the device to ${seat.name}.</span>`;
+    } else {
+      const ph = MP.privateHandFor(t, seat.uid!);
+      const cards = ph.holeCards ? ph.holeCards.map(mpCard).join("") : "";
+      const rec = S.mp.rec;
+      const tool = seat.assisted
+        ? (rec ? `<div class="mp-rec">💡 <strong>${capWord(rec.action)}${rec.amount ? ` ${mpc(rec.amount)}` : ""}</strong> — <span class="hint">${rec.reasoning}</span></div>` : "")
+        : `<div class="hint" style="text-align:center">🙈 Blind seat — no strategy tool.</div>`;
+      panel = `<div class="mp-turn"><strong>${seat.name}</strong> ${seat.assisted ? "🧠 assisted" : "🙈 blind"}</div>
+        <div class="mp-hole">${cards}</div>${tool}
+        <div class="action-bar">
+          <button class="action-btn fold" id="mp-fold">Fold</button>
+          ${toCall > 0 ? `<button class="action-btn call" id="mp-call">Call ${mpc(toCall)}</button>` : `<button class="action-btn check" id="mp-check">Check</button>`}
+          <button class="action-btn ${ps.currentBet > 0 ? "raise" : "bet"}" id="mp-bet">${ps.currentBet > 0 ? "Raise" : "Bet"} pot</button>
+          <button class="action-btn raise" id="mp-allin">All-in</button>
+        </div>`;
+    }
+  }
+
+  const scores = ps.seats.filter((s) => s.uid).map((s) => ({ n: s.name, net: s.chips - t.startingStack, a: s.assisted }))
+    .sort((x, y) => y.net - x.net);
+  const sbHtml = `<div class="mp-scoreboard">
+    <div class="hint">Net vs buy-in · ${t.handCount} hand${t.handCount === 1 ? "" : "s"}</div>
+    ${scores.map((r) => `<div class="mp-score-row"><span>${r.a ? "🧠" : "🙈"} ${r.n}</span><span class="${r.net >= 0 ? "g-ok" : "g-bad"}">${r.net >= 0 ? "+" : ""}${mpc(r.net)}</span></div>`).join("")}</div>`;
+
+  app.innerHTML = `
+    <div class="game">
+      <div class="game-topbar"><span>${t.name} · 🪙 play chips (no cash value)</span><button class="hdr-btn" id="mp-leave">Leave</button></div>
+      <div class="mp-felt"><div class="mp-board">${boardHtml}</div><div class="mp-pot">POT 🪙 ${mpc(ps.pot)} · ${capWord(ps.street)}</div></div>
+      <div class="mp-seats">${seatsHtml}</div>
+      <div class="controls"><div class="controls-body">${panel}${sbHtml}</div></div>
+    </div>`;
+
+  onId("mp-leave", "click", () => { S.mp.table = null; S.mp.reveal = false; S.mp.rec = null; S.screen = "mp-setup"; render(); });
+  onId("mp-next", "click", () => { MP.startHand(t, () => Math.random()); S.mp.reveal = false; S.mp.rec = null; render(); });
+  onId("mp-reveal", "click", () => {
+    S.mp.reveal = true;
+    const seat = ps.seats[ps.toAct]!;
+    S.mp.rec = seat.assisted ? MP.recommendForSeat(t, ps.toAct, recommend, AUTO) : null;
+    render();
+  });
+  const doAct = (action: MPAction): void => {
+    MP.act(t, ps.seats[ps.toAct]!.uid!, action);
+    S.mp.reveal = false; S.mp.rec = null; render();
+  };
+  onId("mp-fold", "click", () => doAct({ type: "fold" }));
+  onId("mp-check", "click", () => doAct({ type: "check" }));
+  onId("mp-call", "click", () => doAct({ type: "call" }));
+  onId("mp-bet", "click", () => {
+    const seat = ps.seats[ps.toAct]!;
+    const target = Math.min(ps.currentBet > 0 ? ps.currentBet + ps.pot : ps.pot, seat.chips + seat.bet);
+    doAct({ type: ps.currentBet > 0 ? "raise" : "bet", amount: target });
+  });
+  onId("mp-allin", "click", () => {
+    const seat = ps.seats[ps.toAct]!;
+    doAct({ type: ps.currentBet > 0 ? "raise" : "bet", amount: seat.chips + seat.bet });
+  });
 }
 
 /* ═══════════════════ INIT ═══════════════════ */

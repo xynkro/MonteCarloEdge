@@ -956,6 +956,34 @@ body {
 
 .lbl-sub { font-weight: 600; font-size: 10px; color: var(--muted); letter-spacing: .5px; }
 
+/* ── Multiplayer (Phase 0 hot-seat) ── */
+.mp-prow { display: flex; gap: 8px; align-items: center; margin: 5px 0; }
+.mp-name { flex: 1; min-width: 0; padding: 9px 11px; border-radius: 10px; background: var(--surface-2); border: 1px solid var(--line-2); color: var(--text); font-size: 14px; }
+.mp-assist { display: flex; align-items: center; gap: 4px; font-size: 13px; color: var(--muted); white-space: nowrap; }
+.mp-num { width: 100%; padding: 10px 12px; border-radius: 10px; background: var(--surface-2); border: 1px solid var(--line-2); color: var(--text); font-size: 16px; font-weight: 700; }
+.mp-felt {
+  margin: 8px 12px; padding: 18px 12px; border-radius: 18px; text-align: center;
+  background: radial-gradient(120% 100% at 50% 30%, var(--felt-1), var(--felt-3));
+  border: 5px solid var(--rail); box-shadow: inset 0 2px 24px rgba(0,0,0,.4);
+}
+.mp-board { display: flex; gap: 6px; justify-content: center; min-height: 40px; align-items: center; }
+.mp-card { width: 30px; height: 42px; border-radius: 5px; background: linear-gradient(170deg,#fff,#eef1f5); color: var(--card-black); display: inline-flex; align-items: center; justify-content: center; font-weight: 800; font-size: 15px; box-shadow: 0 2px 6px rgba(0,0,0,.4); }
+.mp-card.red { color: var(--card-red); }
+.mp-pot { margin-top: 8px; font-size: 13px; font-weight: 800; color: var(--gold); letter-spacing: .5px; }
+.mp-seats { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; padding: 0 12px; margin-bottom: 6px; }
+.mp-seat { flex: 1 1 44%; min-width: 120px; padding: 7px 10px; border-radius: 11px; background: var(--surface-2); border: 1px solid var(--line-2); display: flex; flex-direction: column; gap: 1px; }
+.mp-seat.active { border-color: var(--gold); box-shadow: 0 0 12px rgba(255,209,102,.35); }
+.mp-seat.folded { opacity: .45; }
+.mp-seat-name { font-weight: 800; font-size: 13px; }
+.mp-seat-chips { font-size: 11px; color: var(--muted); }
+.mp-turn { text-align: center; font-size: 15px; margin-bottom: 8px; }
+.mp-hole { display: flex; gap: 9px; justify-content: center; margin-bottom: 8px; }
+.mp-hole .mp-card { width: 50px; height: 70px; font-size: 22px; border-radius: 9px; }
+.mp-rec { background: rgba(0,214,143,.12); border: 1px solid rgba(0,214,143,.35); border-radius: 10px; padding: 8px 12px; margin-bottom: 8px; font-size: 13px; }
+.mp-result { text-align: center; font-size: 15px; font-weight: 700; color: var(--gold); margin-bottom: 10px; }
+.mp-scoreboard { margin-top: 12px; padding: 10px 12px; border-radius: 12px; background: var(--surface-2); border: 1px solid var(--line-2); }
+.mp-score-row { display: flex; justify-content: space-between; font-size: 13px; font-weight: 700; padding: 3px 0; }
+
 /* ── Leak report ── */
 .leak-row { margin: 8px 0; }
 .leak-head { display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 4px; }

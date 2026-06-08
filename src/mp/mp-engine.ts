@@ -14,7 +14,7 @@ import { type Card, NUM_CARDS } from "../engine/cards.js";
 import { type Rng } from "../engine/rng.js";
 import { evaluate } from "../engine/evaluator.js";
 import { GameState, type ActionType } from "../engine/game-state.js";
-import { getPositions } from "../engine/charts/index.js";
+import { positionsForButton } from "../engine/charts/index.js";
 import type {
   PublicTableState, PrivateHand, MPSeat, MPAction, CreateTableOpts,
 } from "./types.js";
@@ -124,7 +124,7 @@ export function startHand(t: AuthTable, rng: Rng): boolean {
     tableSize: n,
     bb: t.blinds.bb,
     stacks: liveSeats.map((ts) => t.seats[ts]!.chips),
-    positions: getPositions(n).slice(),
+    positions: positionsForButton(n, gsButton), // labels ROTATE with the button (else recommend reads the wrong position)
     heroSeat: gsButton,          // metadata only (recommend perspective is set per-seat)
     heroCards: buttonHole,
     dealerSeat: gsButton,
@@ -265,6 +265,25 @@ export function publicState(t: AuthTable): PublicTableState {
     handId: t.handId,
     lastResult: t.lastResult,
   };
+}
+
+/** The strategy recommendation for a seat (only used when that seat is "assisted").
+ * Builds a hero-perspective clone (its own hole cards) — mirrors villain-ai's flip. */
+export function recommendForSeat(
+  t: AuthTable,
+  tableSeat: number,
+  recommend: typeof import("../engine/decision.js").recommend,
+  profile: import("../engine/opponent.js").OpponentProfile,
+) {
+  if (!t.gs || t.status !== "in_hand") return null;
+  const g = tableToGs(t, tableSeat);
+  if (g < 0) return null;
+  const holes = t.holes.get(tableSeat);
+  if (!holes) return null;
+  const ps = t.gs.clone() as unknown as { heroSeat: number; heroCards: [Card, Card] };
+  ps.heroSeat = g;
+  ps.heroCards = holes;
+  return recommend(ps as unknown as GameState, profile);
 }
 
 /** A single player's own hole cards — the ONLY secret a client ever receives. */
