@@ -595,6 +595,13 @@ body {
 .read-row.story.vil .read-lead { color: #ffb45e; }
 .read-row.story.vil .threat.story-rep { background: rgba(255,159,67,.18); color: #ffd9a8; }
 .story-cred { font-size: 10.5px; color: var(--muted); align-self: center; }
+/* Runout-aware bluff-catch lean: brick → call lighter (green), scare → careful (red). */
+.read-row.story.vil.lean-call { background: rgba(6,214,160,.10); border-color: rgba(6,214,160,.34); }
+.read-row.story.vil.lean-call .read-lead { color: var(--emerald); }
+.read-row.story.vil.lean-call .story-cred { color: #7ce0c0; }
+.read-row.story.vil.lean-careful { background: rgba(239,71,111,.10); border-color: rgba(239,71,111,.34); }
+.read-row.story.vil.lean-careful .read-lead { color: var(--rose); }
+.read-row.story.vil.lean-careful .story-cred { color: #ff9bb3; }
 
 .hero-card {
   width: 52px; height: 72px; border-radius: 10px;

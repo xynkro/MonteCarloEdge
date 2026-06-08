@@ -130,7 +130,7 @@ interface AppState {
     equity: number | null; made: Threat[]; draws: Threat[];
     // "Story" reads: what aggression represents on this board (no hole-card peeking).
     heroStory: { label: string; cred: string } | null;
-    villainStory: { label: string; bluffPct: number } | null;
+    villainStory: { label: string; bluffPct: number; note: string; lean: "call" | "careful" | "" } | null;
   } | null;
   boardReadKey: string;
   message: string;
@@ -1215,17 +1215,30 @@ function updateBoardRead(): void {
   const heroCred = heroCapped ? "but you checked earlier — looks capped"
     : repBacked ? "the board backs it" : "thin — board doesn't fully back it yet";
   const heroStory = { label: rep.label, cred: heroCred };
-  // Villain's story: the seat that has bet/raised postflop this hand. Show what
-  // their line reps on this board + how often THIS TYPE bluffs here (a frequency,
-  // not their actual hand).
-  let villainStory: { label: string; bluffPct: number } | null = null;
+  // Villain's story: the seat that has bet/raised postflop this hand. Mirrors the
+  // engine's bluff-catch read (decision.ts 3A) — the runout × the TYPE tells you
+  // how bluff-heavy his line is: a BRICK barreled by a bluffy/incoherent type →
+  // call lighter; a SCARE that completed the rep → be careful (credible story).
+  let villainStory: { label: string; bluffPct: number; note: string; lean: "call" | "careful" | "" } | null = null;
   let aggr = -1;
   for (const a of S.gs.actions) if (a.seat !== S.heroSeat && a.street !== "preflop" && (a.type === "bet" || a.type === "raise")) aggr = a.seat;
   if (aggr >= 0) {
     const prof = buildProfiles().get(aggr) ?? PROFILES[S.archetype]!;
     const streetsBet = new Set(S.gs.actions.filter(a => a.seat === aggr && a.street !== "preflop" && (a.type === "bet" || a.type === "raise")).map(a => a.street)).size;
-    const bluffPct = Math.round((streetsBet >= 2 ? prof.barrelFreq : prof.bluffFreq) * 100);
-    villainStory = { label: rep.label, bluffPct };
+    const baseBluff = streetsBet >= 2 ? prof.barrelFreq : prof.bluffFreq;
+    const phase = scoreRunout({ ...rep, coherence: 1, openedStreet: S.gs.street }, board);
+    const clampPct = (lo: number, hi: number, x: number) => Math.round(Math.max(lo, Math.min(hi, x)) * 100);
+    let bluffPct: number, note: string, lean: "call" | "careful" | "";
+    if (phase === "brick") {
+      bluffPct = clampPct(0.05, 0.9, baseBluff * (1.25 - prof.coherence));
+      note = "barrels a brick — call lighter"; lean = "call";
+    } else if (phase === "scare") {
+      bluffPct = clampPct(0.03, 0.6, baseBluff * (1 - prof.coherence) * 0.6);
+      note = `${rep.label} got there — be careful`; lean = "careful";
+    } else {
+      bluffPct = clampPct(0.05, 0.9, baseBluff); note = "bluffs here"; lean = "";
+    }
+    villainStory = { label: rep.label, bluffPct, note, lean };
   }
   S.boardRead = { equity, made: read.made.slice(0, 3), draws: read.draws.slice(0, 4), heroStory, villainStory };
 }
@@ -1524,7 +1537,7 @@ function renderGame(): void {
       ? `<div class="read-row story"><span class="read-lead">Your bet reps</span><span class="threat story-rep">${hs.label}</span><span class="story-cred">${hs.cred}</span></div>`
       : "";
     const vilStoryRow = vs
-      ? `<div class="read-row story vil"><span class="read-lead">Villain reps</span><span class="threat story-rep">${vs.label}</span><span class="story-cred">bluffs ~${vs.bluffPct}% here</span></div>`
+      ? `<div class="read-row story vil ${vs.lean ? "lean-" + vs.lean : ""}"><span class="read-lead">Villain reps</span><span class="threat story-rep">${vs.label}</span><span class="story-cred">~${vs.bluffPct}% bluffs · ${vs.note}</span></div>`
       : "";
     boardReadHtml = `<div class="read-panel">${beatsRow}${drawsRow}${vilStoryRow}${heroStoryRow}</div>`;
   }
