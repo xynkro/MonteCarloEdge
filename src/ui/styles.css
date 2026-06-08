@@ -68,6 +68,17 @@ body {
   overflow: hidden;
   letter-spacing: .15px;
 }
+/* Global ambient atmosphere — subtle drifting glows behind every screen. */
+body::before {
+  content: ""; position: fixed; inset: 0; z-index: 0; pointer-events: none;
+  background:
+    radial-gradient(58vw 58vw at 10% -10%, rgba(17,147,107,.15), transparent 68%),
+    radial-gradient(54vw 54vw at 94% 110%, rgba(199,148,51,.11), transparent 70%);
+}
+#app { z-index: 1; }
+@media (prefers-reduced-motion: no-preference) {
+  body::before { animation: mcDrift 26s ease-in-out infinite alternate; }
+}
 
 .money, .table-pot, .seat-stack, .stat-big, .stat-num, .gto-ev strong,
 .gto-pct, .raise-val, .betpad-display {
@@ -145,7 +156,8 @@ body {
 .arch-desc { font-style: italic; }
 
 .field select, .field input {
-  background: var(--surface); border: 1px solid var(--line-2); border-radius: var(--radius-sm);
+  background: var(--glass); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+  border: 1px solid var(--glass-edge); border-radius: var(--radius-sm);
   color: var(--text); padding: 13px 14px; font-size: 16px; outline: none; width: 100%;
   appearance: none; -webkit-appearance: none;
 }
@@ -160,7 +172,8 @@ body {
 .blind-slash { font-size: 20px; font-weight: 700; color: var(--faint); }
 
 .tap-input {
-  background: var(--surface); border: 1px solid var(--line-2); border-radius: var(--radius-sm);
+  background: var(--glass); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+  border: 1px solid var(--glass-edge); border-radius: var(--radius-sm);
   color: var(--text); padding: 13px 14px; font-size: 16px; font-weight: 700;
   text-align: left; cursor: pointer; width: 100%; transition: border-color .15s, background .15s;
 }
@@ -186,7 +199,7 @@ body {
 .start-btn {
   background: linear-gradient(135deg, var(--emerald), var(--emerald-2));
   color: #042018; border: none; border-radius: var(--radius);
-  padding: 17px; font-size: 16px; font-weight: 800; cursor: pointer;
+  padding: 17px; font-family: var(--display); font-size: 16px; font-weight: 800; cursor: pointer;
   margin-top: auto; letter-spacing: .6px; text-transform: uppercase;
   box-shadow: 0 8px 22px rgba(0,214,143,.32), inset 0 1px 0 rgba(255,255,255,.25);
   transition: transform .12s, filter .12s;
@@ -218,7 +231,8 @@ body {
   letter-spacing: .3px;
 }
 .hdr-btn {
-  background: var(--surface-2); border: 1px solid var(--line-2); border-radius: 10px;
+  background: var(--glass); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+  border: 1px solid var(--glass-edge); border-radius: 11px;
   color: var(--text); padding: 8px 13px; font-size: 12px; font-weight: 700; cursor: pointer;
   transition: background .15s, transform .1s;
 }
@@ -1081,18 +1095,21 @@ body {
 .mp-prow { display: flex; gap: 8px; align-items: center; margin: 5px 0; }
 .mp-name { flex: 1; min-width: 0; padding: 9px 11px; border-radius: 10px; background: var(--surface-2); border: 1px solid var(--line-2); color: var(--text); font-size: 14px; }
 .mp-assist { display: flex; align-items: center; gap: 4px; font-size: 13px; color: var(--muted); white-space: nowrap; }
-.mp-num { width: 100%; padding: 10px 12px; border-radius: 10px; background: var(--surface-2); border: 1px solid var(--line-2); color: var(--text); font-size: 16px; font-weight: 700; }
+.mp-num { width: 100%; padding: 11px 13px; border-radius: 10px; background: var(--glass); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); border: 1px solid var(--glass-edge); color: var(--text); font-size: 16px; font-weight: 700; }
 .mp-felt {
-  margin: 8px 12px; padding: 18px 12px; border-radius: 18px; text-align: center;
-  background: radial-gradient(120% 100% at 50% 30%, var(--felt-1), var(--felt-3));
-  border: 5px solid var(--rail); box-shadow: inset 0 2px 24px rgba(0,0,0,.4);
+  position: relative; margin: 10px 12px; padding: 22px 12px; border-radius: 22px; text-align: center;
+  background: radial-gradient(118% 100% at 50% 28%, #16a37c, #0c6e51 50%, #064030);
+  box-shadow:
+    inset 0 3px 28px rgba(0,0,0,.45), inset 0 0 60px rgba(0,0,0,.25),
+    0 0 0 3px #0a0e16, 0 0 0 6px rgba(199,148,51,.55), 0 0 0 7px rgba(255,233,168,.22), 0 0 0 9px #0a0e16,
+    0 18px 44px rgba(0,0,0,.6);
 }
 .mp-board { display: flex; gap: 6px; justify-content: center; min-height: 40px; align-items: center; }
 .mp-card { width: 30px; height: 42px; border-radius: 5px; background: linear-gradient(170deg,#fff,#eef1f5); color: var(--card-black); display: inline-flex; align-items: center; justify-content: center; font-weight: 800; font-size: 15px; box-shadow: 0 2px 6px rgba(0,0,0,.4); }
 .mp-card.red { color: var(--card-red); }
 .mp-pot { margin-top: 8px; font-size: 13px; font-weight: 800; color: var(--gold); letter-spacing: .5px; }
 .mp-seats { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; padding: 0 12px; margin-bottom: 6px; }
-.mp-seat { flex: 1 1 44%; min-width: 120px; padding: 7px 10px; border-radius: 11px; background: var(--surface-2); border: 1px solid var(--line-2); display: flex; flex-direction: column; gap: 1px; }
+.mp-seat { flex: 1 1 44%; min-width: 120px; padding: 8px 11px; border-radius: 12px; background: var(--glass); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); border: 1px solid var(--glass-edge); display: flex; flex-direction: column; gap: 1px; }
 .mp-seat.active { border-color: var(--gold); box-shadow: 0 0 12px rgba(255,209,102,.35); }
 .mp-seat.folded { opacity: .45; }
 .mp-seat-name { font-weight: 800; font-size: 13px; }
@@ -1102,7 +1119,7 @@ body {
 .mp-hole .mp-card { width: 50px; height: 70px; font-size: 22px; border-radius: 9px; }
 .mp-rec { background: rgba(0,214,143,.12); border: 1px solid rgba(0,214,143,.35); border-radius: 10px; padding: 8px 12px; margin-bottom: 8px; font-size: 13px; }
 .mp-result { text-align: center; font-size: 15px; font-weight: 700; color: var(--gold); margin-bottom: 10px; }
-.mp-scoreboard { margin-top: 12px; padding: 10px 12px; border-radius: 12px; background: var(--surface-2); border: 1px solid var(--line-2); }
+.mp-scoreboard { margin-top: 12px; padding: 11px 13px; border-radius: 13px; background: var(--glass); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); border: 1px solid var(--glass-edge); }
 .mp-score-row { display: flex; justify-content: space-between; font-size: 13px; font-weight: 700; padding: 3px 0; }
 
 /* ── Leak report ── */
