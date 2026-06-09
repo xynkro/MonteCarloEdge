@@ -373,3 +373,27 @@ export const claimWeekly = onCall(async (req) => {
     return { ok: true, granted: grant, balance: w.play + grant, streak };
   });
 });
+
+// Cosmetic collectibles catalog (server-authoritative prices, in PREMIUM chips).
+// These are account-bound digital cosmetics — no cash value, not transferable.
+const COLLECTIBLES: Record<string, number> = {
+  squid: 2500, goldback: 1200, emerald: 1500, crown: 3000, squiddigital: 2000,
+};
+/** Buy a cosmetic collectible with PREMIUM chips. Account-bound; non-transferable. */
+export const buyCollectible = onCall(async (req) => {
+  const uid = uidOf(req);
+  const { itemId } = (req.data ?? {}) as { itemId?: string };
+  const price = itemId ? COLLECTIBLES[itemId] : undefined;
+  if (!itemId || price == null) throw new HttpsError("invalid-argument", "Unknown item.");
+  return db.runTransaction(async (tx) => {
+    const snap = await tx.get(userRef(uid));
+    const d = (snap.exists ? snap.data()! : {}) as Record<string, unknown>;
+    const owned = (d.collectibles as string[]) ?? [];
+    if (owned.includes(itemId)) throw new HttpsError("failed-precondition", "Already owned.");
+    const w = readWallet(d);
+    if (w.premium < price) throw new HttpsError("failed-precondition", "Not enough premium chips.");
+    tx.set(userRef(uid), { chipsPremium: w.premium - price, collectibles: [...owned, itemId] }, { merge: true });
+    tx.set(ledgerRef().doc(), { type: "buy", item: itemId, currency: "premium", amount: price, from: uid, fromName: (d.name as string) ?? "player", to: "store", toName: "store", at: FieldValue.serverTimestamp() });
+    return { ok: true, balance: w.premium - price };
+  });
+});

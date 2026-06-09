@@ -73,15 +73,17 @@ export const edgePassCheckout = (origin: string) => callFn<{ url: string | null 
 export const billingPortal = (origin: string) => callFn<{ url: string | null }>("createBillingPortal", { origin });
 
 // ── economy: two wallets, gifting, messaging, admin, ledger ──
-export interface Wallet { play: number; premium: number; edgePass: boolean; lastWeekly: number; weeklyStreak: number }
-/** Live two-wallet balance + Edge Pass + weekly-claim state for a player. */
+export interface Wallet { play: number; premium: number; edgePass: boolean; lastWeekly: number; weeklyStreak: number; collectibles: string[] }
+/** Live two-wallet balance + Edge Pass + weekly-claim state + owned collectibles. */
 export async function subscribeWallet(uid: string, cb: (w: Wallet) => void): Promise<() => void> {
   const { m, db } = await firestore();
-  return m.onSnapshot(m.doc(db, "users", uid), (s: { exists: () => boolean; data: () => Record<string, number | boolean> }) => {
+  return m.onSnapshot(m.doc(db, "users", uid), (s: { exists: () => boolean; data: () => Record<string, unknown> }) => {
     const d = s.exists() ? s.data() : {};
-    cb({ play: (d.chipsPlay as number) ?? (d.chips as number) ?? 1000, premium: (d.chipsPremium as number) ?? 0, edgePass: !!d.edgePass, lastWeekly: (d.lastWeekly as number) ?? 0, weeklyStreak: (d.weeklyStreak as number) ?? 0 });
+    cb({ play: (d.chipsPlay as number) ?? (d.chips as number) ?? 1000, premium: (d.chipsPremium as number) ?? 0, edgePass: !!d.edgePass, lastWeekly: (d.lastWeekly as number) ?? 0, weeklyStreak: (d.weeklyStreak as number) ?? 0, collectibles: (d.collectibles as string[]) ?? [] });
   });
 }
+/** Buy a cosmetic collectible with premium chips. */
+export const buyCollectible = (itemId: string) => callFn<{ balance: number }>("buyCollectible", { itemId });
 export interface InboxMsg { id: string; kind: string; from: string; fromName: string; text?: string; chips?: number; currency?: string; read?: boolean; createdAt?: { seconds: number } }
 /** Live inbox (newest first). */
 export async function subscribeInbox(uid: string, cb: (msgs: InboxMsg[]) => void): Promise<() => void> {

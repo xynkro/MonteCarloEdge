@@ -88,6 +88,7 @@ interface AppState {
   wallet: { play: number | null; premium: number | null }; // server balances (signed in)
   lastWeekly: number;       // last weekly-claim timestamp (server)
   weeklyStreak: number;     // consecutive weekly claims (drives the ladder)
+  collectibles: string[];   // owned cosmetic collectibles (server)
   isAdmin: boolean;         // super-admin custom claim
   inbox: import("../mp/firebase-adapter.js").InboxMsg[];
   compose: { toUid: string; toName: string; text: string; giftAmt: number; busy: boolean; err: string; sent: string };
@@ -212,6 +213,7 @@ const S: AppState = {
   wallet: { play: null, premium: null },
   lastWeekly: 0,
   weeklyStreak: 0,
+  collectibles: [],
   isAdmin: false,
   inbox: [],
   compose: { toUid: "", toName: "", text: "", giftAmt: 0, busy: false, err: "", sent: "" },
@@ -3736,7 +3738,7 @@ function stopEconomySubs(): void {
 async function startEconomySubs(uid: string): Promise<void> {
   stopEconomySubs();
   try {
-    _walletUnsub = await FB.subscribeWallet(uid, (w) => { S.wallet = { play: w.play, premium: w.premium }; S.edgePass = w.edgePass; S.lastWeekly = w.lastWeekly; S.weeklyStreak = w.weeklyStreak; renderIfEcon(); maybeShowWeekly(); });
+    _walletUnsub = await FB.subscribeWallet(uid, (w) => { S.wallet = { play: w.play, premium: w.premium }; S.edgePass = w.edgePass; S.lastWeekly = w.lastWeekly; S.weeklyStreak = w.weeklyStreak; S.collectibles = w.collectibles; renderIfEcon(); maybeShowWeekly(); });
     _inboxUnsub = await FB.subscribeInbox(uid, (msgs) => { S.inbox = msgs; renderIfEcon(); });
     _onlineUnsub = await FB.subscribeOnline((list) => { S.mp.online = list.filter((p) => p.uid !== uid); renderIfEcon(); });
     FB.isAdminClaim().then((a) => { S.isAdmin = a; renderIfEcon(); }).catch(() => {});
@@ -4110,6 +4112,7 @@ const EDGE_TIERS = [
 ];
 const COSMETICS = [
   { id: "squid", emoji: "🦑", name: "Squid Mascot", desc: "Collectible table mascot", chips: 2500 },
+  { id: "squiddigital", emoji: "🦑", name: "Squid · Digital", desc: "Limited digital Squid — account-bound flair", chips: 2000 },
   { id: "goldback", emoji: "🟡", name: "Gold Card Back", desc: "Gilded deck", chips: 1200 },
   { id: "emerald", emoji: "🟢", name: "Emerald Felt", desc: "Premium table felt", chips: 1500 },
   { id: "crown", emoji: "👑", name: "Crown Flair", desc: "Profile crown", chips: 3000 },
@@ -4119,8 +4122,8 @@ function addCosmetic(id: string): void { const o = ownedCosmetics(); if (!o.incl
 
 function renderStore(): void {
   cancelVillainTimer();
-  const owned = ownedCosmetics();
   const loggedIn = !!S.mp.auth;
+  const owned = loggedIn ? S.collectibles : ownedCosmetics();
   const playBal = loggedIn ? S.wallet.play : S.profile.chips;
   const premBal = loggedIn ? S.wallet.premium : 0;
   const claimReady = canClaimWeekly();
@@ -4149,7 +4152,6 @@ function renderStore(): void {
       </div>
 
       <div class="set-group"><div class="set-head">🪙 Play chips</div>
-        <img class="store-chips-art" src="chips.png" alt="" aria-hidden="true" width="1100" height="600" />
         <div class="set-note" style="margin-bottom:9px">Practice currency · refills free every Monday (+streak). AI rooms + learning tables. Buy-in capped at 100bb, so chips never buy an edge.</div>
         <div class="pack-grid">${PLAY_PACKS.map((pk) => pack(pk, "🪙")).join("")}</div>
       </div>
@@ -4163,7 +4165,7 @@ function renderStore(): void {
         <div class="set-note" style="margin-bottom:9px">Cosmetic only — card-backs, felts, frames. <strong>Account-bound: cannot be sold, traded, or transferred for value.</strong> The flashiest ones unlock by beating the trainer.</div>
         <div class="store-grid">${COSMETICS.map((c) => {
           const own = owned.includes(c.id);
-          return `<div class="store-item ${own ? "owned" : ""}"><div class="si-emoji">${c.emoji}</div><div class="si-name">${c.name}</div><div class="si-desc">${c.desc}</div>${own ? `<div class="si-own">Owned ✓</div>` : `<button class="hdr-btn" disabled>💎 ${c.chips.toLocaleString()} · Soon</button>`}</div>`;
+          return `<div class="store-item ${own ? "owned" : ""}"><div class="si-emoji">${c.emoji}</div><div class="si-name">${c.name}</div><div class="si-desc">${c.desc}</div>${own ? `<div class="si-own">Owned ✓</div>` : (loggedIn ? `<button class="hdr-btn buy-col" data-col="${c.id}" ${(S.wallet.premium ?? 0) < c.chips ? "disabled" : ""}>💎 ${c.chips.toLocaleString()}</button>` : `<button class="hdr-btn" disabled>💎 ${c.chips.toLocaleString()}</button>`)}</div>`;
         }).join("")}</div>
       </div>
 
@@ -4173,8 +4175,16 @@ function renderStore(): void {
   onId("store-back", "click", () => { S.screen = "home"; render(); });
   onId("store-back2", "click", () => { S.screen = "home"; render(); });
   onId("store-claim", "click", () => { _weeklyShown = false; showWeeklyClaim(); });
+  app.querySelectorAll(".buy-col").forEach((b) => onEl(b, "click", () => void doBuyCollectible((b as HTMLElement).dataset.col!)));
   onId("edge-buy", "click", () => { void startEdgePass(); });
   onId("edge-manage", "click", () => { void manageEdgePass(); });
+}
+
+// Buy a cosmetic collectible with premium chips (the live wallet sub reflects the
+// new balance + owned state on success; account-bound, non-transferable).
+async function doBuyCollectible(itemId: string): Promise<void> {
+  try { await FB.buyCollectible(itemId); try { playSound("chip"); } catch { /* */ } }
+  catch (e) { alert(friendlyErr(e)); }
 }
 
 // Edge Pass: redirect to Stripe Checkout (the secret keys live server-side; the
@@ -4221,7 +4231,11 @@ function renderHome(): void {
       </header>
 
       <div class="mc-hero">
-        <img class="mc-hero-art" src="hero.png" alt="" aria-hidden="true" width="1400" height="782" />
+        <div class="mc-fan" aria-hidden="true">
+          <span class="mc-hc back"></span>
+          <span class="mc-hc red">A<i>♥</i></span>
+          <span class="mc-hc">A<i>♠</i></span>
+        </div>
         <h1 class="mc-wordmark"><span>MONTECARLO</span><b>EDGE</b></h1>
         <p class="mc-tag">Play the player. Own the table.</p>
       </div>
