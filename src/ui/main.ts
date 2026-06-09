@@ -3427,7 +3427,7 @@ function renderMpSetup(): void {
   onId("room-buyin", "input", (e) => { su.buyIn = Math.max(minBuy, Math.min(maxBuy, +(e.target as HTMLInputElement).value)); render(); });
   onId("room-mce", "click", () => { if (!hasEdge()) { S.screen = "store"; render(); return; } _roomAssisted = !_roomAssisted; render(); });
   onId("net-create", "click", () => { void createNetRoom(); });
-  onId("net-code", "change", (e) => { S.net.joinCode = (e.target as HTMLInputElement).value.trim().toUpperCase(); });
+  onId("net-code", "input", (e) => { S.net.joinCode = (e.target as HTMLInputElement).value.trim().toUpperCase(); });
   onId("net-join", "click", () => { const v = (document.getElementById("net-code") as HTMLInputElement | null)?.value.trim().toUpperCase() || S.net.joinCode; void joinNetRoom(v); });
 }
 
@@ -3580,7 +3580,7 @@ async function enterRoom(code: string): Promise<void> {
   S.net.code = code; S.net.pub = null; S.net.myHand = null; S.net.err = "";
   S.screen = "mp-net"; render();
   try {
-    _netTableUnsub = await FB.subscribeRoom(code, (pub) => { S.net.pub = pub; if (S.screen === "mp-net") render(); });
+    _netTableUnsub = await FB.subscribeRoom(code, (pub) => { S.net.pub = pub; _netActing = false; if (S.screen === "mp-net") render(); });
     const uid = S.mp.auth?.uid;
     if (uid) _netHandUnsub = await FB.subscribeMyHand(code, uid, (h) => { S.net.myHand = h?.holeCards ?? null; if (S.screen === "mp-net") render(); });
   } catch (e) { S.net.err = friendlyErr(e); render(); }
@@ -3609,11 +3609,14 @@ async function joinNetRoom(code: string): Promise<void> {
   catch (e) { S.net.busy = false; S.net.err = friendlyErr(e); render(); }
 }
 
+let _netActing = false; // optimistic: true between tapping an action and the next snapshot
 async function netAct(action: { type: string; amount?: number }): Promise<void> {
   const code = S.net.code, pub = S.net.pub;
-  if (!code || !pub) return;
+  if (!code || !pub || _netActing) return;
+  _netActing = true; // instant feedback — the action bar locks to "sending…" right away
+  if (S.screen === "mp-net") render();
   try { await FB.actRoom(code, action, pub.version as number); }
-  catch { /* stale version / illegal — the live snapshot will correct the UI */ }
+  catch { _netActing = false; if (S.screen === "mp-net") render(); /* stale/illegal — snapshot corrects */ }
 }
 async function netDeal(): Promise<void> { const code = S.net.code; if (!code) return; try { await FB.dealHand(code); } catch (e) { S.net.err = friendlyErr(e); render(); } }
 async function netLeave(): Promise<void> {
@@ -3690,7 +3693,10 @@ function renderNetTable(): void {
     controls = `<div class="mp-result">${esc(pub.lastResult || "Hand over")}</div>${isOwner ? `<button class="start-btn" id="net-deal">${S.net.busy ? "…" : "NEXT HAND"}</button>` : `<div class="hint" style="text-align:center">Waiting for the next deal…</div>`}`;
   } else if (myTurn) {
     const seat = seats[pub.toAct]!; const toCall = (pub.currentBet as number) - seat.bet;
-    controls = `${S.net.myHand ? `<div class="net-hero">${S.net.myHand.map((c) => `<span class="hero-card ${isRed(c) ? "red" : ""}">${cardDisplay(c)}</span>`).join("")}</div>` : ""}
+    const hero = S.net.myHand ? `<div class="net-hero">${S.net.myHand.map((c) => `<span class="hero-card ${isRed(c) ? "red" : ""}">${cardDisplay(c)}</span>`).join("")}</div>` : "";
+    controls = _netActing
+      ? `${hero}<div class="action-bar pending"><button class="action-btn" disabled>sending<span class="dots">…</span></button></div>`
+      : `${hero}
       <div class="action-bar">
         <button class="action-btn fold" id="na-fold">Fold</button>
         ${toCall > 0 ? `<button class="action-btn call" id="na-call">Call ${mpc(toCall)}</button>` : `<button class="action-btn check" id="na-check">Check</button>`}
@@ -3724,7 +3730,9 @@ let _signinMode: "signin" | "register" = "signin";
 // Live economy subscriptions: two-wallet balance + Edge Pass, the inbox, and the
 // admin claim. Started on sign-in / restore; torn down on sign-out.
 let _walletUnsub: (() => void) | null = null, _inboxUnsub: (() => void) | null = null;
-const ECON_SCREENS = new Set(["home", "inbox", "compose", "admin", "store", "mp-setup", "profile", "settings"]);
+// NOTE: "mp-setup" is deliberately EXCLUDED — presence/online heartbeats fire every
+// few seconds, and re-rendering Play Online mid-typing wiped the join-code input.
+const ECON_SCREENS = new Set(["home", "inbox", "compose", "admin", "store", "profile", "settings"]);
 function renderIfEcon(): void { if (ECON_SCREENS.has(S.screen)) render(); }
 function stopEconomySubs(): void {
   if (_walletUnsub) { _walletUnsub(); _walletUnsub = null; }
