@@ -30,18 +30,24 @@ describe("simulator", () => {
     expect(Number.isFinite(result.bbPer100)).toBe(true);
   });
 
-  it("bb/100 is within reasonable range", () => {
-    const result = simulate({
-      villainProfile: TAG,
-      hands: 500,
-      startingStack: 100,
-      bb: 1,
-      rng: mulberry32(0xbeef),
-    });
-    // Even a bad run shouldn't lose more than 100bb/100 on average
-    expect(result.bbPer100).toBeGreaterThan(-100);
-    expect(result.bbPer100).toBeLessThan(100);
-  });
+  // VALIDATION: the engine must actually WIN, not just "not lose catastrophically".
+  // Averaged over seeds (variance-robust), the recommend() line is +EV against every
+  // opponent style — crushing a calling station and still beating a competent TAG reg.
+  const winRate = (prof: typeof TAG, hands: number, seeds: number[]) =>
+    seeds.map((s) => simulate({ villainProfile: prof, hands, startingStack: 100, bb: 1, rng: mulberry32(s) }).bbPer100)
+      .reduce((a, b) => a + b, 0) / seeds.length;
+
+  it("crushes a calling station (big +EV)", () => {
+    expect(winRate(STATION, 2000, [11, 22, 33])).toBeGreaterThan(50);
+  }, 120000);
+
+  it("beats a competent TAG reg (+EV)", () => {
+    expect(winRate(TAG, 1800, [11, 22, 33])).toBeGreaterThan(5);
+  }, 120000);
+
+  it("beats a nit by stealing (+EV)", () => {
+    expect(winRate(NIT, 1500, [11, 22, 33])).toBeGreaterThan(0);
+  }, 120000);
 
   it("CI widens with fewer hands", () => {
     const small = simulate({
