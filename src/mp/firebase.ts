@@ -13,10 +13,12 @@ import type { FirebaseApp } from "firebase/app";
 
 export const firebaseConfig = {
   apiKey: "AIzaSyDYU3qTIwQ-LRPiJlx65beK0BHRquzDIko",
-  // Serve the app from this SAME domain (Firebase Hosting → montecarloedge.web.app)
-  // so the OAuth handler (/__/auth/) is same-origin. Cross-domain auth (app on
-  // github.io, handler on *.firebaseapp.com) silently fails on iOS Safari (ITP).
-  authDomain: "montecarloedge.web.app",
+  // Serve the app from this SAME domain (Firebase Hosting also serves the site at
+  // montecarloedge.firebaseapp.com) so the OAuth handler (/__/auth/) is same-origin
+  // — required for iOS Safari (ITP). We use firebaseapp.com (not web.app) because its
+  // redirect URI is already registered in the OAuth client; web.app's is not, which
+  // caused Error 400 redirect_uri_mismatch.
+  authDomain: "montecarloedge.firebaseapp.com",
   projectId: "montecarloedge",
   storageBucket: "montecarloedge.firebasestorage.app",
   messagingSenderId: "92656316638",
