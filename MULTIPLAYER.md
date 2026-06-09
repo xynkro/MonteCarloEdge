@@ -114,3 +114,26 @@ not a poker one. Decisions:
 Gating: all of the above runs through the `createTable`/`joinTable` Cloud Functions
 (server-authoritative), so it needs the **Blaze plan + functions deploy** — same gate
 as networked dealing. Lobby + table ship together.
+
+---
+
+## AI seats in networked rooms — added per feedback
+
+Yes: a room can mix humans + bots (you + spouse + 2 bots, or 1 human + 5 bots).
+
+- **Where the AI runs: SERVER-SIDE only.** A bot needs its own hole cards to decide,
+  and cards live only in `tables/{id}/private/state` (never sent to clients). So the
+  bot decides inside the Cloud Function via the already-shared `villainDecision`
+  (same archetype brain as the trainer). A client never sees a bot's cards → no
+  secrecy leak.
+- **Triggering: chain off human actions.** The `act` callable, after applying a
+  human's move, loops: while `toAct` is a bot seat, compute its action
+  (villainDecision) + apply it, until it's a human's turn or the hand ends. Same
+  for `startHand` (auto-play leading bots before the first human). No Firestore
+  triggers / schedulers needed for the common path; the turn-timer reaper covers
+  the all-bots-left edge.
+- **Setup**: host adds AI seats at `createTable` (seat = {ai: archetype} instead of
+  a uid). Bots are labeled 🤖 in the seat strip so humans always know.
+- **Chips**: bot stacks are house chips (not a real wallet); their wins/losses stay
+  inside the room and never touch a user's balance.
+- Cost: a few ms of function CPU per bot action — negligible.
