@@ -49,6 +49,7 @@ const tableRef = (code: string) => db.doc(`tables/${code}`);
 const holeRef = (code: string, uid: string) => db.doc(`tables/${code}/hands/${uid}`); // per-uid private hand
 const userRef = (uid: string) => db.doc(`users/${uid}`);
 const inboxRef = (uid: string) => db.collection(`users/${uid}/inbox`); // received messages/gifts
+const ledgerRef = () => db.collection("ledger"); // immutable audit trail of every chip transfer
 
 const WEEKLY_PLAY = 500;          // weekly free play-chip grant
 const GIFT_MAX = 1_000_000;       // anti-abuse cap per single play-chip gift
@@ -294,10 +295,12 @@ export const giftChips = onCall(async (req) => {
     const toW = readWallet(toSnap.data());
     if (fromW.play < amt) throw new HttpsError("failed-precondition", "Not enough play chips.");
     const fromName = (fromSnap.data()?.name as string) ?? "A player";
+    const toName = (toSnap.data()?.name as string) ?? "player";
     tx.set(rl.ref, rl.data);
     tx.set(userRef(uid), { chipsPlay: fromW.play - amt }, { merge: true });
     tx.set(userRef(toUid), { chipsPlay: toW.play + amt }, { merge: true });
     tx.set(inboxRef(toUid).doc(), { kind: "gift", from: uid, fromName, chips: amt, text: String(note).slice(0, 200), createdAt: FieldValue.serverTimestamp(), read: false });
+    tx.set(ledgerRef().doc(), { type: "gift", currency: "play", amount: amt, from: uid, fromName, to: toUid, toName, note: String(note).slice(0, 200), at: FieldValue.serverTimestamp() });
     return { ok: true };
   });
 });
@@ -342,8 +345,10 @@ export const adminGift = onCall(async (req) => {
     if (!snap.exists) throw new HttpsError("not-found", "Recipient not found.");
     const w = readWallet(snap.data());
     const next = Math.max(0, (cur === "premium" ? w.premium : w.play) + amt);
+    const toName = (snap.data()?.name as string) ?? "player";
     tx.set(userRef(toUid), { [balField(cur)]: next }, { merge: true });
     tx.set(inboxRef(toUid).doc(), { kind: "admin", from: "admin", fromName: "MonteCarloEdge", chips: amt, currency: cur, text: amt > 0 ? `You received ${amt} ${cur} chips` : `Balance adjustment: ${amt} ${cur} chips`, createdAt: FieldValue.serverTimestamp(), read: false });
+    tx.set(ledgerRef().doc(), { type: "admin", currency: cur, amount: amt, from: "admin", fromName: (req.auth?.token?.email as string) ?? "admin", to: toUid, toName, at: FieldValue.serverTimestamp() });
     return { ok: true, balance: next };
   });
 });

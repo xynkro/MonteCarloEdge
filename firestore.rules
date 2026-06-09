@@ -66,6 +66,13 @@ service cloud.firestore {
     // Server-only rate-limit buckets.
     match /rateLimits/{uid} { allow read, write: if false; }
 
+    // Immutable chip-transfer audit trail. Written ONLY by Cloud Functions; readable
+    // only by a super-admin (custom claim admin:true) so you can investigate gifts.
+    match /ledger/{id} {
+      allow read: if signedIn() && request.auth.token.admin == true;
+      allow write: if false;
+    }
+
     // Default deny. (Rule grants are additive and cannot be revoked by another
     // match, so this never overrides the specific allows above.)
     match /{document=**} { allow read, write: if false; }
