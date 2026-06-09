@@ -123,6 +123,31 @@ describe("postflop decisions", () => {
       expect(rec.equity).toBeGreaterThanOrEqual(rec.potOdds);
     }
   });
+
+  // Regression: on the RIVER there are no future streets, so realized equity ==
+  // all-in equity — the OOP realization discount must NOT apply (it was wrongly
+  // folding marginal OOP river calls near the pot-odds threshold).
+  it("does not over-discount a clear OOP river call (river realization = 1)", () => {
+    const gs = huState([makeCard(11, 0), makeCard(10, 0)], 1); // hero = BB (OOP) KcQc
+    gs.applyAction({ seat: 0, type: "raise", amount: 5 }); // BTN
+    gs.applyAction({ seat: 1, type: "call", amount: 0 });  // BB calls
+    // Flop K♠ 9♦ 3♣ — hero top pair, good kicker
+    gs.advanceStreet([makeCard(11, 3), makeCard(7, 1), makeCard(1, 3)]);
+    gs.applyAction({ seat: 1, type: "check", amount: 0 });
+    gs.applyAction({ seat: 0, type: "check", amount: 0 });
+    // Turn 4♥
+    gs.advanceStreet([makeCard(2, 2)]);
+    gs.applyAction({ seat: 1, type: "check", amount: 0 });
+    gs.applyAction({ seat: 0, type: "check", amount: 0 });
+    // River 2♠ — hero still top pair KQ; faces a smallish bet with good pot odds.
+    gs.advanceStreet([makeCard(0, 3)]);
+    gs.applyAction({ seat: 0, type: "bet", amount: 4 });
+    const rec = recommend(gs, TAG);
+    // Top pair good kicker OOP vs a small river bet must not be folded; and any
+    // call must still respect pot odds (which the river fix preserves).
+    expect(rec.action).not.toBe("fold");
+    if (rec.action === "call") expect(rec.equity).toBeGreaterThanOrEqual(rec.potOdds);
+  });
 });
 
 describe("comboPercentile", () => {

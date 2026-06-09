@@ -148,7 +148,12 @@ function realizationFactor(
   strong: boolean,
   hasDraw: boolean,
   madePair: boolean,
+  street: string,
 ): number {
+  // On the RIVER there are no future streets, so realized equity == all-in equity:
+  // applying the OOP discount here wrongly folds marginal OOP river calls near the
+  // pot-odds threshold. No realization adjustment on the river.
+  if (street === "river") return 1;
   let f = inPosition ? 1.06 : 0.94;
   if (hasDraw && inPosition) f += 0.04; // draws realize well with position
   if (madePair && !strong && !inPosition) f -= 0.03; // marginal made hand OOP
@@ -620,7 +625,7 @@ function postflopRecommend(
   const desc = describeHand(hero, state.board);
   const madePair = desc.category === 2;
   const hasDraw = desc.draws.length > 0;
-  const factor = realizationFactor(inPos, desc.strong, hasDraw, madePair);
+  const factor = realizationFactor(inPos, desc.strong, hasDraw, madePair, state.street);
   const dq = Math.max(0, Math.min(1, eq * factor)); // decision (realized) equity
 
   const handLabel = desc.label + (desc.draws.length ? ` + ${desc.draws.join(" + ")}` : "");
