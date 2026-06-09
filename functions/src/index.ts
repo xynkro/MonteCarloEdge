@@ -29,11 +29,11 @@ const db = getFirestore();
 
 const PROFILES: Record<string, OpponentProfile> = { Auto: AUTO, TAG, LAG, Station: STATION, Nit: NIT };
 const TURN_SECONDS = 40;
-const DEFAULT_CHIPS = 10_000;
+const DEFAULT_CHIPS = 1_000; // ~$9.90 of value at the ~100 chips/$ ratio
 const TIERS: Record<string, { sb: number; bb: number; max: number }> = {
-  Micro: { sb: 50, bb: 100, max: 10_000 },
-  Mid: { sb: 500, bb: 1_000, max: 100_000 },
-  High: { sb: 5_000, bb: 10_000, max: 1_000_000 },
+  Micro: { sb: 5, bb: 10, max: 1_000 },
+  Mid: { sb: 50, bb: 100, max: 10_000 },
+  High: { sb: 500, bb: 1_000, max: 100_000 },
 };
 
 // ── helpers ──

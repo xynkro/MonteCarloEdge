@@ -73,6 +73,36 @@ export async function signInWithGoogle(): Promise<MPUser> {
   return user;
 }
 
+/** Register a new account with email + password. */
+export async function registerEmail(email: string, password: string, name: string): Promise<MPUser> {
+  const app = await getFirebaseApp();
+  const { getAuth, createUserWithEmailAndPassword, updateProfile } = await import("firebase/auth");
+  const res = await createUserWithEmailAndPassword(getAuth(app), email, password);
+  if (name) { try { await updateProfile(res.user, { displayName: name }); } catch { /* */ } }
+  const user = toUser({ uid: res.user.uid, displayName: name || res.user.displayName });
+  try { const { m, db } = await firestore(); await m.setDoc(m.doc(db, "users", user.uid), { name: user.name }, { merge: true }); } catch { /* */ }
+  return user;
+}
+/** Sign in with an existing email + password. */
+export async function signInEmail(email: string, password: string): Promise<MPUser> {
+  const app = await getFirebaseApp();
+  const { getAuth, signInWithEmailAndPassword } = await import("firebase/auth");
+  const res = await signInWithEmailAndPassword(getAuth(app), email, password);
+  return toUser(res.user);
+}
+export async function sendReset(email: string): Promise<void> {
+  const app = await getFirebaseApp();
+  const { getAuth, sendPasswordResetEmail } = await import("firebase/auth");
+  await sendPasswordResetEmail(getAuth(app), email);
+}
+export async function changePassword(newPassword: string): Promise<void> {
+  const app = await getFirebaseApp();
+  const { getAuth, updatePassword } = await import("firebase/auth");
+  const u = getAuth(app).currentUser;
+  if (!u) throw new Error("Not signed in.");
+  await updatePassword(u, newPassword);
+}
+
 export async function signOutUser(): Promise<void> {
   const app = await getFirebaseApp();
   const { getAuth, signOut } = await import("firebase/auth");

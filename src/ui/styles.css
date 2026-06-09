@@ -1091,6 +1091,16 @@ body::before {
 .mc-pname { font-weight: 800; font-size: 13.5px; }
 .mc-pchips { font-size: 11.5px; font-weight: 800; background: var(--gold-foil); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
 .mc-pchips-big { font-size: 17px; font-weight: 800; letter-spacing: .2px; padding-right: 6px; background: var(--gold-foil); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+.mc-pmeta2 { display: flex; flex-direction: column; align-items: flex-start; line-height: 1.05; }
+.mc-pmeta2 .mc-pname { font-size: 11px; font-weight: 700; color: var(--muted); }
+.mc-pchips-big.locked { font-size: 14px; background: none; -webkit-text-fill-color: var(--muted); color: var(--muted); padding-right: 8px; }
+.mc-login-banner { display: block; width: 100%; text-align: center; background: rgba(74,168,255,.12); border: 1px solid rgba(74,168,255,.4); color: #cfe6ff; border-radius: 12px; padding: 10px 14px; font-size: 13px; line-height: 1.4; margin-bottom: 12px; cursor: pointer; }
+.mc-login-banner span { color: var(--emerald); font-weight: 700; white-space: nowrap; }
+.mc-mode.locked { opacity: .58; }
+.mc-mode.locked .mc-arrow { font-size: 16px; opacity: .8; }
+.si-or { display: flex; align-items: center; gap: 10px; color: var(--faint); font-size: 12px; margin: 16px 0; }
+.si-or::before, .si-or::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+.si-links { display: flex; justify-content: space-between; gap: 10px; margin-top: 12px; }
 .mc-store { font-family: var(--display); font-weight: 800; font-size: 13px; letter-spacing: .3px; color: #2a1c05;
   padding: 10px 17px; border-radius: 999px; border: none; cursor: pointer;
   background: var(--gold-foil); box-shadow: var(--glow-gold), inset 0 1px 0 rgba(255,255,255,.55); }

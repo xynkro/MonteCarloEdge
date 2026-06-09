@@ -60,7 +60,7 @@ interface UndoSnapshot {
 }
 
 interface AppState {
-  screen: "home" | "setup" | "game" | "stats" | "leaks" | "mp-setup" | "mp-table" | "mp-lobby" | "mp-net" | "profile" | "settings" | "legal" | "explainer" | "store";
+  screen: "home" | "setup" | "game" | "stats" | "leaks" | "mp-setup" | "mp-table" | "mp-lobby" | "mp-net" | "profile" | "settings" | "legal" | "explainer" | "store" | "signin";
   // Player profile (local-first; syncs name/avatar to Firestore when signed in).
   profile: { nickname: string; avatar: string; chips: number };
   // Multiplayer / benchmark (Phase 0 hot-seat + Phase 1 online lobby).
@@ -185,12 +185,12 @@ interface AppState {
 
 const S: AppState = {
   screen: "home",
-  profile: { nickname: "You", avatar: "", chips: 10000 },
+  profile: { nickname: "You", avatar: "", chips: 1000 },
   mp: {
     table: null,
     setup: {
       players: [{ name: "You", assisted: true, ai: null }, { name: "Rey", assisted: false, ai: "TAG" }],
-      tier: 0, sb: 50, bb: 100, buyIn: 10000,
+      tier: 0, sb: 5, bb: 10, buyIn: 1000,
     },
     reveal: false,
     rec: null,
@@ -398,6 +398,7 @@ function render(): void {
   else if (S.screen === "legal") renderLegal();
   else if (S.screen === "explainer") renderExplainer();
   else if (S.screen === "store") renderStore();
+  else if (S.screen === "signin") renderSignIn();
   else if (S.screen === "setup") renderSetup();
   else if (S.screen === "stats") renderStats();
   else if (S.screen === "leaks") renderLeaks();
@@ -3298,9 +3299,9 @@ const capWord = (s: string): string => s.charAt(0).toUpperCase() + s.slice(1);
 // Stakes tiers — 100bb max buy-in per the monetization council (chips buy ACCESS,
 // never power; a 100bb cap defuses big-stack bullying on a friends table).
 const ROOM_TIERS = [
-  { name: "Micro", sb: 50, bb: 100, max: 10000 },
-  { name: "Mid", sb: 500, bb: 1000, max: 100000 },
-  { name: "High", sb: 5000, bb: 10000, max: 1000000 },
+  { name: "Micro", sb: 5, bb: 10, max: 1000 },
+  { name: "Mid", sb: 50, bb: 100, max: 10000 },
+  { name: "High", sb: 500, bb: 1000, max: 100000 },
 ];
 // AI styles map to the trainer's opponent archetypes (keys of PROFILES).
 // "rand" = a random style assigned at room start (so you can spam-add a varied
@@ -3574,6 +3575,7 @@ async function ensureSignedIn(): Promise<boolean> {
   try {
     const u = await FB.signInWithGoogle();
     S.mp.auth = u;
+    try { localStorage.setItem("mce-signed-in", "1"); } catch { /* */ }
     void FB.startPresence(u).catch(() => {});
     return true;
   } catch (e) { S.net.err = friendlyErr(e); render(); return false; }
@@ -3691,6 +3693,58 @@ function renderNetTable(): void {
   onId("na-allin", "click", () => { const seat = seats[pub.toAct]!; void netAct({ type: (pub.currentBet as number) > 0 ? "raise" : "bet", amount: seat.chips + seat.bet }); });
 }
 
+/* ═══════════════════ SIGN IN / REGISTER ═══════════════════ */
+
+let _signinMode: "signin" | "register" = "signin";
+async function doSignIn(fn: () => Promise<MPUser>, regName?: string): Promise<void> {
+  if (S.net.busy) return;
+  S.net.busy = true; S.net.err = ""; render();
+  try {
+    const u = await fn();
+    S.mp.auth = u;
+    try { localStorage.setItem("mce-signed-in", "1"); } catch { /* */ }
+    if (regName) { S.profile.nickname = regName; saveProfile(); }
+    void FB.startPresence(u).catch(() => {});
+    S.net.busy = false; S.screen = "home"; render();
+  } catch (e) { S.net.busy = false; S.net.err = friendlyErr(e); render(); }
+}
+function renderSignIn(): void {
+  cancelVillainTimer();
+  const reg = _signinMode === "register";
+  app.innerHTML = `
+    <div class="setup doc">
+      <h1>${reg ? "Create account" : "Sign in"}</h1>
+      <span class="hint" style="text-align:center;display:block;margin-bottom:14px">Sign in so your chips are saved to your account and you can play online. (Solo Train is free without an account.)</span>
+      <button class="start-btn" id="si-google" style="background:#fff;color:#1f1f1f">Continue with Google</button>
+      <div class="si-or"><span>or with email</span></div>
+      ${reg ? `<div class="field"><label>Nickname</label><input class="mp-num" id="si-name" maxlength="14" value="${S.profile.nickname.replace(/"/g, "&quot;")}"/></div>` : ""}
+      <div class="field"><label>Email</label><input class="mp-num" id="si-email" type="email" autocomplete="email" placeholder="you@email.com"/></div>
+      <div class="field"><label>Password</label><input class="mp-num" id="si-pw" type="password" autocomplete="${reg ? "new-password" : "current-password"}" placeholder="${reg ? "min 6 characters" : "your password"}"/></div>
+      ${S.net.err ? `<div class="room-broke">${S.net.err}</div>` : ""}
+      <button class="start-btn" id="si-submit" style="margin-top:4px;${S.net.busy ? "opacity:.6" : ""}">${S.net.busy ? "…" : reg ? "Create account" : "Sign in"}</button>
+      <div class="si-links">
+        <button class="mc-foot-link" id="si-toggle">${reg ? "Have an account? Sign in" : "New here? Create an account"}</button>
+        ${!reg ? `<button class="mc-foot-link" id="si-reset">Forgot password?</button>` : ""}
+      </div>
+      <button class="hdr-btn" id="si-back" style="width:100%;padding:12px;margin-top:8px">Skip — Train only</button>
+    </div>`;
+  onId("si-google", "click", () => void doSignIn(() => FB.signInWithGoogle()));
+  onId("si-submit", "click", () => {
+    const email = (document.getElementById("si-email") as HTMLInputElement | null)?.value.trim() ?? "";
+    const pw = (document.getElementById("si-pw") as HTMLInputElement | null)?.value ?? "";
+    const name = (document.getElementById("si-name") as HTMLInputElement | null)?.value.trim() || S.profile.nickname;
+    if (!email || !pw) { S.net.err = "Enter your email and password."; render(); return; }
+    void doSignIn(() => (reg ? FB.registerEmail(email, pw, name) : FB.signInEmail(email, pw)), reg ? name : undefined);
+  });
+  onId("si-toggle", "click", () => { _signinMode = reg ? "signin" : "register"; S.net.err = ""; render(); });
+  onId("si-reset", "click", () => {
+    const email = (document.getElementById("si-email") as HTMLInputElement | null)?.value.trim() ?? "";
+    if (!email) { S.net.err = "Enter your email first, then tap Forgot."; render(); return; }
+    void FB.sendReset(email).then(() => { S.net.err = "Reset email sent — check your inbox."; render(); }).catch((e) => { S.net.err = friendlyErr(e); render(); });
+  });
+  onId("si-back", "click", () => { S.net.err = ""; S.screen = "home"; render(); });
+}
+
 /* ═══════════════════ HOME HUB + PROFILE ═══════════════════ */
 
 const PRESET_AVATARS = ["🦈", "🐺", "🦊", "🐉", "🦁", "🃏", "👑", "🤠", "🥷", "🐯", "🦅", "🐊", "🎩", "💎", "🔥", "🐧", "🦉", "🐸", "🦄", "👽"];
@@ -3703,14 +3757,14 @@ function avatarChip(av: string, seed: string, size = 40): string {
 }
 // Bust-rescue (monetization council's #1 trust mechanic): a player can never be
 // wall-jammed broke behind a paywall. Below one micro min-buy-in → free top-up.
-const BUST_RESCUE = 2000;
+const BUST_RESCUE = 200;
 function bustRescue(): void { if (S.profile.chips < BUST_RESCUE) { S.profile.chips = BUST_RESCUE; saveProfile(); } }
 
 function loadProfile(): void {
   try {
     const p = JSON.parse(localStorage.getItem("mce-profile") || "null");
     if (p && typeof p === "object") {
-      S.profile = { nickname: p.nickname || "You", avatar: p.avatar || "", chips: typeof p.chips === "number" ? p.chips : 10000 };
+      S.profile = { nickname: p.nickname || "You", avatar: p.avatar || "", chips: typeof p.chips === "number" ? p.chips : 1000 };
     }
   } catch { /* default */ }
   bustRescue();
@@ -3742,12 +3796,12 @@ function renderAgeGate(): void {
 
 // Cosmetics — the ONLY chip sink (play-money in, in-app flair out; never anything
 // of value, never the killed chips→goods cash-out).
-const CHIP_PACKS = [{ chips: "50,000", price: "$1.99" }, { chips: "150,000", price: "$4.99" }, { chips: "400,000", price: "$9.99" }];
+const CHIP_PACKS = [{ chips: "400", price: "$4.90" }, { chips: "1,000", price: "$9.90" }, { chips: "3,000", price: "$24.90" }, { chips: "7,000", price: "$49.90" }];
 const COSMETICS = [
-  { id: "squid", emoji: "🦑", name: "Squid Mascot", desc: "Collectible table mascot", chips: 25000 },
-  { id: "goldback", emoji: "🟡", name: "Gold Card Back", desc: "Gilded deck", chips: 12000 },
-  { id: "emerald", emoji: "🟢", name: "Emerald Felt", desc: "Premium table felt", chips: 15000 },
-  { id: "crown", emoji: "👑", name: "Crown Flair", desc: "Profile crown", chips: 30000 },
+  { id: "squid", emoji: "🦑", name: "Squid Mascot", desc: "Collectible table mascot", chips: 2500 },
+  { id: "goldback", emoji: "🟡", name: "Gold Card Back", desc: "Gilded deck", chips: 1200 },
+  { id: "emerald", emoji: "🟢", name: "Emerald Felt", desc: "Premium table felt", chips: 1500 },
+  { id: "crown", emoji: "👑", name: "Crown Flair", desc: "Profile crown", chips: 3000 },
 ];
 function ownedCosmetics(): string[] { try { return JSON.parse(localStorage.getItem("mce-cosmetics") || "[]"); } catch { return []; } }
 function addCosmetic(id: string): void { const o = ownedCosmetics(); if (!o.includes(id)) { o.push(id); try { localStorage.setItem("mce-cosmetics", JSON.stringify(o)); } catch { /* */ } } }
@@ -3805,6 +3859,7 @@ function renderHome(): void {
   cancelVillainTimer();
   bustRescue(); // never broke at the hub
   const p = S.profile;
+  const loggedIn = !!S.mp.auth;
   app.innerHTML = `
     <div class="mc-home">
       <div class="mc-bg" aria-hidden="true">
@@ -3815,12 +3870,12 @@ function renderHome(): void {
 
       <header class="mc-topbar">
         <button class="mc-profile" id="home-profile">
-          <span class="mc-ring">${avatarChip(p.avatar, p.nickname, 36)}</span>
-          <span class="mc-pchips-big">🪙 ${p.chips.toLocaleString()}</span>
+          <span class="mc-ring">${avatarChip(p.avatar, loggedIn ? p.nickname : "?", 36)}</span>
+          ${loggedIn ? `<span class="mc-pmeta2"><span class="mc-pname">${S.mp.auth!.name}</span><span class="mc-pchips-big">🪙 ${p.chips.toLocaleString()}</span></span>` : `<span class="mc-pchips-big locked">🔒 Sign in</span>`}
         </button>
         <div class="mc-top-right">
           <button class="mc-gear" id="home-settings" aria-label="Settings">⚙</button>
-          <button class="mc-store" id="home-store">＋ Chips</button>
+          ${loggedIn ? `<button class="mc-store" id="home-store">＋ Chips</button>` : `<button class="mc-store" id="home-signin2">Sign in</button>`}
         </div>
       </header>
 
@@ -3834,10 +3889,12 @@ function renderHome(): void {
         <p class="mc-tag">Play the math. Own the table.</p>
       </div>
 
+      ${loggedIn ? "" : `<button class="mc-login-banner" id="home-signin-banner">🔒 <strong>Not logged in</strong> — sign in to save your chips &amp; play online. <span>Train is free →</span></button>`}
+
       <div class="mc-modes">
-        <button class="mc-mode train" id="home-train" style="--d:.05s"><span class="mc-mi">🎯</span><span class="mc-mtext"><span class="mc-mt">Train</span><span class="mc-md">Solo vs the GTO engine</span></span><span class="mc-arrow">→</span></button>
-        <button class="mc-mode online" id="home-pass" style="--d:.12s"><span class="mc-mi">🌐</span><span class="mc-mtext"><span class="mc-mt">Play Online</span><span class="mc-md">Create a room · play for chips</span></span><span class="mc-arrow">→</span></button>
-        <button class="mc-mode pass" id="home-store-tile" style="--d:.19s"><span class="mc-mi">🛍</span><span class="mc-mtext"><span class="mc-mt">Store</span><span class="mc-md">Chips · cosmetics · Edge Pass</span></span><span class="mc-arrow">→</span></button>
+        <button class="mc-mode train" id="home-train" style="--d:.05s"><span class="mc-mi">🎯</span><span class="mc-mtext"><span class="mc-mt">Train</span><span class="mc-md">Solo vs the GTO engine · free</span></span><span class="mc-arrow">→</span></button>
+        <button class="mc-mode online ${loggedIn ? "" : "locked"}" id="home-pass" style="--d:.12s"><span class="mc-mi">🌐</span><span class="mc-mtext"><span class="mc-mt">Play Online</span><span class="mc-md">${loggedIn ? "Create a room · play for chips" : "Sign in to play"}</span></span><span class="mc-arrow">${loggedIn ? "→" : "🔒"}</span></button>
+        <button class="mc-mode pass ${loggedIn ? "" : "locked"}" id="home-store-tile" style="--d:.19s"><span class="mc-mi">🛍</span><span class="mc-mtext"><span class="mc-mt">Store</span><span class="mc-md">${loggedIn ? "Chips · cosmetics · Edge Pass" : "Sign in to shop"}</span></span><span class="mc-arrow">${loggedIn ? "→" : "🔒"}</span></button>
         <button class="mc-mode profile" id="home-profile2" style="--d:.26s"><span class="mc-mi">👤</span><span class="mc-mtext"><span class="mc-mt">Profile</span><span class="mc-md">Avatar · name · chips</span></span><span class="mc-arrow">→</span></button>
       </div>
 
@@ -3852,12 +3909,15 @@ function renderHome(): void {
   onId("home-settings2", "click", () => { S.screen = "settings"; render(); });
   onId("home-explainer", "click", () => { _docReturn = "home"; S.screen = "explainer"; render(); });
   onId("home-legal", "click", () => { _docReturn = "home"; S.screen = "legal"; render(); });
-  onId("home-profile", "click", () => { S.screen = "profile"; render(); });
+  onId("home-profile", "click", () => { S.screen = loggedIn ? "profile" : "signin"; render(); });
   onId("home-profile2", "click", () => { S.screen = "profile"; render(); });
+  onId("home-signin2", "click", () => { S.screen = "signin"; render(); });
+  onId("home-signin-banner", "click", () => { S.screen = "signin"; render(); });
   onId("home-store", "click", () => { S.screen = "store"; render(); });
-  onId("home-store-tile", "click", () => { S.screen = "store"; render(); });
+  onId("home-store-tile", "click", () => { S.screen = loggedIn ? "store" : "signin"; render(); });
   onId("home-train", "click", () => { S.screen = "setup"; render(); });
-  onId("home-pass", "click", () => { // Play Online → the multiplayer room
+  onId("home-pass", "click", () => {
+    if (!loggedIn) { S.screen = "signin"; render(); return; }
     if (S.mp.setup.players[0]) S.mp.setup.players[0]!.name = S.profile.nickname;
     S.screen = "mp-setup"; render();
   });
@@ -3883,7 +3943,7 @@ function renderProfile(): void {
       </div>
       <div class="mp-scoreboard">
         <div class="mp-score-row"><span>🪙 Chip balance</span><span class="g-ok">${p.chips.toLocaleString()}</span></div>
-        <button class="start-btn" id="pf-daily" style="margin-top:8px;${canClaim ? "" : "opacity:.5"}">${canClaim ? "🎁 Claim daily free chips (+5,000)" : "🎁 Claimed — come back tomorrow"}</button>
+        <button class="start-btn" id="pf-daily" style="margin-top:8px;${canClaim ? "" : "opacity:.5"}">${canClaim ? "🎁 Claim daily free chips (+500)" : "🎁 Claimed — come back tomorrow"}</button>
       </div>
       <div class="field" style="margin-top:12px"><label>Buy chips</label>
         <div class="chip-store">
@@ -3898,7 +3958,7 @@ function renderProfile(): void {
   onId("pf-av-auto", "click", () => { S.profile.avatar = ""; saveProfile(); render(); });
   app.querySelectorAll("[data-av]").forEach((b) => onEl(b, "click", () => { S.profile.avatar = (b as HTMLElement).dataset.av!; saveProfile(); render(); }));
   onId("pf-daily", "click", () => {
-    if (canClaim) { S.profile.chips += 5000; saveProfile(); try { localStorage.setItem("mce-dailychips", String(Date.now())); } catch { /* */ } render(); }
+    if (canClaim) { S.profile.chips += 500; saveProfile(); try { localStorage.setItem("mce-dailychips", String(Date.now())); } catch { /* */ } render(); }
   });
   onId("pf-back", "click", () => { S.screen = "home"; render(); });
 }
@@ -3982,7 +4042,7 @@ function renderSettings(): void {
   onId("set-reset-stats", "click", () => { if (confirm("Reset your session stats and best streak? Your hand history and chips stay.")) { S.gradeStats = { n: 0, pts: 0, gto: 0, mixed: 0, off: 0 }; S.streak = 0; S.bestStreak = 0; try { localStorage.removeItem("mce-beststreak"); } catch { /* */ } render(); } });
   onId("set-clear-history", "click", () => { if (confirm("Erase your saved hand + decision log? Your leak report resets to empty. Chips and profile stay.")) { clearHistory(); S.decisionLog = []; try { localStorage.removeItem(DECISIONS_KEY); } catch { /* */ } render(); } });
   onId("set-reset-profile", "click", () => { if (confirm('Reset your nickname to "You" and clear your avatar? Your chips, stats and history stay.')) { S.profile.nickname = "You"; S.profile.avatar = ""; saveProfile(); render(); } });
-  onId("set-reset-wallet", "click", () => { if (confirm("Reset your play-money chip balance to the 10,000 starting stack and your daily-claim timer? Chips have no cash value and are never cashable — this is a local reset, not a refund.")) { S.profile.chips = 10000; saveProfile(); try { localStorage.removeItem("mce-dailychips"); } catch { /* */ } render(); } });
+  onId("set-reset-wallet", "click", () => { if (confirm("Reset your play-money chip balance to the 1,000 starting stack and your daily-claim timer? Chips have no cash value and are never cashable — this is a local reset, not a refund.")) { S.profile.chips = 1000; saveProfile(); try { localStorage.removeItem("mce-dailychips"); } catch { /* */ } render(); } });
   onId("set-delete-all", "click", () => {
     if (confirm("Permanently delete EVERYTHING on this device — profile, chips, stats, hand history and settings — and sign you out? This cannot be undone.")) {
       ["mce-sound", "mce-motion", "mce-speed", "mce-quiz", "mce-beststreak", "mce-dailychips", "mce-player-stats", DECISIONS_KEY, "mce-profile"].forEach((k) => { try { localStorage.removeItem(k); } catch { /* */ } });
@@ -4033,7 +4093,8 @@ async function goOnline(): Promise<void> {
 async function goOffline(): Promise<void> {
   if (_onlineUnsub) { _onlineUnsub(); _onlineUnsub = null; }
   await FB.signOutUser().catch(() => {});
-  S.mp.auth = null; S.mp.online = [];
+  S.mp.auth = null; S.mp.online = []; S.net.serverChips = null;
+  try { localStorage.removeItem("mce-signed-in"); } catch { /* */ }
 }
 
 function renderMpLobby(): void {
@@ -4078,6 +4139,18 @@ loadProfile();
 loadPlayerStats();
 render();
 initCardTilt();
+
+// Restore a previous sign-in across reloads (only loads Firebase if the user has
+// signed in before — keeps it lazy for never-signed-in visitors).
+try {
+  if (localStorage.getItem("mce-signed-in") === "1") {
+    void FB.onAuthChanged((u) => {
+      if (u) { S.mp.auth = u; void FB.startPresence(u).catch(() => {}); }
+      else { S.mp.auth = null; try { localStorage.removeItem("mce-signed-in"); } catch { /* */ } }
+      if (S.screen === "home") render();
+    });
+  }
+} catch { /* */ }
 
 // Interactive 3D tilt on the hero hole cards: move/drag a pointer over them and
 // they rotate in space toward it with a moving glare (holographic-card feel).
