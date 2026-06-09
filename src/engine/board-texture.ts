@@ -118,3 +118,47 @@ export function heroConnection(
 
   return { hasFlushDraw, hasStraightDraw, hasOverpair, hasPair };
 }
+
+// ── Exact draw outs (replaces hardcoded draw odds) ──
+function hasFlush5(cards: Card[]): boolean {
+  const c = [0, 0, 0, 0];
+  for (const card of cards) c[suitOf(card)]++;
+  return c.some((n) => n >= 5);
+}
+function hasStraight5(cards: Card[]): boolean {
+  const r = new Set(cards.map(rankOf));
+  const inSet = (x: number) => (x === -1 ? r.has(12) : r.has(x)); // ace plays low for the wheel
+  for (let hi = 3; hi <= 12; hi++) { // 5-high (A2345) up to A-high
+    let ok = true;
+    for (let k = 0; k < 5; k++) { if (!inSet(hi - k)) { ok = false; break; } }
+    if (ok) return true;
+  }
+  return false;
+}
+/** EXACT count of unseen cards that complete a flush or straight on the next card
+ *  (flop or turn only). Handles gutshot (4) vs OESD (8) vs flush (9) vs combo (15)
+ *  precisely, and accounts for hero/board blockers — no hardcoded approximations. */
+export function drawOuts(hero: readonly [Card, Card], board: Card[]): number {
+  if (board.length < 3 || board.length > 4) return 0; // flop or turn only
+  const base: Card[] = [hero[0], hero[1], ...board];
+  const haveFl = hasFlush5(base), haveStr = hasStraight5(base);
+  if (haveFl && haveStr) return 0; // already made; not a draw
+  const seen = new Set(base);
+  let outs = 0;
+  for (let c = 0; c < 52; c++) {
+    if (seen.has(c)) continue;
+    const withC = [...base, c];
+    if ((hasFlush5(withC) && !haveFl) || (hasStraight5(withC) && !haveStr)) outs++;
+  }
+  return outs;
+}
+/** Exact probability of hitting ≥1 of `outs` by the river, given the board length
+ *  (2 cards to come on the flop, 1 on the turn). The real formula, not the 2/4 rule. */
+export function drawHitProb(outs: number, boardLen: number): number {
+  const unseen = 50 - boardLen; // 52 − 2 hero − board
+  const toCome = 5 - boardLen;
+  if (outs <= 0 || unseen <= 0) return 0;
+  if (toCome <= 1) return Math.min(1, outs / unseen);
+  const miss = ((unseen - outs) / unseen) * ((unseen - outs - 1) / (unseen - 1));
+  return 1 - miss;
+}

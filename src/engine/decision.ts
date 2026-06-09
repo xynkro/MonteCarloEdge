@@ -3,7 +3,7 @@ import { type Rng, mulberry32 } from "./rng.js";
 import { monteCarloEquityVsRange, monteCarloEquityMultiway } from "./equity.js";
 import { getRfiRange, getBbDefenseRange } from "./charts/index.js";
 import { comboScore, sortedCombos } from "./hand-strength.js";
-import { analyzeBoard, heroConnection } from "./board-texture.js";
+import { analyzeBoard, heroConnection, drawOuts, drawHitProb } from "./board-texture.js";
 import { describeHand } from "./made-hand.js";
 import {
   type ActionType,
@@ -805,12 +805,11 @@ function postflopRecommend(
     // IMPLIED-ODDS PEEL: a draw that fails DIRECT pot odds can still be a +EV call
     // if the effective stack behind pays off when it hits (vs a payable field).
     // This is the fix for "I folded my draw and would've hit the nuts on the river".
-    const drawConn = heroConnection(hero, state.board);
-    if ((drawConn.hasFlushDraw || drawConn.hasStraightDraw) && state.stacks[seat]! > tc) {
-      const toCome = 5 - state.board.length; // 2 on flop, 1 on turn
-      const hitProb = drawConn.hasFlushDraw
-        ? (toCome >= 2 ? 0.35 : 0.196)   // ~9 outs
-        : (toCome >= 2 ? 0.31 : 0.17);   // OESD ~8 outs
+    // EXACT outs (gutshot 4 / OESD 8 / flush 9 / combo ~15), blocker-aware — replaces
+    // the old hardcoded 0.35/0.31 that overrated gutshots and ignored combo draws.
+    const outs = drawOuts(hero, state.board);
+    if (outs >= 4 && state.stacks[seat]! > tc) {
+      const hitProb = drawHitProb(outs, state.board.length);
       let maxRem = 0;
       for (const vs of villainSeats) maxRem = Math.max(maxRem, state.stacks[vs]!);
       const behind = Math.min(state.stacks[seat]! - tc, maxRem); // chips still winnable
@@ -822,7 +821,7 @@ function postflopRecommend(
         return fin({
           action: "call", amount: 0, equity: eq, potOdds: odds,
           ev: { fold: 0, call: evCall, raise: 0 },
-          reasoning: `Call — ${drawConn.hasFlushDraw ? "flush" : "straight"} draw, implied odds (${posTag})${wayTag}`,
+          reasoning: `Call — ${outs}-out draw (${pct(hitProb)} by river), implied odds (${posTag})${wayTag}`,
         });
       }
     }
