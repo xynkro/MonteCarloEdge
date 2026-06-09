@@ -13,7 +13,10 @@ import type { FirebaseApp } from "firebase/app";
 
 export const firebaseConfig = {
   apiKey: "AIzaSyDYU3qTIwQ-LRPiJlx65beK0BHRquzDIko",
-  authDomain: "montecarloedge.firebaseapp.com",
+  // Serve the app from this SAME domain (Firebase Hosting → montecarloedge.web.app)
+  // so the OAuth handler (/__/auth/) is same-origin. Cross-domain auth (app on
+  // github.io, handler on *.firebaseapp.com) silently fails on iOS Safari (ITP).
+  authDomain: "montecarloedge.web.app",
   projectId: "montecarloedge",
   storageBucket: "montecarloedge.firebasestorage.app",
   messagingSenderId: "92656316638",
