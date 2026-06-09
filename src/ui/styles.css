@@ -1096,6 +1096,8 @@ body::before {
 .mc-pchips-big.locked { font-size: 14px; background: none; -webkit-text-fill-color: var(--muted); color: var(--muted); padding-right: 8px; }
 .mc-login-banner { display: block; width: 100%; text-align: center; background: rgba(74,168,255,.12); border: 1px solid rgba(74,168,255,.4); color: #cfe6ff; border-radius: 12px; padding: 10px 14px; font-size: 13px; line-height: 1.4; margin-bottom: 12px; cursor: pointer; }
 .mc-login-banner span { color: var(--emerald); font-weight: 700; white-space: nowrap; }
+.mc-login-banner.preview { background: rgba(247,207,114,.12); border-color: rgba(247,207,114,.45); color: #f3e2b8; }
+.mc-login-banner.preview span { color: var(--gold-2); }
 /* Locked (not signed in): grey the text + icon, dim the accent rail, gold padlock —
    reads as "locked", not just faded. */
 .mc-mode.locked { opacity: 1; }

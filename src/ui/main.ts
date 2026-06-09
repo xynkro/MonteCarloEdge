@@ -3806,6 +3806,14 @@ function esc(s: unknown): string {
 function fmtBal(n: number | null): string { return n == null ? "—" : Math.round(n).toLocaleString(); }
 function unreadCount(): number { return S.inbox.filter((m) => !m.read).length; }
 
+// Admin "preview as a regular player": a client-only toggle that suppresses every
+// admin affordance so the owner can QA the normal experience. It does NOT drop the
+// real claim (server still trusts the token) — it's purely a view filter.
+let _viewAsPlayer = false;
+try { _viewAsPlayer = localStorage.getItem("mce-view-as-player") === "1"; } catch { /* */ }
+function effectiveAdmin(): boolean { return S.isAdmin && !_viewAsPlayer; }
+function setViewAsPlayer(v: boolean): void { _viewAsPlayer = v; try { localStorage.setItem("mce-view-as-player", v ? "1" : "0"); } catch { /* */ } S.screen = "home"; render(); }
+
 function renderInbox(): void {
   cancelVillainTimer();
   const uid = S.mp.auth?.uid;
@@ -3890,8 +3898,14 @@ function renderAdmin(): void {
       <div class="set-group"><div class="set-head">Ledger — last ${S.ledger.length} transfers</div>
         ${S.ledger.length === 0 ? `<div class="hint">No transfers yet (or grant one above).</div>` : S.ledger.map((r) => `<div class="ledger-row"><span>${r.type === "admin" ? "🛡" : "🎁"} ${r.currency === "premium" ? "💎" : "🪙"} ${(r.amount || 0).toLocaleString()}</span><span class="hint">${esc(r.fromName || r.from)} → ${esc(r.toName || r.to)}</span></div>`).join("")}
       </div>
+
+      <div class="set-group"><div class="set-head">View</div>
+        <div class="set-note" style="margin-bottom:9px">See the app exactly as a regular player does — hides every admin affordance. Your access is unchanged; come back here via the banner on Home.</div>
+        <button class="hdr-btn" id="ad-preview" style="width:100%;padding:12px">👁 Preview as a regular player</button>
+      </div>
     </div>`;
   onId("ad-back", "click", () => { S.screen = "home"; render(); });
+  onId("ad-preview", "click", () => setViewAsPlayer(true));
   onId("ad-uid", "input", (e) => { c.toUid = (e.target as HTMLInputElement).value.trim(); });
   onId("ad-amt", "input", (e) => { c.giftAmt = Math.floor(+(e.target as HTMLInputElement).value || 0); });
   onId("ad-give", "click", () => void doAdminGift());
@@ -4077,6 +4091,7 @@ function renderHome(): void {
       </div>
 
       ${loggedIn ? "" : `<button class="mc-login-banner" id="home-signin-banner">🔒 <strong>Not logged in</strong> — sign in to save your chips &amp; play online. <span>Train is free →</span></button>`}
+      ${S.isAdmin && _viewAsPlayer ? `<button class="mc-login-banner preview" id="home-exit-preview">👁 <strong>Player preview</strong> — you're seeing the app as a normal player. <span>Exit →</span></button>` : ""}
 
       <div class="mc-modes">
         <button class="mc-mode train" id="home-train" style="--d:.05s"><span class="mc-mi">🎯</span><span class="mc-mtext"><span class="mc-mt">Train</span><span class="mc-md">Solo vs the MCE Engine · free</span></span><span class="mc-arrow">→</span></button>
@@ -4090,10 +4105,11 @@ function renderHome(): void {
         <button class="mc-foot-link" id="home-explainer">How it works</button><span>·</span>
         <button class="mc-foot-link" id="home-legal">Terms</button><span>·</span>
         <button class="mc-foot-link" id="home-settings2">Settings</button>
-        ${S.isAdmin ? `<span>·</span><button class="mc-foot-link" id="home-admin" style="color:var(--gold-2)">🛡 Admin</button>` : ""}
+        ${effectiveAdmin() ? `<span>·</span><button class="mc-foot-link" id="home-admin" style="color:var(--gold-2)">🛡 Admin</button>` : ""}
       </div>
     </div>`;
   onId("home-inbox", "click", () => { S.screen = "inbox"; render(); });
+  onId("home-exit-preview", "click", () => setViewAsPlayer(false));
   onId("home-admin", "click", () => { S.compose = { toUid: "", toName: "", text: "", giftAmt: 0, busy: false, err: "", sent: "" }; S.screen = "admin"; render(); });
   onId("home-settings", "click", () => { S.screen = "settings"; render(); });
   onId("home-settings2", "click", () => { S.screen = "settings"; render(); });
