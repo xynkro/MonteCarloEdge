@@ -60,7 +60,7 @@ interface UndoSnapshot {
 }
 
 interface AppState {
-  screen: "home" | "setup" | "game" | "stats" | "leaks" | "mp-setup" | "mp-table" | "mp-lobby" | "mp-net" | "profile" | "settings" | "legal" | "explainer" | "store" | "signin" | "inbox" | "compose" | "admin";
+  screen: "home" | "setup" | "game" | "stats" | "leaks" | "mp-setup" | "mp-table" | "mp-lobby" | "mp-net" | "profile" | "settings" | "legal" | "explainer" | "store" | "signin" | "inbox" | "compose" | "admin" | "onboard";
   // Player profile (local-first; syncs name/avatar to Firestore when signed in).
   profile: { nickname: string; avatar: string; chips: number };
   // Multiplayer / benchmark (Phase 0 hot-seat + Phase 1 online lobby).
@@ -86,6 +86,8 @@ interface AppState {
   };
   edgePass: boolean;        // Stripe Edge Pass subscription active (server-confirmed)
   wallet: { play: number | null; premium: number | null }; // server balances (signed in)
+  lastWeekly: number;       // last weekly-claim timestamp (server)
+  weeklyStreak: number;     // consecutive weekly claims (drives the ladder)
   isAdmin: boolean;         // super-admin custom claim
   inbox: import("../mp/firebase-adapter.js").InboxMsg[];
   compose: { toUid: string; toName: string; text: string; giftAmt: number; busy: boolean; err: string; sent: string };
@@ -208,6 +210,8 @@ const S: AppState = {
   net: { code: null, pub: null, myHand: null, serverChips: null, joinCode: "", busy: false, err: "" },
   edgePass: false,
   wallet: { play: null, premium: null },
+  lastWeekly: 0,
+  weeklyStreak: 0,
   isAdmin: false,
   inbox: [],
   compose: { toUid: "", toName: "", text: "", giftAmt: 0, busy: false, err: "", sent: "" },
@@ -414,6 +418,7 @@ function render(): void {
   else if (S.screen === "inbox") renderInbox();
   else if (S.screen === "compose") renderCompose();
   else if (S.screen === "admin") renderAdmin();
+  else if (S.screen === "onboard") renderOnboard();
   else if (S.screen === "setup") renderSetup();
   else if (S.screen === "stats") renderStats();
   else if (S.screen === "leaks") renderLeaks();
@@ -3593,15 +3598,12 @@ function friendlyErr(e: unknown): string {
   return m;
 }
 
+// Gate an action on being signed in. Instead of a (mobile-unreliable) popup, send
+// them to the sign-in screen; they retry the action once signed in.
 async function ensureSignedIn(): Promise<boolean> {
   if (S.mp.auth) return true;
-  try {
-    const u = await FB.signInWithGoogle();
-    S.mp.auth = u;
-    try { localStorage.setItem("mce-signed-in", "1"); } catch { /* */ }
-    void FB.startPresence(u).catch(() => {});
-    return true;
-  } catch (e) { S.net.err = friendlyErr(e); render(); return false; }
+  S.screen = "signin"; render();
+  return false;
 }
 
 async function enterRoom(code: string): Promise<void> {
@@ -3734,7 +3736,7 @@ function stopEconomySubs(): void {
 async function startEconomySubs(uid: string): Promise<void> {
   stopEconomySubs();
   try {
-    _walletUnsub = await FB.subscribeWallet(uid, (w) => { S.wallet = { play: w.play, premium: w.premium }; S.edgePass = w.edgePass; renderIfEcon(); });
+    _walletUnsub = await FB.subscribeWallet(uid, (w) => { S.wallet = { play: w.play, premium: w.premium }; S.edgePass = w.edgePass; S.lastWeekly = w.lastWeekly; S.weeklyStreak = w.weeklyStreak; renderIfEcon(); maybeShowWeekly(); });
     _inboxUnsub = await FB.subscribeInbox(uid, (msgs) => { S.inbox = msgs; renderIfEcon(); });
     _onlineUnsub = await FB.subscribeOnline((list) => { S.mp.online = list.filter((p) => p.uid !== uid); renderIfEcon(); });
     FB.isAdminClaim().then((a) => { S.isAdmin = a; renderIfEcon(); }).catch(() => {});
@@ -3743,6 +3745,17 @@ async function startEconomySubs(uid: string): Promise<void> {
 /** Back-compat: re-pull entitlement (the live wallet sub also keeps it fresh). */
 async function refreshEntitlement(): Promise<void> { const uid = S.mp.auth?.uid; if (uid) await startEconomySubs(uid); }
 function unread(): number { return S.inbox.filter((m) => !m.read).length; }
+// OAuth via redirect: flag the pending sign-in, then navigate to the provider. The
+// page leaves immediately (no hanging popup promise); consumeRedirect() on the next
+// load finishes the job. A 12s safety clears the spinner if the redirect never starts.
+async function startOAuth(which: "google" | "apple"): Promise<void> {
+  if (S.net.busy) return;
+  S.net.busy = true; S.net.err = ""; render();
+  try { localStorage.setItem("mce-signed-in", "1"); localStorage.setItem("mce-auth-pending", which); } catch { /* */ }
+  setTimeout(() => { if (S.net.busy && S.screen === "signin") { S.net.busy = false; render(); } }, 12000);
+  try { await FB.signInRedirect(which); }
+  catch (e) { S.net.busy = false; try { localStorage.removeItem("mce-auth-pending"); } catch { /* */ } S.net.err = friendlyErr(e); render(); }
+}
 async function doSignIn(fn: () => Promise<MPUser>, regName?: string): Promise<void> {
   if (S.net.busy) return;
   S.net.busy = true; S.net.err = ""; render();
@@ -3753,7 +3766,10 @@ async function doSignIn(fn: () => Promise<MPUser>, regName?: string): Promise<vo
     if (regName) { S.profile.nickname = regName; saveProfile(); }
     void FB.startPresence(u).catch(() => {});
     void startEconomySubs(u.uid);
-    S.net.busy = false; S.screen = "home"; render();
+    S.net.busy = false;
+    // Email-register is a brand-new account → onboard. Email sign-in → home.
+    S.screen = regName && !onboarded() ? "onboard" : "home";
+    render();
   } catch (e) { S.net.busy = false; S.net.err = friendlyErr(e); render(); }
 }
 function renderSignIn(): void {
@@ -3780,8 +3796,8 @@ function renderSignIn(): void {
       </div>
       <button class="si-skip" id="si-back">Skip — Poker Training only</button>
     </div>`;
-  onId("si-apple", "click", () => void doSignIn(() => FB.signInWithApple()));
-  onId("si-google", "click", () => void doSignIn(() => FB.signInWithGoogle()));
+  onId("si-apple", "click", () => void startOAuth("apple"));
+  onId("si-google", "click", () => void startOAuth("google"));
   onId("si-submit", "click", () => {
     const email = (document.getElementById("si-email") as HTMLInputElement | null)?.value.trim() ?? "";
     const pw = (document.getElementById("si-pw") as HTMLInputElement | null)?.value ?? "";
@@ -3796,6 +3812,41 @@ function renderSignIn(): void {
     void FB.sendReset(email).then(() => { S.net.err = "Reset email sent — check your inbox."; render(); }).catch((e) => { S.net.err = friendlyErr(e); render(); });
   });
   onId("si-back", "click", () => { S.net.err = ""; S.screen = "home"; render(); });
+}
+
+/* ═══════════════════ FIRST-TIME ONBOARDING ═══════════════════ */
+
+function onboarded(): boolean { try { return localStorage.getItem("mce-onboarded") === "1"; } catch { return true; } }
+function renderOnboard(): void {
+  cancelVillainTimer();
+  const p = S.profile;
+  let region = ""; try { region = localStorage.getItem("mce-region") || ""; } catch { /* */ }
+  app.innerHTML = `
+    <div class="signin">
+      <div class="si-bg" aria-hidden="true"><span class="mc-glow g-emerald"></span><span class="mc-glow g-gold"></span></div>
+      <div class="si-brand"><div class="si-cards"><span class="si-c back"></span><span class="si-c red">A<i>♥</i></span><span class="si-c">A<i>♠</i></span></div>
+        <h1 class="si-word"><span>WELCOME TO</span><b>MONTECARLOEDGE</b></h1></div>
+      <p class="si-sub">You're in${S.mp.auth ? `, ${esc(S.mp.auth.name)}` : ""}! Set up your profile — you can change all of this later.</p>
+      <div class="field"><label>Nickname</label><input class="si-input" id="ob-nick" maxlength="14" value="${esc(p.nickname === "You" ? (S.mp.auth?.name ?? "") : p.nickname)}" placeholder="Your table name"/></div>
+      <div class="field"><label>Avatar</label>
+        <div class="avatar-grid">
+          <button class="avatar-pick ${!p.avatar ? "sel" : ""}" id="ob-av-auto" title="Auto">${avatarChip("", p.nickname, 38)}</button>
+          ${PRESET_AVATARS.map((a) => `<button class="avatar-pick ${p.avatar === a ? "sel" : ""}" data-ob-av="${a}">${a}</button>`).join("")}
+        </div>
+      </div>
+      <div class="field"><label>Region (optional)</label><input class="si-input" id="ob-region" placeholder="e.g. Singapore" value="${esc(region)}"/></div>
+      <button class="si-btn primary" id="ob-done">Let's play →</button>
+    </div>`;
+  onId("ob-av-auto", "click", () => { S.profile.avatar = ""; saveProfile(); render(); });
+  app.querySelectorAll("[data-ob-av]").forEach((b) => onEl(b, "click", () => { S.profile.avatar = (b as HTMLElement).dataset.obAv!; saveProfile(); render(); }));
+  onId("ob-done", "click", () => {
+    const nick = (document.getElementById("ob-nick") as HTMLInputElement | null)?.value.trim() || S.mp.auth?.name || "Player";
+    const reg = (document.getElementById("ob-region") as HTMLInputElement | null)?.value.trim() || "";
+    S.profile.nickname = nick; saveProfile();
+    try { localStorage.setItem("mce-region", reg); localStorage.setItem("mce-onboarded", "1"); } catch { /* */ }
+    const uid = S.mp.auth?.uid; if (uid) void FB.updateName(uid, nick).catch(() => {});
+    S.screen = "home"; render();
+  });
 }
 
 /* ═══════════════════ MESSAGING · GIFTING · ADMIN ═══════════════════ */
@@ -3919,6 +3970,67 @@ async function doAdminGift(): Promise<void> {
   catch (e) { c.busy = false; c.err = friendlyErr(e); render(); }
 }
 
+/* ── Weekly free-chips claim: a Monday dopamine moment. The reward is DETERMINISTIC
+   and FREE (a fixed grant) — satisfying juice, but NOT a randomized/paid loot box
+   (which would be a regulated gambling mechanic for a non-gambling app). ── */
+const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+let _weeklyShown = false;
+function canClaimWeekly(): boolean { return !!S.mp.auth && (!S.lastWeekly || Date.now() - S.lastWeekly >= WEEK_MS); }
+function maybeShowWeekly(): void {
+  if (_weeklyShown || S.screen !== "home" || !canClaimWeekly()) return;
+  _weeklyShown = true;
+  showWeeklyClaim();
+}
+function countUp(el: HTMLElement | null, to: number, instant: boolean): void {
+  if (!el) return;
+  if (instant) { el.textContent = to.toLocaleString(); return; }
+  const t0 = performance.now(), dur = 900;
+  const step = (t: number) => { const p = Math.min(1, (t - t0) / dur); el.textContent = Math.round(to * (1 - Math.pow(1 - p, 3))).toLocaleString(); if (p < 1) requestAnimationFrame(step); };
+  requestAnimationFrame(step);
+}
+const WEEKLY_LADDER = [500, 600, 750, 1000];
+function nextWeeklyAmt(): number { return WEEKLY_LADDER[Math.min(S.weeklyStreak, WEEKLY_LADDER.length - 1)]!; }
+function showWeeklyClaim(): void {
+  if (document.getElementById("weekly-modal")) return;
+  const reduce = reduceMotion();
+  const amt = nextWeeklyAmt();
+  const wkNum = S.weeklyStreak + 1; // the week you're claiming
+  const rain = reduce ? "" : Array.from({ length: 14 }, (_, i) => `<span class="wk-chip" style="left:${Math.round((i / 14) * 100)}%;animation-delay:${(i % 7) * 0.13}s">🪙</span>`).join("");
+  const ladder = WEEKLY_LADDER.map((v, i) => `<span class="wk-rung ${i === Math.min(S.weeklyStreak, 3) ? "now" : i < S.weeklyStreak ? "done" : ""}">${v}</span>`).join("<i>›</i>");
+  const wrap = document.createElement("div");
+  wrap.id = "weekly-modal"; wrap.className = "weekly-modal";
+  wrap.innerHTML = `
+    <div class="weekly-card">
+      <div class="wk-rain" aria-hidden="true">${rain}</div>
+      <div class="wk-glow" aria-hidden="true"></div>
+      <div class="wk-gift">🎁</div>
+      <h2>Week ${wkNum} chips</h2>
+      <p class="wk-sub">🔥 ${S.weeklyStreak > 0 ? `${S.weeklyStreak}-week streak — keep it alive!` : "Start your weekly streak."}</p>
+      <div class="wk-amt">🪙 <span id="wk-num">${amt}</span></div>
+      <div class="wk-ladder">${ladder}</div>
+      <button class="si-btn primary" id="wk-claim">CLAIM 🪙 ${amt.toLocaleString()}</button>
+      <button class="wk-later" id="wk-later">Maybe later</button>
+    </div>`;
+  document.body.appendChild(wrap);
+  const close = () => { wrap.classList.add("closing"); setTimeout(() => wrap.remove(), 250); };
+  wrap.querySelector("#wk-later")!.addEventListener("click", close);
+  wrap.querySelector("#wk-claim")!.addEventListener("click", async () => {
+    const btn = wrap.querySelector("#wk-claim") as HTMLButtonElement;
+    btn.disabled = true; btn.textContent = "…";
+    try {
+      const r = await FB.claimWeekly();
+      try { playSound("chip"); } catch { /* */ }
+      countUp(wrap.querySelector("#wk-num"), r.granted, reduce);
+      wrap.querySelector(".weekly-card")!.classList.add("claimed");
+      btn.textContent = "✓ Claimed!";
+      setTimeout(close, 1300);
+    } catch (e) {
+      btn.disabled = false; btn.textContent = `CLAIM 🪙 ${amt.toLocaleString()}`;
+      const sub = wrap.querySelector(".wk-sub"); if (sub) sub.textContent = friendlyErr(e);
+    }
+  });
+}
+
 /* ═══════════════════ HOME HUB + PROFILE ═══════════════════ */
 
 const PRESET_AVATARS = [
@@ -3974,7 +4086,28 @@ function renderAgeGate(): void {
 
 // Cosmetics — the ONLY chip sink (play-money in, in-app flair out; never anything
 // of value, never the killed chips→goods cash-out).
-const CHIP_PACKS = [{ chips: "400", price: "$4.90" }, { chips: "1,000", price: "$9.90" }, { chips: "3,000", price: "$24.90" }, { chips: "7,000", price: "$49.90" }];
+// Pricing (from the monetization council). Anchor: $9.90 ≈ 1,000 play chips. Buy
+// actions are "Soon" until Stripe keys are wired; the catalog + trust copy ship now.
+const PLAY_PACKS = [
+  { chips: "500", price: "$4.99" },
+  { chips: "1,000", price: "$9.90", badge: "Anchor" },
+  { chips: "2,400", price: "$19.90", bonus: "+20%" },
+  { chips: "7,000", price: "$49", bonus: "Best for Mid" },
+  { chips: "16,000", price: "$99" },
+  { chips: "40,000", price: "$199", badge: "Best value" },
+];
+const PREMIUM_PACKS = [
+  { chips: "400", price: "$4.99" },
+  { chips: "850", price: "$9.90" },
+  { chips: "2,300", price: "$24.90", bonus: "+8%" },
+  { chips: "5,000", price: "$49" },
+  { chips: "11,000", price: "$99", bonus: "+10%" },
+];
+const EDGE_TIERS = [
+  { label: "1 month · online", price: "$9.99", sub: "one-time · does not renew" },
+  { label: "Monthly", price: "$6.99/mo", sub: "Most flexible" },
+  { label: "Annual", price: "$49.99/yr", sub: "$4.17/mo · save 40%", best: true },
+];
 const COSMETICS = [
   { id: "squid", emoji: "🦑", name: "Squid Mascot", desc: "Collectible table mascot", chips: 2500 },
   { id: "goldback", emoji: "🟡", name: "Gold Card Back", desc: "Gilded deck", chips: 1200 },
@@ -3986,53 +4119,60 @@ function addCosmetic(id: string): void { const o = ownedCosmetics(); if (!o.incl
 
 function renderStore(): void {
   cancelVillainTimer();
-  const p = S.profile;
   const owned = ownedCosmetics();
+  const loggedIn = !!S.mp.auth;
+  const playBal = loggedIn ? S.wallet.play : S.profile.chips;
+  const premBal = loggedIn ? S.wallet.premium : 0;
+  const claimReady = canClaimWeekly();
+  const daysLeft = loggedIn && S.lastWeekly ? Math.max(0, Math.ceil((WEEK_MS - (Date.now() - S.lastWeekly)) / 86_400_000)) : 0;
+  const pack = (pk: { chips: string; price: string; badge?: string; bonus?: string }, sym: string) => `
+    <div class="pack ${pk.badge ? "best" : ""}">${pk.badge ? `<span class="pack-badge">${pk.badge}</span>` : ""}
+      <div class="pack-amt">${sym} ${pk.chips}</div>${pk.bonus ? `<div class="pack-bonus">${pk.bonus}</div>` : ""}
+      <button class="pack-buy soon" disabled>${pk.price} · Soon</button>
+    </div>`;
   app.innerHTML = `
     <div class="setup doc">
-      <h1>🛍 Store</h1>
-      <div class="store-bal">Balance <strong>🪙 ${p.chips.toLocaleString()}</strong> <span class="hint">play-chips · no cash value</span></div>
+      <div class="doc-top"><button class="hdr-btn" id="store-back">← Back</button><h1>🛍 Store</h1><span style="width:54px"></span></div>
+      <div class="store-bal">Balance <strong>🪙 ${fmtBal(playBal)}</strong> · <strong>💎 ${fmtBal(premBal)}</strong></div>
 
-      <div class="set-group"><div class="set-head">Cosmetics · spend chips</div>
-        <div class="set-note" style="margin-bottom:9px">Pure flair — zero effect on play. The fun way to spend earned chips.</div>
-        <div class="store-grid">${COSMETICS.map((c) => {
-          const own = owned.includes(c.id);
-          return `<div class="store-item ${own ? "owned" : ""}"><div class="si-emoji">${c.emoji}</div><div class="si-name">${c.name}</div><div class="si-desc">${c.desc}</div>${own ? `<div class="si-own">Owned ✓</div>` : `<button class="hdr-btn si-buy" data-cos="${c.id}" ${p.chips < c.chips ? "disabled" : ""}>🪙 ${c.chips.toLocaleString()}</button>`}</div>`;
-        }).join("")}</div>
-      </div>
-
-      <div class="set-group"><div class="set-head">Chips · buy with money</div>
-        <div class="set-note" style="margin-bottom:9px">More chips = access to higher stakes. Buy-in is capped at 100bb, so chips never buy an edge at a table.</div>
-        <div class="store-grid">${CHIP_PACKS.map((pk) => `<div class="store-item"><div class="si-emoji">🪙</div><div class="si-name">${pk.chips}</div><button class="hdr-btn" disabled>${pk.price} · Soon</button></div>`).join("")}</div>
-        <span class="hint">Unlocks with Stripe (next phase). Fair-play caps: ~$20/day, ~$50/week. No FOMO timers, ever.</span>
+      <div class="set-group"><div class="set-head">🎁 Weekly free chips</div>
+        ${!loggedIn ? `<div class="set-note">Sign in to claim free play chips every week — the streak grows your reward (500 › 600 › 750 › 1,000).</div>`
+          : claimReady ? `<button class="start-btn" id="store-claim" style="background:linear-gradient(135deg,#f7cf72,#b8860b);color:#2a1c05">🎁 Claim 🪙 ${nextWeeklyAmt().toLocaleString()} · week ${S.weeklyStreak + 1}</button>`
+          : `<div class="set-note">Next free chips in <strong>${daysLeft} day${daysLeft === 1 ? "" : "s"}</strong> · 🔥 ${S.weeklyStreak}-week streak.</div>`}
       </div>
 
       <div class="set-group"><div class="set-head">Edge Pass · the Monte Carlo Edge, live</div>
-        <div class="store-edge ${S.edgePass ? "active" : ""}">
-          <div class="se-price">$6.99<span>/mo</span></div>
-          <div class="set-note">Bring your trained edge to LIVE tables: the real-time MCE overlay in Play Online + assisted seats, hand-history review, and a weekly leak report. <strong>The solo trainer stays 100% free, forever.</strong></div>
-          ${S.edgePass
-            ? `<div class="se-active">✓ Edge Pass active</div><button class="hdr-btn" id="edge-manage" style="width:100%;margin-top:8px">Manage subscription</button>`
-            : `<button class="start-btn" id="edge-buy" style="margin-top:8px;background:linear-gradient(135deg,#f7cf72,#b8860b);color:#2a1c05">${S.net.busy ? "…" : "Get Edge Pass · $6.99/mo"}</button>`}
-        </div>
+        <div class="set-note" style="margin-bottom:9px">The real-time MCE overlay in online play + hand-history review + leak report. <strong>Solo Train stays 100% free, forever.</strong></div>
+        ${S.edgePass ? `<div class="se-active">✓ Edge Pass active</div><button class="hdr-btn" id="edge-manage" style="width:100%;margin-top:8px">Manage subscription</button>`
+          : `${EDGE_TIERS.map((t) => `<div class="edge-tier ${t.best ? "best" : ""}"><div class="et-main"><div class="et-price">${t.price}</div><div class="et-sub">${t.sub}</div></div><button class="et-buy" id="edge-buy">${S.net.busy ? "…" : "Get"}</button></div>`).join("")}
+          <span class="hint">7-day free trial · cancel anytime in one tap.</span>`}
       </div>
 
-      <div class="set-group"><div class="set-head">Tournaments</div>
-        <div class="set-note">$2.99 entry · prizes are trophies &amp; cosmetics only — never cash. Coming soon.</div>
+      <div class="set-group"><div class="set-head">🪙 Play chips</div>
+        <img class="store-chips-art" src="chips.png" alt="" aria-hidden="true" width="1100" height="600" />
+        <div class="set-note" style="margin-bottom:9px">Practice currency · refills free every Monday (+streak). AI rooms + learning tables. Buy-in capped at 100bb, so chips never buy an edge.</div>
+        <div class="pack-grid">${PLAY_PACKS.map((pk) => pack(pk, "🪙")).join("")}</div>
       </div>
 
-      <div class="hint" style="text-align:center;margin-top:4px">Chips are play-money: no cash value, never cashable, withdrawable, or transferable.</div>
-      <button class="hdr-btn" id="store-back" style="width:100%;padding:12px;margin-top:8px">Back</button>
+      <div class="set-group"><div class="set-head">💎 Premium chips</div>
+        <div class="set-note" style="margin-bottom:9px">Competitive currency · won and lost against real players · buys Collectibles. Never given free (except admin events).</div>
+        <div class="pack-grid">${PREMIUM_PACKS.map((pk) => pack(pk, "💎")).join("")}</div>
+      </div>
+
+      <div class="set-group"><div class="set-head">Collectibles</div>
+        <div class="set-note" style="margin-bottom:9px">Cosmetic only — card-backs, felts, frames. <strong>Account-bound: cannot be sold, traded, or transferred for value.</strong> The flashiest ones unlock by beating the trainer.</div>
+        <div class="store-grid">${COSMETICS.map((c) => {
+          const own = owned.includes(c.id);
+          return `<div class="store-item ${own ? "owned" : ""}"><div class="si-emoji">${c.emoji}</div><div class="si-name">${c.name}</div><div class="si-desc">${c.desc}</div>${own ? `<div class="si-own">Owned ✓</div>` : `<button class="hdr-btn" disabled>💎 ${c.chips.toLocaleString()} · Soon</button>`}</div>`;
+        }).join("")}</div>
+      </div>
+
+      <div class="trust-foot">Chips are <strong>play-money</strong>. They can't be cashed out, sold, or transferred for value. We cap spend at ~$20/day — we're a trainer, not a casino.</div>
+      <button class="hdr-btn" id="store-back2" style="width:100%;padding:12px;margin-top:10px">Back</button>
     </div>`;
-
-  app.querySelectorAll("[data-cos]").forEach((b) => onEl(b, "click", () => {
-    const id = (b as HTMLElement).dataset.cos!;
-    const c = COSMETICS.find((x) => x.id === id);
-    if (c && S.profile.chips >= c.chips && !ownedCosmetics().includes(id)) {
-      S.profile.chips -= c.chips; saveProfile(); addCosmetic(id); playSound("chip"); render();
-    }
-  }));
   onId("store-back", "click", () => { S.screen = "home"; render(); });
+  onId("store-back2", "click", () => { S.screen = "home"; render(); });
+  onId("store-claim", "click", () => { _weeklyShown = false; showWeeklyClaim(); });
   onId("edge-buy", "click", () => { void startEdgePass(); });
   onId("edge-manage", "click", () => { void manageEdgePass(); });
 }
@@ -4081,11 +4221,7 @@ function renderHome(): void {
       </header>
 
       <div class="mc-hero">
-        <div class="mc-fan" aria-hidden="true">
-          <span class="mc-hc back"></span>
-          <span class="mc-hc red">A<i>♥</i></span>
-          <span class="mc-hc">A<i>♠</i></span>
-        </div>
+        <img class="mc-hero-art" src="hero.png" alt="" aria-hidden="true" width="1400" height="782" />
         <h1 class="mc-wordmark"><span>MONTECARLO</span><b>EDGE</b></h1>
         <p class="mc-tag">Play the player. Own the table.</p>
       </div>
@@ -4128,6 +4264,7 @@ function renderHome(): void {
     S.screen = "mp-setup"; render();
   });
   onId("home-stats", "click", () => { S.screen = "stats"; render(); });
+  maybeShowWeekly(); // Monday dopamine pop, if a free claim is waiting
 }
 
 function renderProfile(): void {
@@ -4347,17 +4484,36 @@ loadPlayerStats();
 render();
 initCardTilt();
 
-// Restore a previous sign-in across reloads (only loads Firebase if the user has
-// signed in before — keeps it lazy for never-signed-in visitors).
-try {
-  if (localStorage.getItem("mce-signed-in") === "1") {
-    void FB.onAuthChanged((u) => {
-      if (u) { S.mp.auth = u; void FB.startPresence(u).catch(() => {}); void startEconomySubs(u.uid); }
-      else { S.mp.auth = null; stopEconomySubs(); try { localStorage.removeItem("mce-signed-in"); } catch { /* */ } }
-      if (S.screen === "home") render();
-    });
-  }
-} catch { /* */ }
+// Finalize OAuth redirects + restore a previous sign-in. Only loads Firebase if the
+// user has signed in (or just initiated a redirect) — stays lazy for fresh visitors.
+async function initAuth(): Promise<void> {
+  let pending = false, hadFlag = false;
+  try { pending = localStorage.getItem("mce-auth-pending") != null; hadFlag = localStorage.getItem("mce-signed-in") === "1"; } catch { /* */ }
+  if (!pending && !hadFlag) return;
+  // 1) Complete any redirect sign-in just returned from Google/Apple.
+  try {
+    const r = await FB.consumeRedirect();
+    try { localStorage.removeItem("mce-auth-pending"); } catch { /* */ }
+    if (r && "user" in r) {
+      S.mp.auth = r.user;
+      try { localStorage.setItem("mce-signed-in", "1"); } catch { /* */ }
+      void FB.startPresence(r.user).catch(() => {});
+      void startEconomySubs(r.user.uid);
+      S.net.busy = false;
+      S.screen = r.isNew && !onboarded() ? "onboard" : "home";
+      render();
+    } else if (r && "error" in r) {
+      S.net.busy = false; try { localStorage.removeItem("mce-signed-in"); } catch { /* */ }
+      S.net.err = friendlyErr(r.error); S.screen = "signin"; render();
+    }
+  } catch { /* */ }
+  // 2) Keep auth state live for returning sessions / sign-out elsewhere.
+  void FB.onAuthChanged((u) => {
+    if (u && !S.mp.auth) { S.mp.auth = u; void FB.startPresence(u).catch(() => {}); void startEconomySubs(u.uid); if (S.screen === "home" || S.screen === "signin") render(); }
+    else if (!u && S.mp.auth) { S.mp.auth = null; stopEconomySubs(); try { localStorage.removeItem("mce-signed-in"); } catch { /* */ } if (S.screen === "home") render(); }
+  });
+}
+void initAuth();
 
 // Returning from Stripe Checkout: clear the query param + re-pull entitlement (the
 // webhook may land a beat after the redirect, so poll a couple of times).

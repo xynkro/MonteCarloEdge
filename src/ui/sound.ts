@@ -12,11 +12,41 @@ const PREF_KEY = "mce-sound";
 try { enabled = localStorage.getItem(PREF_KEY) !== "off"; } catch { /* ignore */ }
 
 function ac(): AudioContext | null {
-  if (typeof AudioContext === "undefined") return null;
-  if (!ctx) ctx = new AudioContext();
+  const AC = (typeof AudioContext !== "undefined" ? AudioContext
+    : (typeof window !== "undefined" ? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext : undefined));
+  if (!AC) return null;
+  if (!ctx) {
+    ctx = new AC();
+    // iOS 16.4+: route through the "playback" session so audio plays even when the
+    // hardware ring/silent switch is on. Harmless / ignored on other browsers.
+    try { (navigator as unknown as { audioSession?: { type: string } }).audioSession!.type = "playback"; } catch { /* unsupported */ }
+  }
   if (ctx.state === "suspended") void ctx.resume();
   return ctx;
 }
+
+// iOS/Safari only START audio inside a user gesture. Install a one-time unlock on
+// the first tap/click anywhere: create + resume the context and play a silent
+// buffer (the canonical iOS unlock). Without this the AudioContext stays suspended
+// and NOTHING is audible no matter how many times playSound() is called.
+let audioUnlocked = false;
+function installAudioUnlock(): void {
+  if (typeof document === "undefined") return;
+  const events: (keyof DocumentEventMap)[] = ["pointerdown", "touchend", "mousedown", "keydown"];
+  const onGesture = (): void => {
+    const c = ac();
+    if (!c) { cleanup(); return; }
+    try {
+      const b = c.createBuffer(1, 1, 22050);
+      const s = c.createBufferSource();
+      s.buffer = b; s.connect(c.destination); s.start(0);
+    } catch { /* ignore */ }
+    void c.resume().then(() => { if (c.state === "running") { audioUnlocked = true; cleanup(); } });
+  };
+  const cleanup = (): void => { events.forEach((e) => document.removeEventListener(e, onGesture)); };
+  events.forEach((e) => document.addEventListener(e, onGesture, { passive: true }));
+}
+installAudioUnlock();
 
 function noise(c: AudioContext): AudioBuffer {
   if (noiseBuf) return noiseBuf;

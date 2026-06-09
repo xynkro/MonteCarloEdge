@@ -353,18 +353,23 @@ export const adminGift = onCall(async (req) => {
   });
 });
 
-/** Claim the weekly free PLAY chips. Server-timed (anti-cheat). */
+/** Claim the weekly free PLAY chips on a DETERMINISTIC streak ladder (no RNG / no loot
+ *  box). Server-timed (anti-cheat). Streak grows if you return within 2 weeks. */
+const WEEKLY_LADDER = [500, 600, 750, 1000]; // wk1, wk2, wk3, wk4+ (deterministic)
+const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 export const claimWeekly = onCall(async (req) => {
   const uid = uidOf(req);
-  const WEEK = 7 * 24 * 60 * 60 * 1000;
   return db.runTransaction(async (tx) => {
     const snap = await tx.get(userRef(uid));
     const d = (snap.exists ? snap.data()! : {}) as Record<string, unknown>;
     const last = (d.lastWeekly as number) ?? 0;
     const now = Date.now();
-    if (now - last < WEEK) throw new HttpsError("failed-precondition", "Weekly chips already claimed — come back later.");
+    if (now - last < WEEK_MS) throw new HttpsError("failed-precondition", "Weekly chips already claimed — come back later.");
+    // Streak continues if claimed within 2 weeks of the last; otherwise resets to 1.
+    const streak = (last && now - last < 2 * WEEK_MS) ? ((d.weeklyStreak as number) ?? 0) + 1 : 1;
+    const grant = WEEKLY_LADDER[Math.min(streak - 1, WEEKLY_LADDER.length - 1)]!;
     const w = readWallet(d);
-    tx.set(userRef(uid), { chipsPlay: w.play + WEEKLY_PLAY, lastWeekly: now }, { merge: true });
-    return { ok: true, granted: WEEKLY_PLAY, balance: w.play + WEEKLY_PLAY };
+    tx.set(userRef(uid), { chipsPlay: w.play + grant, lastWeekly: now, weeklyStreak: streak }, { merge: true });
+    return { ok: true, granted: grant, balance: w.play + grant, streak };
   });
 });

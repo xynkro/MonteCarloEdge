@@ -73,13 +73,13 @@ export const edgePassCheckout = (origin: string) => callFn<{ url: string | null 
 export const billingPortal = (origin: string) => callFn<{ url: string | null }>("createBillingPortal", { origin });
 
 // ── economy: two wallets, gifting, messaging, admin, ledger ──
-export interface Wallet { play: number; premium: number; edgePass: boolean }
-/** Live two-wallet balance + Edge Pass for a player. */
+export interface Wallet { play: number; premium: number; edgePass: boolean; lastWeekly: number; weeklyStreak: number }
+/** Live two-wallet balance + Edge Pass + weekly-claim state for a player. */
 export async function subscribeWallet(uid: string, cb: (w: Wallet) => void): Promise<() => void> {
   const { m, db } = await firestore();
   return m.onSnapshot(m.doc(db, "users", uid), (s: { exists: () => boolean; data: () => Record<string, number | boolean> }) => {
     const d = s.exists() ? s.data() : {};
-    cb({ play: (d.chipsPlay as number) ?? (d.chips as number) ?? 1000, premium: (d.chipsPremium as number) ?? 0, edgePass: !!d.edgePass });
+    cb({ play: (d.chipsPlay as number) ?? (d.chips as number) ?? 1000, premium: (d.chipsPremium as number) ?? 0, edgePass: !!d.edgePass, lastWeekly: (d.lastWeekly as number) ?? 0, weeklyStreak: (d.weeklyStreak as number) ?? 0 });
   });
 }
 export interface InboxMsg { id: string; kind: string; from: string; fromName: string; text?: string; chips?: number; currency?: string; read?: boolean; createdAt?: { seconds: number } }
@@ -88,6 +88,11 @@ export async function subscribeInbox(uid: string, cb: (msgs: InboxMsg[]) => void
   const { m, db } = await firestore();
   const q = m.query(m.collection(db, `users/${uid}/inbox`), m.orderBy("createdAt", "desc"), m.limit(50));
   return m.onSnapshot(q, (snap: { docs: { id: string; data: () => Record<string, unknown> }[] }) => cb(snap.docs.map((d) => ({ id: d.id, ...d.data() } as InboxMsg))));
+}
+/** Update the player's display name on their account doc (rules allow name-only). */
+export async function updateName(uid: string, name: string): Promise<void> {
+  const { m, db } = await firestore();
+  try { await m.setDoc(m.doc(db, "users", uid), { name }, { merge: true }); } catch { /* */ }
 }
 export async function markRead(uid: string, msgId: string): Promise<void> {
   const { m, db } = await firestore();
@@ -127,6 +132,31 @@ export async function signInWithGoogle(): Promise<MPUser> {
     await m.setDoc(m.doc(db, "users", user.uid), { name: user.name }, { merge: true });
   } catch { /* signed in regardless */ }
   return user;
+}
+
+/** Start an OAuth sign-in via REDIRECT (reliable on phones/PWAs — unlike popup, which
+ *  often can't relay the result back to the opener and hangs). Navigates away; the
+ *  result is picked up by consumeRedirect() on the next load. */
+export async function signInRedirect(which: "google" | "apple"): Promise<void> {
+  const app = await getFirebaseApp();
+  const { getAuth, GoogleAuthProvider, OAuthProvider, signInWithRedirect } = await import("firebase/auth");
+  let provider;
+  if (which === "apple") { const p = new OAuthProvider("apple.com"); p.addScope("name"); p.addScope("email"); provider = p; }
+  else { provider = new GoogleAuthProvider(); }
+  await signInWithRedirect(getAuth(app), provider);
+}
+/** Finalize a redirect sign-in on load. Returns the user (+ whether brand new) or null. */
+export async function consumeRedirect(): Promise<{ user: MPUser; isNew: boolean } | { error: unknown } | null> {
+  const app = await getFirebaseApp();
+  const { getAuth, getRedirectResult, getAdditionalUserInfo } = await import("firebase/auth");
+  try {
+    const res = await getRedirectResult(getAuth(app));
+    if (!res || !res.user) return null;
+    const user = toUser(res.user);
+    const isNew = getAdditionalUserInfo(res)?.isNewUser ?? false;
+    try { const { m, db } = await firestore(); await m.setDoc(m.doc(db, "users", user.uid), { name: user.name }, { merge: true }); } catch { /* */ }
+    return { user, isNew };
+  } catch (e) { return { error: e }; }
 }
 
 /** Sign in with Apple (provider enabled in the Firebase console). */

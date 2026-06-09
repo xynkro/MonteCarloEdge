@@ -43,6 +43,8 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700;12..96,800&display=swap" />
   <link rel="stylesheet" href="/src/ui/styles.css" />
+  <!-- Resolve the /public felt texture against the document base (dev "/" and Pages "/MonteCarloEdge/") for CSS. -->
+  <script>try{document.documentElement.style.setProperty("--felt-img",'url("'+new URL("felt.jpg",document.baseURI).href+'")');}catch(e){}</script>
 </head>
 <body>
   <div id="app"></div>
