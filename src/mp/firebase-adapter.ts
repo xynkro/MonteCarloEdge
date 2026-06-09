@@ -30,9 +30,13 @@ export async function signInWithGoogle(): Promise<MPUser> {
   const { getAuth, GoogleAuthProvider, signInWithPopup } = await import("firebase/auth");
   const res = await signInWithPopup(getAuth(app), new GoogleAuthProvider());
   const user = toUser(res.user);
-  // Seed/refresh the user profile doc (chips become server-authoritative in Phase 3).
-  const { m, db } = await firestore();
-  await m.setDoc(m.doc(db, "users", user.uid), { name: user.name }, { merge: true });
+  // Seed/refresh the user profile doc — BEST-EFFORT. Auth has already succeeded;
+  // a Firestore write failure (e.g. rules not yet published) must NOT make the
+  // whole sign-in look broken. The presence layer surfaces any rules issue.
+  try {
+    const { m, db } = await firestore();
+    await m.setDoc(m.doc(db, "users", user.uid), { name: user.name }, { merge: true });
+  } catch { /* signed in regardless */ }
   return user;
 }
 
