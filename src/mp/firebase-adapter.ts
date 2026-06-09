@@ -24,6 +24,39 @@ async function firestore() {
   return { m, db: m.getFirestore(app) };
 }
 
+// ── Phase 2: networked tables (calls the deployed Cloud Functions) ──
+async function callFn<T>(name: string, data: unknown): Promise<T> {
+  const app = await getFirebaseApp();
+  const m = await import("firebase/functions");
+  const fns = m.getFunctions(app, "asia-southeast1"); // must match the deploy region
+  const res = await m.httpsCallable(fns, name)(data);
+  return res.data as T;
+}
+export const createRoom = (opts: { tier: string; buyIn: number; name: string; bots: string[] }) =>
+  callFn<{ code: string }>("createTable", opts);
+export const joinRoom = (code: string, name: string) => callFn<{ code: string; seatIdx?: number; already?: boolean }>("joinTable", { code, name });
+export const dealHand = (code: string) => callFn<{ ok: boolean }>("startHand", { code });
+export const actRoom = (code: string, action: unknown, expectedVersion: number) =>
+  callFn<{ ok: boolean }>("act", { code, action, expectedVersion });
+export const leaveRoom = (code: string) => callFn<{ ok: boolean; banked?: number }>("leaveTable", { code });
+
+/** Live public table state (no hole cards). Returns an unsubscribe fn. */
+export async function subscribeRoom(code: string, cb: (pub: Record<string, unknown> | null) => void): Promise<() => void> {
+  const { m, db } = await firestore();
+  return m.onSnapshot(m.doc(db, "tables", code), (s: { exists: () => boolean; data: () => Record<string, unknown> }) => cb(s.exists() ? s.data() : null));
+}
+/** Your OWN hole cards for this room (rules let you read only your own). */
+export async function subscribeMyHand(code: string, uid: string, cb: (hand: { handId?: string; holeCards?: [number, number] | null } | null) => void): Promise<() => void> {
+  const { m, db } = await firestore();
+  return m.onSnapshot(m.doc(db, `tables/${code}/hands/${uid}`), (s: { exists: () => boolean; data: () => { handId?: string; holeCards?: [number, number] | null } }) => cb(s.exists() ? s.data() : null));
+}
+/** Read the player's server-held chip balance (seeded on first room interaction). */
+export async function readChips(uid: string): Promise<number | null> {
+  const { m, db } = await firestore();
+  const s = await m.getDoc(m.doc(db, "users", uid));
+  return s.exists() ? (((s.data() as { chips?: number }).chips) ?? 0) : null;
+}
+
 /** Pop the Google account picker and sign in. */
 export async function signInWithGoogle(): Promise<MPUser> {
   const app = await getFirebaseApp();

@@ -60,7 +60,7 @@ interface UndoSnapshot {
 }
 
 interface AppState {
-  screen: "home" | "setup" | "game" | "stats" | "leaks" | "mp-setup" | "mp-table" | "mp-lobby" | "profile" | "settings" | "legal" | "explainer" | "store";
+  screen: "home" | "setup" | "game" | "stats" | "leaks" | "mp-setup" | "mp-table" | "mp-lobby" | "mp-net" | "profile" | "settings" | "legal" | "explainer" | "store";
   // Player profile (local-first; syncs name/avatar to Firestore when signed in).
   profile: { nickname: string; avatar: string; chips: number };
   // Multiplayer / benchmark (Phase 0 hot-seat + Phase 1 online lobby).
@@ -73,6 +73,16 @@ interface AppState {
     online: { uid: string; name: string }[]; // live presence list
     authBusy: boolean;        // sign-in in flight
     authErr: string;
+  };
+  // Phase 2: live networked room (driven by Firestore snapshots from the backend).
+  net: {
+    code: string | null;
+    pub: Record<string, any> | null; // public table snapshot
+    myHand: [number, number] | null; // my own hole cards
+    serverChips: number | null;      // server-held balance
+    joinCode: string;
+    busy: boolean;
+    err: string;
   };
   mode: "live" | "training";
   sessionStart: number;
@@ -189,6 +199,7 @@ const S: AppState = {
     authBusy: false,
     authErr: "",
   },
+  net: { code: null, pub: null, myHand: null, serverChips: null, joinCode: "", busy: false, err: "" },
   mode: "live",
   sessionStart: Date.now(),
   tableSize: 6,
@@ -393,6 +404,7 @@ function render(): void {
   else if (S.screen === "mp-setup") renderMpSetup();
   else if (S.screen === "mp-lobby") renderMpLobby();
   else if (S.screen === "mp-table") renderMpTable();
+  else if (S.screen === "mp-net") renderNetTable();
   else renderGame();
   if (S.pickerOpen) renderPicker();
   if (S.betPadOpen) renderBetPad();
@@ -3331,7 +3343,7 @@ function renderMpSetup(): void {
   app.innerHTML = `
     <div class="setup">
       <h1>🌐 Play Online</h1>
-      <span class="hint" style="text-align:center;display:block;margin-bottom:10px">Create a room and play for chips. (Live networked tables with friends are coming — sign in below to reserve your name. For now you sit vs the house.)</span>
+      <span class="hint" style="text-align:center;display:block;margin-bottom:10px">Play instantly vs AI, or create an online room and share the code so friends can join from their own phones.</span>
 
       <div class="room-bal"><span>Balance <strong>🪙 ${wallet.toLocaleString()}</strong></span><button class="hdr-btn" id="room-buychips">＋ Buy chips</button></div>
 
@@ -3357,9 +3369,18 @@ function renderMpSetup(): void {
         ${su.players.length < 9 ? `<button class="hdr-btn" id="mp-add-ai" style="width:100%;margin-top:6px">+ AI opponent</button>` : ""}
       </div>
 
-      ${canAfford ? `<button class="start-btn" id="mp-start" style="background:linear-gradient(135deg,#f59e0b,#b45309);color:#fff">PLAY · buy in 🪙 ${su.buyIn.toLocaleString()}</button>` : `<button class="start-btn" id="mp-buychips2" style="background:var(--gold-foil);color:#2a1c05">＋ Buy chips to play</button>`}
-      <button class="start-btn" id="mp-online" style="background:linear-gradient(135deg,#4285F4,#1a73e8);color:#fff;margin-top:8px">🌐 Sign in (networked beta)</button>
-      <button class="hdr-btn" id="mp-back" style="width:100%;padding:12px;margin-top:6px">Back</button>
+      ${canAfford ? `<button class="start-btn" id="mp-start" style="background:linear-gradient(135deg,#f59e0b,#b45309);color:#fff">▶ PLAY vs AI · buy in 🪙 ${su.buyIn.toLocaleString()}</button>` : `<button class="start-btn" id="mp-buychips2" style="background:var(--gold-foil);color:#2a1c05">＋ Buy chips to play</button>`}
+
+      <div class="net-section">
+        <div class="set-head" style="margin-top:14px">Play with friends · online</div>
+        <span class="hint" style="display:block;margin-bottom:8px">Create a room and share the code. Friends sign in on their own phones and join — each only sees their own cards. Uses the stakes + bots above.</span>
+        <button class="start-btn" id="net-create" style="background:linear-gradient(135deg,#4285F4,#1a73e8);color:#fff">🌐 Create online room</button>
+        <div class="net-join"><input class="mp-num" id="net-code" placeholder="MCE-XXXX" maxlength="8" value="${S.net.joinCode.replace(/"/g, "")}" style="text-transform:uppercase"/><button class="hdr-btn" id="net-join">Join</button></div>
+        ${S.net.err ? `<div class="room-broke" style="margin-top:8px">${S.net.err}</div>` : ""}
+        <span class="hint" style="display:block;text-align:center;margin-top:6px">${S.mp.auth ? `✓ Signed in as ${S.mp.auth.name}` : "You'll sign in with Google to create or join."}</span>
+      </div>
+
+      <button class="hdr-btn" id="mp-back" style="width:100%;padding:12px;margin-top:10px">Back</button>
     </div>`;
 
   app.querySelectorAll("[data-tier]").forEach((b) => onEl(b, "click", () => {
@@ -3378,7 +3399,12 @@ function renderMpSetup(): void {
   });
   onId("mp-add-ai", "click", () => { su.players.push({ name: seatName(su.players.length), assisted: false, ai: "rand" }); render(); });
   onId("mp-back", "click", () => { S.screen = "home"; render(); });
-  onId("mp-online", "click", () => { void goOnline(); });
+  onId("net-code", "change", (e) => { S.net.joinCode = (e.target as HTMLInputElement).value.trim().toUpperCase(); });
+  onId("net-create", "click", () => { void createNetRoom(); });
+  onId("net-join", "click", () => {
+    const v = (document.getElementById("net-code") as HTMLInputElement | null)?.value.trim().toUpperCase() || S.net.joinCode;
+    void joinNetRoom(v);
+  });
   onId("mp-start", "click", () => {
     // A local room = you (hero) vs AI = exactly the Training engine. Launch the
     // training table so it looks/sounds/animates identically — no pass-the-phone.
@@ -3524,6 +3550,145 @@ function renderMpTable(): void {
     const seat = ps.seats[ps.toAct]!;
     doAct({ type: ps.currentBet > 0 ? "raise" : "bet", amount: seat.chips + seat.bet });
   });
+}
+
+/* ═══════════════════ NETWORKED ROOMS (Phase 2 — live backend) ═══════════════════ */
+
+let _netTableUnsub: (() => void) | null = null, _netHandUnsub: (() => void) | null = null;
+function clearNetSubs(): void { if (_netTableUnsub) { _netTableUnsub(); _netTableUnsub = null; } if (_netHandUnsub) { _netHandUnsub(); _netHandUnsub = null; } }
+
+function friendlyErr(e: unknown): string {
+  const code = (e as { code?: string })?.code ?? "";
+  const m = (e as Error)?.message ?? "Something went wrong.";
+  if (code.includes("operation-not-allowed") || /requested action is invalid/i.test(m)) return "Google sign-in isn't enabled in your Firebase console yet.";
+  if (code.includes("unauthorized-domain")) return "This domain isn't authorized in Firebase Auth settings.";
+  if (code.includes("permission")) return "Permission denied (Firestore rules).";
+  if (code.includes("not-found")) return "Room not found — check the code.";
+  if (code.includes("popup")) return "Sign-in popup was blocked or closed.";
+  if (code.includes("failed-precondition") || code.includes("resource-exhausted")) return m.replace(/^[^:]*:\s*/, "");
+  return m;
+}
+
+async function ensureSignedIn(): Promise<boolean> {
+  if (S.mp.auth) return true;
+  try {
+    const u = await FB.signInWithGoogle();
+    S.mp.auth = u;
+    void FB.startPresence(u).catch(() => {});
+    return true;
+  } catch (e) { S.net.err = friendlyErr(e); render(); return false; }
+}
+
+async function enterRoom(code: string): Promise<void> {
+  clearNetSubs();
+  S.net.code = code; S.net.pub = null; S.net.myHand = null; S.net.err = "";
+  S.screen = "mp-net"; render();
+  try {
+    _netTableUnsub = await FB.subscribeRoom(code, (pub) => { S.net.pub = pub; if (S.screen === "mp-net") render(); });
+    const uid = S.mp.auth?.uid;
+    if (uid) _netHandUnsub = await FB.subscribeMyHand(code, uid, (h) => { S.net.myHand = h?.holeCards ?? null; if (S.screen === "mp-net") render(); });
+  } catch (e) { S.net.err = friendlyErr(e); render(); }
+}
+
+async function createNetRoom(): Promise<void> {
+  if (S.net.busy) return;
+  S.net.err = "";
+  if (!(await ensureSignedIn())) return;
+  const su = S.mp.setup; const tier = ROOM_TIERS[su.tier]!;
+  S.net.busy = true; render();
+  try {
+    const bots = su.players.slice(1).map((p) => (!p.ai || p.ai === "rand") ? AI_ARCHES[Math.floor(Math.random() * AI_ARCHES.length)]! : p.ai);
+    const { code } = await FB.createRoom({ tier: tier.name, buyIn: su.buyIn, name: S.profile.nickname, bots });
+    S.net.busy = false; await enterRoom(code);
+  } catch (e) { S.net.busy = false; S.net.err = friendlyErr(e); render(); }
+}
+
+async function joinNetRoom(code: string): Promise<void> {
+  if (S.net.busy) return;
+  S.net.err = "";
+  if (!code || !/^MCE-/i.test(code)) { S.net.err = "Enter a room code like MCE-XXXX."; render(); return; }
+  if (!(await ensureSignedIn())) return;
+  S.net.busy = true; render();
+  try { await FB.joinRoom(code, S.profile.nickname); S.net.busy = false; await enterRoom(code); }
+  catch (e) { S.net.busy = false; S.net.err = friendlyErr(e); render(); }
+}
+
+async function netAct(action: { type: string; amount?: number }): Promise<void> {
+  const code = S.net.code, pub = S.net.pub;
+  if (!code || !pub) return;
+  try { await FB.actRoom(code, action, pub.version as number); }
+  catch { /* stale version / illegal — the live snapshot will correct the UI */ }
+}
+async function netDeal(): Promise<void> { const code = S.net.code; if (!code) return; try { await FB.dealHand(code); } catch (e) { S.net.err = friendlyErr(e); render(); } }
+async function netLeave(): Promise<void> {
+  const code = S.net.code; clearNetSubs();
+  if (code) { try { await FB.leaveRoom(code); } catch { /* */ } }
+  S.net.code = null; S.net.pub = null; S.net.myHand = null; S.net.err = "";
+  S.screen = "mp-setup"; render();
+}
+
+function renderNetTable(): void {
+  cancelVillainTimer();
+  const code = S.net.code, uid = S.mp.auth?.uid;
+  if (!code) { S.screen = "mp-setup"; render(); return; }
+  const pub = S.net.pub;
+  if (!pub) {
+    app.innerHTML = `<div class="setup"><h1>🌐 Room ${code}</h1><div class="mp-thinking">connecting<span>.</span><span>.</span><span>.</span></div>${S.net.err ? `<div class="room-broke">${S.net.err}</div>` : ""}<button class="hdr-btn" id="net-leave" style="width:100%;padding:12px;margin-top:10px">Leave</button></div>`;
+    onId("net-leave", "click", () => void netLeave());
+    return;
+  }
+  const seats = (pub.seats || []) as Array<{ uid: string | null; ai: string | null; name: string; chips: number; bet: number; folded: boolean }>;
+  const status = pub.status as string;
+  const isOwner = pub.ownerUid === uid;
+  const revealed = (pub.revealedHoles || {}) as Record<string, [number, number]>;
+  const boardHtml = (pub.board || []).length ? (pub.board as number[]).map(mpCard).join("") : `<span class="hint">— ${capWord(status === "waiting" ? "preflop" : (pub.street || "preflop"))} —</span>`;
+  const seatsHtml = seats.map((s, ti) => {
+    if (!s.uid && !s.ai) return "";
+    const me = !!s.uid && s.uid === uid;
+    const active = ti === pub.toAct && status === "in_hand";
+    const rev = revealed[String(ti)] || revealed[ti as unknown as string];
+    const cards = me && S.net.myHand ? S.net.myHand : (rev || null);
+    const tag = s.ai ? "🤖" : me ? "🧠" : "🙂";
+    return `<div class="mp-seat ${active ? "active" : ""} ${s.folded ? "folded" : ""}">
+      <span class="mp-seat-name">${tag} ${s.name}${ti === pub.dealerSeat ? " Ⓓ" : ""}${me ? " (you)" : ""}</span>
+      <span class="mp-seat-chips">🪙 ${mpc(s.chips)}${s.bet > 0 ? ` · bet ${mpc(s.bet)}` : ""}${s.folded ? " · folded" : ""}</span>
+      ${cards ? `<div class="mp-hole">${cards.map(mpCard).join("")}</div>` : ""}
+    </div>`;
+  }).join("");
+
+  let panel = "";
+  const myTurn = status === "in_hand" && pub.toAct >= 0 && seats[pub.toAct]?.uid === uid;
+  if (status === "waiting" || status === "hand_over") {
+    panel = `${status === "hand_over" ? `<div class="mp-result">${pub.lastResult || "Hand over"}</div>` : `<div class="net-share">Share this code:<button class="net-copy" id="net-copy"><strong>${code}</strong> 📋</button></div>`}
+      ${isOwner ? `<button class="start-btn" id="net-deal">${status === "hand_over" ? "NEXT HAND" : "DEAL"}</button>` : `<div class="hint" style="text-align:center">Waiting for the host to deal…</div>`}`;
+  } else if (myTurn) {
+    const seat = seats[pub.toAct]!; const toCall = (pub.currentBet as number) - seat.bet;
+    panel = `<div class="mp-turn"><strong>Your turn</strong></div>${S.net.myHand ? `<div class="mp-hole">${S.net.myHand.map(mpCard).join("")}</div>` : ""}
+      <div class="action-bar">
+        <button class="action-btn fold" id="na-fold">Fold</button>
+        ${toCall > 0 ? `<button class="action-btn call" id="na-call">Call ${mpc(toCall)}</button>` : `<button class="action-btn check" id="na-check">Check</button>`}
+        <button class="action-btn ${pub.currentBet > 0 ? "raise" : "bet"}" id="na-bet">${pub.currentBet > 0 ? "Raise" : "Bet"} pot</button>
+        <button class="action-btn raise" id="na-allin">All-in</button>
+      </div>`;
+  } else {
+    panel = `<div class="mp-turn">${seats[pub.toAct]?.name || "…"}'s turn</div><div class="mp-thinking">waiting<span>.</span><span>.</span><span>.</span></div>`;
+  }
+
+  app.innerHTML = `
+    <div class="game">
+      <div class="game-topbar"><span>Room <strong>${code}</strong> · 🪙 chips</span><button class="hdr-btn" id="net-leave">Leave</button></div>
+      <div class="mp-felt"><div class="mp-board">${boardHtml}</div><div class="mp-pot">POT 🪙 ${mpc((pub.pot as number) || 0)} · ${capWord(pub.street || "preflop")}</div></div>
+      <div class="mp-seats">${seatsHtml}</div>
+      <div class="controls"><div class="controls-body">${panel}${S.net.err ? `<div class="room-broke" style="margin-top:8px">${S.net.err}</div>` : ""}</div></div>
+    </div>`;
+  onId("net-leave", "click", () => void netLeave());
+  onId("net-deal", "click", () => void netDeal());
+  onId("net-copy", "click", () => { try { void navigator.clipboard?.writeText(code); } catch { /* */ } });
+  onId("na-fold", "click", () => void netAct({ type: "fold" }));
+  onId("na-check", "click", () => void netAct({ type: "check" }));
+  onId("na-call", "click", () => void netAct({ type: "call" }));
+  onId("na-bet", "click", () => { const seat = seats[pub.toAct]!; const target = Math.min((pub.currentBet as number) > 0 ? (pub.currentBet as number) + (pub.pot as number) : (pub.pot as number), seat.chips + seat.bet); void netAct({ type: (pub.currentBet as number) > 0 ? "raise" : "bet", amount: target }); });
+  onId("na-allin", "click", () => { const seat = seats[pub.toAct]!; void netAct({ type: (pub.currentBet as number) > 0 ? "raise" : "bet", amount: seat.chips + seat.bet }); });
 }
 
 /* ═══════════════════ HOME HUB + PROFILE ═══════════════════ */

@@ -1271,6 +1271,13 @@ body::before {
 .mp-aibadge { font-size: 10px; font-weight: 800; color: var(--azure); background: rgba(74,168,255,.15); border: 1px solid rgba(74,168,255,.4); border-radius: 6px; padding: 4px 8px; }
 .mp-addrow { display: flex; gap: 8px; margin-top: 6px; }
 .mp-addrow .hdr-btn { flex: 1; }
+.net-section { margin-top: 4px; border-top: 1px solid var(--line); padding-top: 6px; }
+.net-join { display: flex; gap: 8px; margin-top: 8px; }
+.net-join .mp-num { flex: 1; letter-spacing: 1px; }
+.net-join .hdr-btn { padding: 0 20px; }
+.net-share { text-align: center; font-size: 14px; margin-bottom: 12px; color: var(--muted); }
+.net-copy { background: var(--glass); border: 1px solid var(--glass-edge); border-radius: 9px; color: var(--text); padding: 7px 13px; margin-left: 8px; cursor: pointer; font-size: 16px; }
+.net-copy strong { background: var(--gold-foil); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; letter-spacing: 1.5px; }
 .mp-thinking { text-align: center; font-size: 15px; color: var(--muted); padding: 16px 0 22px; font-weight: 700; letter-spacing: .5px; }
 .mp-thinking span { animation: mcBlink 1.2s infinite; }
 .mp-thinking span:nth-child(2) { animation-delay: .2s; }
