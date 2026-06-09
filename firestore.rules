@@ -25,6 +25,17 @@ service cloud.firestore {
         && request.resource.data.diff({}).affectedKeys().hasOnly(['name']);
       allow update: if signedIn() && request.auth.uid == uid
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name']);
+
+      // Inbox: messages + gift notes. You read ONLY your own; you may mark items read.
+      // All creation (gifts/admin/messages) is Cloud-Function-only — clients can't
+      // mint a gift by writing their own inbox.
+      match /inbox/{msgId} {
+        allow read: if signedIn() && request.auth.uid == uid;
+        allow create: if false;
+        allow update: if signedIn() && request.auth.uid == uid
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read']);
+        allow delete: if signedIn() && request.auth.uid == uid;
+      }
     }
 
     // ── Tables (Phase 2) ──

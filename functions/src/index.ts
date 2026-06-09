@@ -48,6 +48,11 @@ const stateRef = (code: string) => db.doc(`tables/${code}/private/state`);
 const tableRef = (code: string) => db.doc(`tables/${code}`);
 const holeRef = (code: string, uid: string) => db.doc(`tables/${code}/hands/${uid}`); // per-uid private hand
 const userRef = (uid: string) => db.doc(`users/${uid}`);
+const inboxRef = (uid: string) => db.collection(`users/${uid}/inbox`); // received messages/gifts
+
+const WEEKLY_PLAY = 500;          // weekly free play-chip grant
+const GIFT_MAX = 1_000_000;       // anti-abuse cap per single play-chip gift
+const ADMIN_EMAILS = new Set(["the.disruptive.comp@gmail.com"]); // super-admin (gift premium, adjust balances)
 
 function newCode(): string {
   const A = "ACDEFGHJKLMNPQRSTUVWXYZ23456789"; // no ambiguous 0/O/1/I/B/8
@@ -56,13 +61,25 @@ function newCode(): string {
   return `MCE-${s}`;
 }
 
-interface StateDoc { snap: AuthTableSnapshot; version: number; baseline: number }
+type Currency = "play" | "premium";
+interface StateDoc { snap: AuthTableSnapshot; version: number; baseline: number; currency: Currency }
 
-async function loadState(tx: Transaction, code: string): Promise<{ t: AuthTable; version: number; baseline: number }> {
+async function loadState(tx: Transaction, code: string): Promise<{ t: AuthTable; version: number; baseline: number; currency: Currency }> {
   const snap = await tx.get(stateRef(code));
   if (!snap.exists) throw new HttpsError("not-found", "Room not found.");
   const d = snap.data() as StateDoc;
-  return { t: deserializeAuthTable(d.snap), version: d.version, baseline: d.baseline };
+  return { t: deserializeAuthTable(d.snap), version: d.version, baseline: d.baseline, currency: d.currency ?? "play" };
+}
+
+// Two-wallet model: chipsPlay (free/earned/buyable, AI rooms, giftable) and
+// chipsPremium (cash-bought or won only, store currency, NEVER giftable except by
+// admin). Legacy single `chips` migrates into the Play balance on first read.
+const balField = (c: Currency) => (c === "premium" ? "chipsPremium" : "chipsPlay");
+function readWallet(d: Record<string, unknown> | undefined): { play: number; premium: number } {
+  return {
+    play: (d?.chipsPlay as number) ?? (d?.chips as number) ?? DEFAULT_CHIPS,
+    premium: (d?.chipsPremium as number) ?? 0,
+  };
 }
 
 // Bots decide server-side until it's a human's turn or the hand ends.
@@ -92,7 +109,7 @@ function runBots(t: AuthTable): void {
 // the chip-conservation tripwire is meaningful — join/leave legitimately change the
 // table chips between hands, so we must NOT run the check there (it would brick the
 // table after hand 1).
-function persist(tx: Transaction, code: string, t: AuthTable, version: number, baseline: number, settled = false): void {
+function persist(tx: Transaction, code: string, t: AuthTable, version: number, baseline: number, settled = false, currency: Currency = "play"): void {
   if (settled && t.status === "hand_over") {
     const banked = t.seats.reduce((a, s) => a + (s.uid || s.ai ? s.chips : 0), 0);
     if (Math.abs(banked - baseline) > 0.5) {
@@ -112,9 +129,9 @@ function persist(tx: Transaction, code: string, t: AuthTable, version: number, b
   }
   const deadlineMs = t.status === "in_hand" ? Date.now() + TURN_SECONDS * 1000 : 0;
 
-  tx.set(stateRef(code), { snap: serializeAuthTable(t), version, baseline } satisfies StateDoc);
+  tx.set(stateRef(code), { snap: serializeAuthTable(t), version, baseline, currency } satisfies StateDoc);
   tx.set(tableRef(code), {
-    ...pub, version, deadlineMs, revealedHoles, updatedAt: FieldValue.serverTimestamp(),
+    ...pub, version, deadlineMs, revealedHoles, currency, updatedAt: FieldValue.serverTimestamp(),
   });
   // Per-player hole cards — each human in the hand reads only their own doc.
   for (const ts of t.liveSeats) {
@@ -128,27 +145,33 @@ function persist(tx: Transaction, code: string, t: AuthTable, version: number, b
 /** Create a private room. Returns the shareable code. Owner buys in from their wallet. */
 export const createTable = onCall(async (req) => {
   const uid = uidOf(req);
-  const { tier = "Micro", buyIn, name = "Player", bots = [] } = (req.data ?? {}) as
-    { tier?: string; buyIn?: number; name?: string; bots?: string[] };
+  const { tier = "Micro", buyIn, name = "Player", bots = [], currency = "play" } = (req.data ?? {}) as
+    { tier?: string; buyIn?: number; name?: string; bots?: string[]; currency?: Currency };
+  const cur: Currency = currency === "premium" ? "premium" : "play";
+  // Premium tables are human-only (for now): no AI seats allowed.
+  if (cur === "premium" && bots.length > 0) {
+    throw new HttpsError("failed-precondition", "Premium rooms can't add AI players.");
+  }
   const T = TIERS[tier] ?? TIERS.Micro!;
   const stack = Math.max(20 * T.bb, Math.min(T.max, Math.round(buyIn ?? T.max)));
-  const seats = 2 + Math.min(7, bots.length); // owner + bots (+ room to join)
+  const seats = 2 + Math.min(7, cur === "premium" ? 0 : bots.length); // owner + bots (+ room to join)
 
   return db.runTransaction(async (tx) => {
     const u = await tx.get(userRef(uid));
-    const chips = u.exists ? ((u.data()!.chips as number) ?? DEFAULT_CHIPS) : DEFAULT_CHIPS;
-    if (chips < stack) throw new HttpsError("failed-precondition", "Not enough chips for that buy-in.");
+    const w = readWallet(u.exists ? u.data() : undefined);
+    const bal = cur === "premium" ? w.premium : w.play;
+    if (bal < stack) throw new HttpsError("failed-precondition", `Not enough ${cur === "premium" ? "premium" : "play"} chips for that buy-in.`);
 
     let code = newCode();
     // (collision check; codes are sparse so one retry is plenty)
     if ((await tx.get(stateRef(code))).exists) code = newCode();
 
     const t = createAuthTable(code, { uid, name }, { name: `${tier} Room`, blinds: { sb: T.sb, bb: T.bb }, startingStack: stack, maxSeats: Math.max(seats, 2) });
-    bots.slice(0, 7).forEach((arch, i) => seatAi(t, i + 1, `Bot ${i + 1}`, PROFILES[arch] ? arch : "TAG"));
+    if (cur !== "premium") bots.slice(0, 7).forEach((arch, i) => seatAi(t, i + 1, `Bot ${i + 1}`, PROFILES[arch] ? arch : "TAG"));
 
-    tx.set(userRef(uid), { name, chips: chips - stack }, { merge: true });
-    persist(tx, code, t, 1, 0);
-    return { code };
+    tx.set(userRef(uid), { name, [balField(cur)]: bal - stack }, { merge: true });
+    persist(tx, code, t, 1, 0, false, cur);
+    return { code, currency: cur };
   });
 });
 
@@ -158,17 +181,18 @@ export const joinTable = onCall(async (req) => {
   const { code, name = "Player" } = (req.data ?? {}) as { code?: string; name?: string };
   if (!code) throw new HttpsError("invalid-argument", "Room code required.");
   return db.runTransaction(async (tx) => {
-    const { t, version } = await loadState(tx, code);
+    const { t, version, currency } = await loadState(tx, code);
     if (t.seats.some((s) => s.uid === uid)) return { code, already: true }; // idempotent
     const seatIdx = t.seats.findIndex((s) => !s.uid && !s.ai);
     if (seatIdx < 0) throw new HttpsError("failed-precondition", "Room is full.");
     const u = await tx.get(userRef(uid));
-    const chips = u.exists ? ((u.data()!.chips as number) ?? DEFAULT_CHIPS) : DEFAULT_CHIPS;
-    if (chips < t.startingStack) throw new HttpsError("failed-precondition", "Not enough chips to buy in.");
+    const w = readWallet(u.exists ? u.data() : undefined);
+    const bal = currency === "premium" ? w.premium : w.play;
+    if (bal < t.startingStack) throw new HttpsError("failed-precondition", `Not enough ${currency === "premium" ? "premium" : "play"} chips to buy in.`);
     sit(t, uid, name, seatIdx);
-    tx.set(userRef(uid), { name, chips: chips - t.startingStack }, { merge: true });
-    persist(tx, code, t, version + 1, 0);
-    return { code, seatIdx };
+    tx.set(userRef(uid), { name, [balField(currency)]: bal - t.startingStack }, { merge: true });
+    persist(tx, code, t, version + 1, 0, false, currency);
+    return { code, seatIdx, currency };
   });
 });
 
@@ -178,7 +202,7 @@ export const startHand = onCall(async (req) => {
   const { code } = (req.data ?? {}) as { code?: string };
   if (!code) throw new HttpsError("invalid-argument", "Room code required.");
   return db.runTransaction(async (tx) => {
-    const { t, version } = await loadState(tx, code);
+    const { t, version, currency } = await loadState(tx, code);
     if (uid !== t.ownerUid) throw new HttpsError("permission-denied", "Only the host can deal.");
     if (t.status === "in_hand") throw new HttpsError("failed-precondition", "Hand already in progress.");
     // Require at least one seated HUMAN with chips — never deal a bot-only hand
@@ -191,7 +215,7 @@ export const startHand = onCall(async (req) => {
     // hold each buy-in until settle). Conserved across the whole hand.
     const baseline = t.seats.reduce((a, s) => a + (s.uid || s.ai ? s.chips : 0), 0);
     runBots(t); // auto-play any leading bots up to the first human
-    persist(tx, code, t, version + 1, baseline, true);
+    persist(tx, code, t, version + 1, baseline, true, currency);
     return { ok: true };
   });
 });
@@ -203,14 +227,14 @@ export const act = onCall(async (req) => {
     { code?: string; action?: MPAction; expectedVersion?: number };
   if (!code || !action) throw new HttpsError("invalid-argument", "code + action required.");
   return db.runTransaction(async (tx) => {
-    const { t, version, baseline } = await loadState(tx, code);
+    const { t, version, baseline, currency } = await loadState(tx, code);
     if (typeof expectedVersion === "number" && expectedVersion !== version) {
       throw new HttpsError("aborted", "stale"); // client retries with fresh snapshot
     }
     const r = engineAct(t, uid, action); // validates turn (from uid) + legality + min-raise
     if (!r.ok) throw new HttpsError("failed-precondition", r.err ?? "illegal action");
     runBots(t); // resolve any bots up to the next human / hand end
-    persist(tx, code, t, version + 1, baseline, true);
+    persist(tx, code, t, version + 1, baseline, true, currency);
     return { ok: true };
   });
 });
@@ -221,7 +245,7 @@ export const leaveTable = onCall(async (req) => {
   const { code } = (req.data ?? {}) as { code?: string };
   if (!code) throw new HttpsError("invalid-argument", "Room code required.");
   return db.runTransaction(async (tx) => {
-    const { t, version, baseline } = await loadState(tx, code);
+    const { t, version, baseline, currency } = await loadState(tx, code);
     const seat = t.seats.find((s) => s.uid === uid);
     if (!seat) return { ok: true };
     if (t.status === "in_hand" && t.liveSeats.includes(t.seats.indexOf(seat))) {
@@ -229,10 +253,88 @@ export const leaveTable = onCall(async (req) => {
     }
     const back = seat.chips;
     const u = await tx.get(userRef(uid));
-    const chips = u.exists ? ((u.data()!.chips as number) ?? 0) : 0;
+    const w = readWallet(u.exists ? u.data() : undefined);
+    const bal = currency === "premium" ? w.premium : w.play;
     leave(t, uid);
-    tx.set(userRef(uid), { chips: chips + back }, { merge: true });
-    persist(tx, code, t, version + 1, baseline);
+    tx.set(userRef(uid), { [balField(currency)]: bal + back }, { merge: true });
+    persist(tx, code, t, version + 1, baseline, false, currency);
     return { ok: true, banked: back };
+  });
+});
+
+// ── economy: gifting, messaging, admin, weekly faucet ──
+
+/** Gift PLAY chips to another player. PREMIUM is NEVER giftable here (only via admin
+ *  or by winning at a table). Immediate transfer + an inbox note. */
+export const giftChips = onCall(async (req) => {
+  const uid = uidOf(req);
+  const { toUid, amount, note = "" } = (req.data ?? {}) as { toUid?: string; amount?: number; note?: string };
+  const amt = Math.floor(Number(amount));
+  if (!toUid || toUid === uid) throw new HttpsError("invalid-argument", "Pick a different player.");
+  if (!Number.isFinite(amt) || amt <= 0 || amt > GIFT_MAX) throw new HttpsError("invalid-argument", "Invalid amount.");
+  return db.runTransaction(async (tx) => {
+    const fromSnap = await tx.get(userRef(uid));
+    const toSnap = await tx.get(userRef(toUid));
+    if (!toSnap.exists) throw new HttpsError("not-found", "Recipient not found.");
+    const fromW = readWallet(fromSnap.data());
+    const toW = readWallet(toSnap.data());
+    if (fromW.play < amt) throw new HttpsError("failed-precondition", "Not enough play chips.");
+    const fromName = (fromSnap.data()?.name as string) ?? "A player";
+    tx.set(userRef(uid), { chipsPlay: fromW.play - amt }, { merge: true });
+    tx.set(userRef(toUid), { chipsPlay: toW.play + amt }, { merge: true });
+    tx.set(inboxRef(toUid).doc(), { kind: "gift", from: uid, fromName, chips: amt, text: String(note).slice(0, 200), createdAt: FieldValue.serverTimestamp(), read: false });
+    return { ok: true };
+  });
+});
+
+/** Send a text message to another player's inbox. */
+export const sendMessage = onCall(async (req) => {
+  const uid = uidOf(req);
+  const { toUid, text } = (req.data ?? {}) as { toUid?: string; text?: string };
+  const body = (text ?? "").trim().slice(0, 500);
+  if (!toUid || toUid === uid) throw new HttpsError("invalid-argument", "Pick a different player.");
+  if (!body) throw new HttpsError("invalid-argument", "Empty message.");
+  const [fromSnap, toSnap] = await Promise.all([userRef(uid).get(), userRef(toUid).get()]);
+  if (!toSnap.exists) throw new HttpsError("not-found", "Recipient not found.");
+  const fromName = (fromSnap.data()?.name as string) ?? "A player";
+  await inboxRef(toUid).add({ kind: "text", from: uid, fromName, text: body, createdAt: FieldValue.serverTimestamp(), read: false });
+  return { ok: true };
+});
+
+/** Super-admin only (gated by verified email): gift PLAY or PREMIUM chips, or adjust
+ *  a balance (amount may be negative). The ONLY way premium chips are granted off-table. */
+export const adminGift = onCall(async (req) => {
+  uidOf(req);
+  const email = (req.auth?.token?.email as string | undefined) ?? "";
+  if (!ADMIN_EMAILS.has(email)) throw new HttpsError("permission-denied", "Admins only.");
+  const { toUid, currency = "play", amount } = (req.data ?? {}) as { toUid?: string; currency?: Currency; amount?: number };
+  const amt = Math.floor(Number(amount));
+  const cur: Currency = currency === "premium" ? "premium" : "play";
+  if (!toUid) throw new HttpsError("invalid-argument", "Recipient required.");
+  if (!Number.isFinite(amt) || amt === 0) throw new HttpsError("invalid-argument", "Invalid amount.");
+  return db.runTransaction(async (tx) => {
+    const snap = await tx.get(userRef(toUid));
+    if (!snap.exists) throw new HttpsError("not-found", "Recipient not found.");
+    const w = readWallet(snap.data());
+    const next = Math.max(0, (cur === "premium" ? w.premium : w.play) + amt);
+    tx.set(userRef(toUid), { [balField(cur)]: next }, { merge: true });
+    tx.set(inboxRef(toUid).doc(), { kind: "admin", from: "admin", fromName: "MonteCarloEdge", chips: amt, currency: cur, text: amt > 0 ? `You received ${amt} ${cur} chips` : `Balance adjustment: ${amt} ${cur} chips`, createdAt: FieldValue.serverTimestamp(), read: false });
+    return { ok: true, balance: next };
+  });
+});
+
+/** Claim the weekly free PLAY chips. Server-timed (anti-cheat). */
+export const claimWeekly = onCall(async (req) => {
+  const uid = uidOf(req);
+  const WEEK = 7 * 24 * 60 * 60 * 1000;
+  return db.runTransaction(async (tx) => {
+    const snap = await tx.get(userRef(uid));
+    const d = (snap.exists ? snap.data()! : {}) as Record<string, unknown>;
+    const last = (d.lastWeekly as number) ?? 0;
+    const now = Date.now();
+    if (now - last < WEEK) throw new HttpsError("failed-precondition", "Weekly chips already claimed — come back later.");
+    const w = readWallet(d);
+    tx.set(userRef(uid), { chipsPlay: w.play + WEEKLY_PLAY, lastWeekly: now }, { merge: true });
+    return { ok: true, granted: WEEKLY_PLAY, balance: w.play + WEEKLY_PLAY };
   });
 });
