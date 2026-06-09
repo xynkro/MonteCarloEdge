@@ -262,6 +262,19 @@ export const leaveTable = onCall(async (req) => {
   });
 });
 
+// Per-uid windowed rate limit. Reads in the txn's READ phase + returns a writer the
+// caller commits in its WRITE phase (Firestore txns require all reads before writes).
+async function rlRead(tx: Transaction, uid: string, bucket: string, max: number, windowMs: number) {
+  const ref = db.doc(`rateLimits/${uid}__${bucket}`);
+  const snap = await tx.get(ref);
+  const now = Date.now();
+  const d = snap.exists ? (snap.data() as { count?: number; windowStart?: number }) : null;
+  let count = 1, windowStart = now;
+  if (d && now - (d.windowStart ?? 0) < windowMs) { count = (d.count ?? 0) + 1; windowStart = d.windowStart ?? now; }
+  if (count > max) throw new HttpsError("resource-exhausted", "Too many requests — slow down a moment.");
+  return { ref, data: { count, windowStart } };
+}
+
 // ── economy: gifting, messaging, admin, weekly faucet ──
 
 /** Gift PLAY chips to another player. PREMIUM is NEVER giftable here (only via admin
@@ -273,6 +286,7 @@ export const giftChips = onCall(async (req) => {
   if (!toUid || toUid === uid) throw new HttpsError("invalid-argument", "Pick a different player.");
   if (!Number.isFinite(amt) || amt <= 0 || amt > GIFT_MAX) throw new HttpsError("invalid-argument", "Invalid amount.");
   return db.runTransaction(async (tx) => {
+    const rl = await rlRead(tx, uid, "gift", 30, 60_000); // ≤30 gifts/min
     const fromSnap = await tx.get(userRef(uid));
     const toSnap = await tx.get(userRef(toUid));
     if (!toSnap.exists) throw new HttpsError("not-found", "Recipient not found.");
@@ -280,6 +294,7 @@ export const giftChips = onCall(async (req) => {
     const toW = readWallet(toSnap.data());
     if (fromW.play < amt) throw new HttpsError("failed-precondition", "Not enough play chips.");
     const fromName = (fromSnap.data()?.name as string) ?? "A player";
+    tx.set(rl.ref, rl.data);
     tx.set(userRef(uid), { chipsPlay: fromW.play - amt }, { merge: true });
     tx.set(userRef(toUid), { chipsPlay: toW.play + amt }, { merge: true });
     tx.set(inboxRef(toUid).doc(), { kind: "gift", from: uid, fromName, chips: amt, text: String(note).slice(0, 200), createdAt: FieldValue.serverTimestamp(), read: false });
@@ -294,19 +309,29 @@ export const sendMessage = onCall(async (req) => {
   const body = (text ?? "").trim().slice(0, 500);
   if (!toUid || toUid === uid) throw new HttpsError("invalid-argument", "Pick a different player.");
   if (!body) throw new HttpsError("invalid-argument", "Empty message.");
-  const [fromSnap, toSnap] = await Promise.all([userRef(uid).get(), userRef(toUid).get()]);
-  if (!toSnap.exists) throw new HttpsError("not-found", "Recipient not found.");
-  const fromName = (fromSnap.data()?.name as string) ?? "A player";
-  await inboxRef(toUid).add({ kind: "text", from: uid, fromName, text: body, createdAt: FieldValue.serverTimestamp(), read: false });
-  return { ok: true };
+  return db.runTransaction(async (tx) => {
+    const rl = await rlRead(tx, uid, "msg", 15, 60_000); // ≤15 messages/min
+    const fromSnap = await tx.get(userRef(uid));
+    const toSnap = await tx.get(userRef(toUid));
+    if (!toSnap.exists) throw new HttpsError("not-found", "Recipient not found.");
+    const fromName = (fromSnap.data()?.name as string) ?? "A player";
+    tx.set(rl.ref, rl.data);
+    tx.set(inboxRef(toUid).doc(), { kind: "text", from: uid, fromName, text: body, createdAt: FieldValue.serverTimestamp(), read: false });
+    return { ok: true };
+  });
 });
 
 /** Super-admin only (gated by verified email): gift PLAY or PREMIUM chips, or adjust
  *  a balance (amount may be negative). The ONLY way premium chips are granted off-table. */
 export const adminGift = onCall(async (req) => {
   uidOf(req);
-  const email = (req.auth?.token?.email as string | undefined) ?? "";
-  if (!ADMIN_EMAILS.has(email)) throw new HttpsError("permission-denied", "Admins only.");
+  // SECURITY: never trust an email claim that isn't verified — an attacker can
+  // register an UNVERIFIED email/password account using the admin address and would
+  // otherwise pass an email-only allowlist and mint premium chips. Require
+  // email_verified, OR a custom {admin:true} claim (set offline on the real admin uid).
+  const tok = (req.auth?.token ?? {}) as { email?: string; email_verified?: boolean; admin?: boolean };
+  const isAdmin = tok.admin === true || (ADMIN_EMAILS.has(tok.email ?? "") && tok.email_verified === true);
+  if (!isAdmin) throw new HttpsError("permission-denied", "Admins only.");
   const { toUid, currency = "play", amount } = (req.data ?? {}) as { toUid?: string; currency?: Currency; amount?: number };
   const amt = Math.floor(Number(amount));
   const cur: Currency = currency === "premium" ? "premium" : "play";
