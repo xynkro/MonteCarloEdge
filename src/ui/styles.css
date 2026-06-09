@@ -1096,8 +1096,14 @@ body::before {
 .mc-pchips-big.locked { font-size: 14px; background: none; -webkit-text-fill-color: var(--muted); color: var(--muted); padding-right: 8px; }
 .mc-login-banner { display: block; width: 100%; text-align: center; background: rgba(74,168,255,.12); border: 1px solid rgba(74,168,255,.4); color: #cfe6ff; border-radius: 12px; padding: 10px 14px; font-size: 13px; line-height: 1.4; margin-bottom: 12px; cursor: pointer; }
 .mc-login-banner span { color: var(--emerald); font-weight: 700; white-space: nowrap; }
-.mc-mode.locked { opacity: .58; }
-.mc-mode.locked .mc-arrow { font-size: 16px; opacity: .8; }
+/* Locked (not signed in): grey the text + icon, dim the accent rail, gold padlock —
+   reads as "locked", not just faded. */
+.mc-mode.locked { opacity: 1; }
+.mc-mode.locked .mc-mt { color: var(--faint); }
+.mc-mode.locked .mc-md { color: var(--faint); }
+.mc-mode.locked .mc-mi { filter: grayscale(.85); opacity: .55; background: rgba(255,255,255,.04); border-color: var(--line-2); }
+.mc-mode.locked::before { background: var(--line-2); box-shadow: none; }
+.mc-mode.locked .mc-arrow { font-size: 17px; opacity: 1; color: var(--gold-2); }
 /* ── Sign-in (Spotify-style: providers stacked, no dead space) ── */
 .signin { position: relative; flex: 1; display: flex; flex-direction: column; align-items: stretch; gap: 9px; padding: 22px 22px calc(20px + env(safe-area-inset-bottom)); max-width: 440px; margin: 0 auto; width: 100%; overflow-y: auto; }
 .si-bg { position: absolute; inset: 0; z-index: 0; pointer-events: none; overflow: hidden; }
@@ -1231,6 +1237,8 @@ body::before {
 .si-buy:disabled { opacity: .45; }
 .si-own { margin-top: 4px; font-size: 12px; font-weight: 800; color: var(--emerald); }
 .store-edge { text-align: center; }
+.store-edge.active { border: 1px solid rgba(247,207,114,.45); border-radius: 12px; padding: 10px; }
+.se-active { color: var(--gold-2); font-weight: 800; font-size: 15px; margin-top: 8px; }
 .se-price { font-family: var(--display); font-size: 24px; font-weight: 800; background: var(--gold-foil); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
 .se-price span { font-size: 13px; -webkit-text-fill-color: var(--muted); color: var(--muted); }
 

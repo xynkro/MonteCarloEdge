@@ -57,6 +57,21 @@ export async function readChips(uid: string): Promise<number | null> {
   return s.exists() ? (((s.data() as { chips?: number }).chips) ?? 0) : null;
 }
 
+/** Read the player's account doc: chip balance + Edge Pass entitlement. */
+export async function readUser(uid: string): Promise<{ chips: number | null; edgePass: boolean }> {
+  const { m, db } = await firestore();
+  const s = await m.getDoc(m.doc(db, "users", uid));
+  if (!s.exists()) return { chips: null, edgePass: false };
+  const d = s.data() as { chips?: number; edgePass?: boolean };
+  return { chips: d.chips ?? null, edgePass: !!d.edgePass };
+}
+
+// ── Stripe Edge Pass ──
+/** Start Edge Pass checkout — returns the Stripe Checkout URL to redirect to. */
+export const edgePassCheckout = (origin: string) => callFn<{ url: string | null }>("createCheckoutSession", { origin });
+/** Open the Stripe billing portal (manage/cancel) — returns its URL. */
+export const billingPortal = (origin: string) => callFn<{ url: string | null }>("createBillingPortal", { origin });
+
 /** Pop the Google account picker and sign in. */
 export async function signInWithGoogle(): Promise<MPUser> {
   const app = await getFirebaseApp();

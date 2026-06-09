@@ -84,6 +84,7 @@ interface AppState {
     busy: boolean;
     err: string;
   };
+  edgePass: boolean;        // Stripe Edge Pass subscription active (server-confirmed)
   mode: "live" | "training";
   sessionStart: number;
   tableSize: number;
@@ -200,6 +201,7 @@ const S: AppState = {
     authErr: "",
   },
   net: { code: null, pub: null, myHand: null, serverChips: null, joinCode: "", busy: false, err: "" },
+  edgePass: false,
   mode: "live",
   sessionStart: Date.now(),
   tableSize: 6,
@@ -3696,6 +3698,11 @@ function renderNetTable(): void {
 /* ═══════════════════ SIGN IN / REGISTER ═══════════════════ */
 
 let _signinMode: "signin" | "register" = "signin";
+/** Pull the player's Edge Pass entitlement (+ server chips) from their account doc. */
+async function refreshEntitlement(): Promise<void> {
+  const uid = S.mp.auth?.uid; if (!uid) { S.edgePass = false; return; }
+  try { const u = await FB.readUser(uid); S.edgePass = u.edgePass; if (u.chips != null) S.net.serverChips = u.chips; render(); } catch { /* */ }
+}
 async function doSignIn(fn: () => Promise<MPUser>, regName?: string): Promise<void> {
   if (S.net.busy) return;
   S.net.busy = true; S.net.err = ""; render();
@@ -3705,6 +3712,7 @@ async function doSignIn(fn: () => Promise<MPUser>, regName?: string): Promise<vo
     try { localStorage.setItem("mce-signed-in", "1"); } catch { /* */ }
     if (regName) { S.profile.nickname = regName; saveProfile(); }
     void FB.startPresence(u).catch(() => {});
+    void refreshEntitlement();
     S.net.busy = false; S.screen = "home"; render();
   } catch (e) { S.net.busy = false; S.net.err = friendlyErr(e); render(); }
 }
@@ -3752,7 +3760,11 @@ function renderSignIn(): void {
 
 /* ═══════════════════ HOME HUB + PROFILE ═══════════════════ */
 
-const PRESET_AVATARS = ["🦈", "🐺", "🦊", "🐉", "🦁", "🃏", "👑", "🤠", "🥷", "🐯", "🦅", "🐊", "🎩", "💎", "🔥", "🐧", "🦉", "🐸", "🦄", "👽"];
+const PRESET_AVATARS = [
+  "🦈", "🐺", "🦊", "🐉", "🦁", "🐯", "🐻", "🐼", "🦏", "🐗", "🦌", "🦅", "🦉", "🐊", "🐢", "🐙",
+  "🦭", "🐬", "🦓", "🦄", "🐸", "🐧", "🐳", "🦋", "🦜", "🦚", "🦂", "🐲", "🦛", "🐅",
+  "🃏", "👑", "🎩", "💎", "🔥", "⚡", "🌟", "🍀", "🎰", "🎲",
+  "🤠", "🥷", "🤖", "👾", "💀", "🤡", "😎", "🧠", "👽", "🦾"];
 function hashHue(s: string): number { let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0; return h % 360; }
 function avatarChip(av: string, seed: string, size = 40): string {
   const dim = `width:${size}px;height:${size}px;font-size:${Math.round(size * 0.5)}px`;
@@ -3835,10 +3847,12 @@ function renderStore(): void {
       </div>
 
       <div class="set-group"><div class="set-head">Edge Pass · the GTO tool, live</div>
-        <div class="store-edge">
-          <div class="se-price">$6.99<span>/mo</span> · $49<span>/yr</span></div>
+        <div class="store-edge ${S.edgePass ? "active" : ""}">
+          <div class="se-price">$6.99<span>/mo</span></div>
           <div class="set-note">Bring your trained edge to LIVE tables: the real-time GTO overlay in Play Online + assisted seats, hand-history review, and a weekly leak report. <strong>The solo trainer stays 100% free, forever.</strong></div>
-          <button class="start-btn" disabled style="margin-top:8px;opacity:.6">Coming with online play</button>
+          ${S.edgePass
+            ? `<div class="se-active">✓ Edge Pass active</div><button class="hdr-btn" id="edge-manage" style="width:100%;margin-top:8px">Manage subscription</button>`
+            : `<button class="start-btn" id="edge-buy" style="margin-top:8px;background:linear-gradient(135deg,#f7cf72,#b8860b);color:#2a1c05">${S.net.busy ? "…" : "Get Edge Pass · $6.99/mo"}</button>`}
         </div>
       </div>
 
@@ -3858,6 +3872,26 @@ function renderStore(): void {
     }
   }));
   onId("store-back", "click", () => { S.screen = "home"; render(); });
+  onId("edge-buy", "click", () => { void startEdgePass(); });
+  onId("edge-manage", "click", () => { void manageEdgePass(); });
+}
+
+// Edge Pass: redirect to Stripe Checkout (the secret keys live server-side; the
+// client only ever receives a redirect URL). Requires sign-in.
+const checkoutOrigin = (): string => location.origin + location.pathname;
+async function startEdgePass(): Promise<void> {
+  if (!(await ensureSignedIn())) { S.screen = "signin"; render(); return; }
+  if (S.net.busy) return;
+  S.net.busy = true; render();
+  try {
+    const { url } = await FB.edgePassCheckout(checkoutOrigin());
+    if (url) { location.href = url; return; }
+    S.net.busy = false; S.net.err = "Checkout unavailable — Stripe not configured yet."; render();
+  } catch (e) { S.net.busy = false; S.net.err = friendlyErr(e); render(); }
+}
+async function manageEdgePass(): Promise<void> {
+  try { const { url } = await FB.billingPortal(checkoutOrigin()); if (url) location.href = url; }
+  catch (e) { S.net.err = friendlyErr(e); render(); }
 }
 
 function renderHome(): void {
@@ -4150,10 +4184,24 @@ initCardTilt();
 try {
   if (localStorage.getItem("mce-signed-in") === "1") {
     void FB.onAuthChanged((u) => {
-      if (u) { S.mp.auth = u; void FB.startPresence(u).catch(() => {}); }
-      else { S.mp.auth = null; try { localStorage.removeItem("mce-signed-in"); } catch { /* */ } }
+      if (u) { S.mp.auth = u; void FB.startPresence(u).catch(() => {}); void refreshEntitlement(); }
+      else { S.mp.auth = null; S.edgePass = false; try { localStorage.removeItem("mce-signed-in"); } catch { /* */ } }
       if (S.screen === "home") render();
     });
+  }
+} catch { /* */ }
+
+// Returning from Stripe Checkout: clear the query param + re-pull entitlement (the
+// webhook may land a beat after the redirect, so poll a couple of times).
+try {
+  const ep = new URLSearchParams(location.search).get("edgepass");
+  if (ep) {
+    history.replaceState(null, "", location.pathname);
+    if (ep === "success") {
+      S.screen = "store";
+      setTimeout(() => void refreshEntitlement(), 1500);
+      setTimeout(() => void refreshEntitlement(), 5000);
+    }
   }
 } catch { /* */ }
 

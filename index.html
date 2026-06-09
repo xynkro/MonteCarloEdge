@@ -9,7 +9,36 @@
   <meta name="apple-mobile-web-app-title" content="MCEdge" />
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="apple-touch-icon" href="apple-touch-icon.png" />
-  <title>MonteCarloEdge</title>
+  <title>MonteCarloEdge — Play the math. Own the table.</title>
+  <meta name="description" content="A GTO poker trainer that shows its work: practise No-Limit Hold'em against a validated solver engine with a live recommendation overlay and a personal leak report. Free to train." />
+
+  <!-- Open Graph / Twitter — so shared links + room codes render a rich card, not a blank. -->
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="MonteCarloEdge" />
+  <meta property="og:title" content="MonteCarloEdge — Play the math. Own the table." />
+  <meta property="og:description" content="A GTO poker trainer that proves its own math. Live recommendation overlay, leak report, and private online tables with friends. Free to train." />
+  <meta property="og:url" content="https://xynkro.github.io/MonteCarloEdge/" />
+  <meta property="og:image" content="https://xynkro.github.io/MonteCarloEdge/og.png" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="MonteCarloEdge — Play the math. Own the table." />
+  <meta name="twitter:description" content="A GTO poker trainer that proves its own math. Free to train." />
+  <meta name="twitter:image" content="https://xynkro.github.io/MonteCarloEdge/og.png" />
+
+  <!-- Analytics (privacy-light). Replace G-XXXXXXXXXX with your GA4 Measurement ID
+       (GA4 → Admin → Data Streams → your web stream). It's a NO-OP until you do. -->
+  <script>
+    window.__MCE_GA__ = "G-XXXXXXXXXX";
+    if (window.__MCE_GA__ && window.__MCE_GA__.indexOf("XXXX") === -1) {
+      var s = document.createElement("script"); s.async = true;
+      s.src = "https://www.googletagmanager.com/gtag/js?id=" + window.__MCE_GA__;
+      document.head.appendChild(s);
+      window.dataLayer = window.dataLayer || [];
+      window.gtag = function () { window.dataLayer.push(arguments); };
+      window.gtag("js", new Date()); window.gtag("config", window.__MCE_GA__);
+    }
+  </script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700;12..96,800&display=swap" />

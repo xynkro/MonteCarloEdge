@@ -27,6 +27,9 @@ setGlobalOptions({ region: "asia-southeast1", maxInstances: 10 });
 initializeApp();
 const db = getFirestore();
 
+// Stripe Edge Pass paywall (createCheckoutSession / createBillingPortal / stripeWebhook).
+export * from "./stripe.js";
+
 const PROFILES: Record<string, OpponentProfile> = { Auto: AUTO, TAG, LAG, Station: STATION, Nit: NIT };
 const TURN_SECONDS = 40;
 const DEFAULT_CHIPS = 1_000; // ~$9.90 of value at the ~100 chips/$ ratio
