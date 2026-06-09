@@ -23,7 +23,7 @@ export const LEGAL_SECTIONS: Section[] = [
       <li><strong>Chips are play-money only.</strong> They have no cash value. You can never cash them out, withdraw, redeem, or trade them for anything of value. Ever.</li>
       <li><strong>This is not gambling.</strong> No real-money bets, no payouts, no prizes — a trainer and a social game.</li>
       <li><strong>You must be 18+</strong> (or the age of majority where you live, if higher).</li>
-      <li><strong>The GTO advice is for practice and fun.</strong> It is not a promise you'll win, and it is not financial or gambling advice.</li>
+      <li><strong>The MCE recommendations are for practice and fun.</strong> They are not a promise you'll win, and not financial or gambling advice.</li>
       <li><strong>It's free, runs in your browser, and we don't sell your data.</strong> Your profile lives on your device, plus in Firebase if you sign in with Google. You can wipe it any time.</li>
     </ul>`,
   },
@@ -50,7 +50,7 @@ export const LEGAL_SECTIONS: Section[] = [
     <ul>
       <li>They are <strong>not a guarantee</strong> you'll win any hand, session, or real-world game.</li>
       <li>They are <strong>not financial, investment, or gambling advice</strong>.</li>
-      <li>Poker involves chance and incomplete information. Equity numbers and "GTO" approximations can be simplified, wrong, or buggy. Treat them as a study aid, not gospel.</li>
+      <li>Poker involves chance and incomplete information. Equity numbers and the engine's recommendations (including tuned heuristics) can be simplified, wrong, or buggy. Treat them as a study aid, not gospel.</li>
     </ul>
     <p>What you do with this knowledge in the real world is your decision and your responsibility.</p>`,
   },
@@ -83,7 +83,7 @@ export const LEGAL_SECTIONS: Section[] = [
   },
   {
     heading: "7. Intellectual property",
-    body: `<p>MonteCarloEdge — its name, design, "Monte Carlo Midnight" look, code, the GTO engine, charts, and copy — belongs to the developer and is protected by IP law. You get a <strong>personal, non-exclusive, non-transferable, revocable licence</strong> to use the app for its intended purpose. You may not copy, resell, rebrand, or build a competing product from it. Poker is public domain; this implementation is not.</p>`,
+    body: `<p>MonteCarloEdge — its name, design, "Monte Carlo Midnight" look, code, the MCE Engine, charts, and copy — belongs to the developer and is protected by IP law. You get a <strong>personal, non-exclusive, non-transferable, revocable licence</strong> to use the app for its intended purpose. You may not copy, resell, rebrand, or build a competing product from it. Poker is public domain; this implementation is not.</p>`,
   },
   {
     heading: "8. Changes to these terms",
@@ -102,35 +102,51 @@ export const LEGAL_SECTIONS: Section[] = [
 ];
 
 export const EXPLAINER_INTRO =
-  `A GTO engine sits beside you, calls the math on every spot, and tells you why. Play the math. Own the table.`;
+  `The Monte Carlo Edge sits beside you — it simulates the spot, reads the player, and calls the most profitable line, every hand. Play the player. Own the table.`;
 
+// "Coined": the Monte Carlo Edge methodology — an exploitative, opponent-aware
+// approach grounded in what the MCE Engine actually does (every claim verified at
+// the code level; it never overclaims solver-grade depth).
 export const EXPLAINER_SECTIONS: Section[] = [
   {
-    heading: "The 4 modes",
-    body: `<p><strong>🎯 Train</strong> — Solo practice vs a GTO decision engine. On every street it recommends <strong>fold / call / raise</strong> (with a size), shows your <strong>win %</strong>, and gives a board <strong>read</strong>. Make your call, then see if you matched it.</p>
-    <p><strong>🌐 Play Online</strong> — Sign in with Google to set your presence and see who's online. Networked tables are coming; for now it's the lobby + your online profile.</p>
-    <p><strong>👥 Pass &amp; Play (the benchmark)</strong> — Hot-seat poker on one device. Some seats are <strong>assisted</strong> (they get the tool) and some play <strong>blind</strong>. Deal a few orbits and watch the assisted seats pull ahead — the cleanest demonstration that the math helps.</p>
-    <p><strong>👤 Profile / Chips</strong> — Your nickname, avatar, and a <strong>play-money chip wallet</strong>, plus your session stats and hand history.</p>`,
+    heading: "The one idea: play the player, not the population",
+    body: `<p>Most poker tools teach you <strong>GTO</strong> (Game Theory Optimal) — a balanced equilibrium you memorize from charts so no one can exploit you, whoever they are. That's a strategy built to <strong>not lose</strong> against a perfect player.</p>
+    <p>The <strong>Monte Carlo Edge</strong> plays the opposite game. It simulates the exact spot you're in, reads the exact opponent across the table, and recommends the most profitable line against <em>them</em>. GTO says "don't lose." MCE says "<strong>win the most from the player in front of you</strong>." That's the Edge.</p>`,
   },
   {
-    heading: "How to read the Trainer",
-    body: `<p><strong>The recommendation (Fold / Call / Raise)</strong> — the engine's best play for your exact hand, position, and the action. When a spot is a mix, it shows frequencies — great poker isn't always one fixed answer.</p>
-    <p><strong>The win %</strong> — your real chance of winning right now, from a Monte Carlo simulation against the hands opponents would <em>actually</em> play this way (not every random holding). Beat the pot odds and a call/raise prints.</p>
-    <p><strong>The board read</strong> — a plain-English scouting report:</p>
+    heading: "① Simulated, not memorized",
+    body: `<p>Your win % comes from a <strong>Monte Carlo simulation</strong> of your exact hand against the hands opponents would <em>actually</em> play this way — not a number looked up from a chart, and not an average over millions of spots that aren't yours.</p>
+    <p>These equities aren't guesses: they're validated against an <strong>exhaustive 1,712,304-board enumeration</strong>, so the core number you're trusting is ground-truth correct. Beat the pot odds and a call or raise prints.</p>`,
+  },
+  {
+    heading: "② Equity you win, not just equity you hold",
+    body: `<p>Holding 55% of the pot at showdown isn't the same as <em>banking</em> 55% — you still have to navigate streets to collect it, and that's harder out of position.</p>
+    <p>The engine shows your <strong>raw equity</strong> (your share if the hand checks down) next to your <strong>realized equity</strong> (what you can realistically capture, discounted by position and street). Out of position, raw equity gets a haircut preflop through the turn; on the river there are no more streets to be outplayed, so the two numbers meet. Watching that gap is the fastest way to learn why position is worth so much.</p>`,
+  },
+  {
+    heading: "③ Reads the player, not the population",
+    body: `<p>The engine quietly profiles every opponent — how often they enter pots (VPIP), raise (PFR), continuation-bet, and fold to a c-bet — and after about <strong>eight hands</strong> it starts bending its recommendation toward that player's actual tendencies. Early on the read is provisional; the more hands it sees, the sharper it gets.</p>
+    <p>This is the exact thing a static chart can't do — and it's where real money comes from: the <strong>leaks of the specific human in the seat</strong>.</p>`,
+  },
+  {
+    heading: "④ Every call shows its work",
+    body: `<p>No black box. Every recommendation is stamped with where it came from, so you know how hard to lean on it:</p>
     <ul>
-      <li><strong>Beats you</strong> — made hands already ahead of you.</li>
-      <li><strong>Drawing</strong> — draws live to overtake you next card.</li>
-      <li><strong>Villain reps</strong> — what their betting <em>represents</em> on this board, a rough <strong>~X% bluffs</strong> read, and a lean (<em>call lighter / be careful / raise-bluff spot</em>) — read from texture + player type, never by peeking at cards.</li>
-      <li><strong>Rep → bet</strong> — the story <em>you</em> can tell, and the bet size that tells it credibly.</li>
-    </ul>`,
+      <li><strong>SOLVER</strong> — a live CFR solve (river heads-up spots, ~0.4s).</li>
+      <li><strong>NASH</strong> — matches published push/fold equilibrium charts preflop.</li>
+      <li><strong>CHART</strong> — a known reference line.</li>
+      <li><strong>HEURISTIC</strong> — a tuned judgment call.</li>
+    </ul>
+    <p>Honest by design: postflop street play is heuristic, and the engine <em>labels</em> it that way rather than dressing it up as a solve. Trust a "solver" or "Nash" tag heavily; apply your own judgment to a "heuristic" one. A tool that tells you when it's only guessing can't be caught lying.</p>`,
   },
   {
-    heading: `What "GTO" means (in one paragraph)`,
-    body: `<p>GTO = Game Theory Optimal — the mathematically balanced way to play that no opponent can exploit, whatever they do. The unbeatable baseline: bet strong hands and a balanced share of bluffs, at sizes and frequencies that hide which is which. You won't (and shouldn't) always play pure GTO at a live table — exploiting weak players makes more — but knowing the GTO line tells you exactly how far off you are, and in which direction. That's the yardstick the trainer grades you against.</p>`,
+    heading: "Where MCE is rock-solid — and where it isn't",
+    body: `<p><strong>Rock-solid:</strong> the equity math (validated to ground truth), preflop push/fold (matches Nash), and river heads-up solves (real CFR).</p>
+    <p><strong>Honest limits we won't hide:</strong> postflop multi-street play is tuned heuristics, <em>not</em> solved frequencies — so MCE is a decision <strong>coach with a solver spine</strong>, not a PioSolver- or GTO-Wizard-grade solver, and it doesn't claim to be. There's no rake model yet, and some draw odds are approximations. Exploiting an opponent also means deviating from balance, so a strong, observant player can in principle counter-exploit you — the honest cost of playing to win the most instead of playing not to lose.</p>`,
   },
   {
-    heading: "The Leak Report",
-    body: `<p>Every Train-mode decision is logged and compared to the engine's. The <strong>Leak Report</strong> (in Stats) groups your decisions by situation, shows your accuracy in each, and surfaces your <strong>biggest leaks</strong> — the spots where you stray furthest from optimal. Play a handful of hands to unlock it; it sharpens as you log more. The fastest way to find the exact part of your game bleeding chips, then fix it.</p>`,
+    heading: "⑤ Learn by playing: the Leak Report",
+    body: `<p>Every Train-mode decision is logged and compared to the MCE line. The <strong>Leak Report</strong> (in Stats) groups your decisions by situation, scores your accuracy, and surfaces your <strong>biggest leaks</strong> — tagged by whether the reference was a solve or a heuristic, so you study the right things. Play a handful of hands to unlock it; it sharpens as you log more.</p>`,
   },
   {
     heading: "The chip economy (play-money only)",
@@ -140,8 +156,8 @@ export const EXPLAINER_SECTIONS: Section[] = [
   {
     heading: "Quick start (3 steps)",
     body: `<p><strong>1. Tap Train.</strong> Set your table and deal in — playing in seconds.</p>
-    <p><strong>2. Read before you act.</strong> Glance at the recommendation, your win %, and the board read — then make your own call and see if you matched the engine.</p>
+    <p><strong>2. Read before you act.</strong> Glance at the recommendation, your raw &amp; realized equity, the source tag, and the board read — then make your own call and see if you matched the engine.</p>
     <p><strong>3. Check your Leak Report.</strong> After a few hands, open Stats → Leak Report to see where you leak and what to drill.</p>
-    <p>Install it to your home screen (it's a full offline app) and you've got a GTO coach in your pocket.</p>`,
+    <p>Install it to your home screen (it's a full offline app) and you've got <strong>the Monte Carlo Edge in your pocket</strong>. Play the player. Own the table.</p>`,
   },
 ];

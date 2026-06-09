@@ -15,7 +15,7 @@ export interface Grade {
 }
 
 export const SRC_WORD: Record<string, string> = {
-  solver: "GTO",
+  solver: "MCE",
   nash: "Nash",
   chart: "chart",
   heuristic: "strategy",

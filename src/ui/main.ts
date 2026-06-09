@@ -15,7 +15,7 @@ import morphdom from "morphdom";
 // gap). aggression scales bluff/barrel/value-thinness/3-bet width; looseness
 // scales open/call/defense width.
 const HERO_STYLES: Record<string, { label: string; style: HeroStyle; blurb: string }> = {
-  gto: { label: "Balanced (GTO)", style: { aggression: 1.0, looseness: 1.0 }, blurb: "Solver-baseline, hard to exploit." },
+  gto: { label: "Balanced (equilibrium)", style: { aggression: 1.0, looseness: 1.0 }, blurb: "Equilibrium baseline — hard to exploit." },
   tag: { label: "Tight-Aggressive", style: { aggression: 1.15, looseness: 0.82 }, blurb: "Fewer hands, bet/raise them hard." },
   lag: { label: "Loose-Aggressive", style: { aggression: 1.35, looseness: 1.28 }, blurb: "Wide, lots of pressure & bluffs." },
   nit: { label: "Tight / Cautious", style: { aggression: 0.75, looseness: 0.7 }, blurb: "Premiums only, minimal bluffing." },
@@ -816,7 +816,7 @@ function renderGtoModal(): void {
   overlay.id = "gto-modal";
   overlay.innerHTML = `
     <div class="modal-content">
-      <h3>🧠 GTO Solution (${S.gs?.street ?? "river"})</h3>
+      <h3>🧠 MCE Solve · CFR (${S.gs?.street ?? "river"})</h3>
       <div class="gto-sub">Solved with CFR — ${res.iterations.toLocaleString()} iters${S.gs?.street === "turn" ? " · over all river runouts" : S.gs?.street === "flop" ? " · flop street (all-in equity beyond)" : ""} · assumes you act first</div>
       ${rows || `<div class="hint" style="text-align:center">No solution.</div>`}
       <div class="gto-ev">Hand EV: <strong>${chips(res.heroEv)}</strong></div>
@@ -1715,9 +1715,9 @@ function renderGame(): void {
   const recReason = S.rec ? S.rec.reasoning.replace(/^\s*[A-Za-z][A-Za-z\s/-]*\s—\s/, "") : "";
   // Source badge — be honest about where the advice comes from.
   const SRC: Record<string, { txt: string; cls: string }> = {
-    solver: { txt: "🧠 GTO · solved", cls: "src-solver" },
+    solver: { txt: "🧠 MCE · solved (CFR)", cls: "src-solver" },
     nash: { txt: "Nash push/fold", cls: "src-nash" },
-    chart: { txt: "GTO chart", cls: "src-chart" },
+    chart: { txt: "reference chart", cls: "src-chart" },
     heuristic: { txt: "equity heuristic", cls: "src-heur" },
   };
   const _solveSpot = liveSolverSpot();
@@ -1725,7 +1725,7 @@ function renderGame(): void {
   const srcMeta = S.rec?.source ? SRC[S.rec.source] : undefined;
   const srcBadge = S.rec
     ? `<span class="rec-src ${solvingNow ? "src-solving" : srcMeta?.cls ?? ""}">${
-        solvingNow ? "solving GTO…" : srcMeta?.txt ?? ""
+        solvingNow ? "solving…" : srcMeta?.txt ?? ""
       }</span>`
     : "";
   // Mixed-strategy bars (from the solver) — the defining feature of GTO play.
@@ -1859,7 +1859,7 @@ function renderGame(): void {
             ${gs ? `<div class="pot-line"><span class="table-pot">${chips(gs.pot)}</span><span class="pot-street">${gs.street.toUpperCase()}</span></div>` : ""}
             ${storyLinesHtml}
             ${recHtml}
-            ${canSolveGto() ? `<button class="gto-btn" id="gto-solve">${S.gtoSolving ? "Solving…" : "🧠 Solve GTO"}</button>` : ""}
+            ${canSolveGto() ? `<button class="gto-btn" id="gto-solve">${S.gtoSolving ? "Solving…" : "🧠 Solve this spot"}</button>` : ""}
           </div>
         </div>
 
@@ -2125,10 +2125,10 @@ function doAction(seat: number, type: ActionType): void {
         bucket = type === S.rec.action ? "ok" : "off";
       }
       S.lastGrade = bucket === "off"
-        ? { label: `✗ Wrong — ${src} says ${cap(S.rec.action)}`, cls: "g-bad" }
+        ? { label: `✗ Off — the ${src} line is ${cap(S.rec.action)}`, cls: "g-bad" }
         : bucket === "mix"
-          ? { label: `≈ OK — ${cap(type)} is a fine mix`, cls: "g-mix" }
-          : { label: `✓ Correct ${cap(type)}`, cls: "g-ok" };
+          ? { label: `≈ OK — ${cap(type)} is a fine ${src} mix`, cls: "g-mix" }
+          : { label: `✓ ${src} line · ${cap(type)}`, cls: "g-ok" };
     } else {
       S.lastGrade = { label: g.label, cls: g.cls };
     }
@@ -2302,7 +2302,7 @@ function renderReview(): void {
     const recAmt = d.rec.amount > 0 ? ` ${chipsBet(d.rec.amount)}` : "";
     const chosenAmt = d.chosenAmt > 0 ? ` ${chips(d.chosenAmt)}` : "";
     const g = gradeDecision(d);
-    const refLabel = d.rec.source === "solver" ? "GTO solve" : SRC_WORD[d.rec.source ?? "heuristic"] ?? "strategy";
+    const refLabel = d.rec.source === "solver" ? "MCE solve" : SRC_WORD[d.rec.source ?? "heuristic"] ?? "strategy";
     // Show the full solved mix when we have one — that's the real lesson.
     const mixLine = d.rec.mix && d.rec.mix.length > 1
       ? `<div class="review-mix">${d.rec.mix.slice().sort((a, b) => b.freq - a.freq)
@@ -3125,7 +3125,7 @@ async function renderStats(): Promise<void> {
         <div class="stat-big" style="color:${(() => { const a = S.gradeStats.pts / S.gradeStats.n; return a >= 0.85 ? "var(--green)" : a >= 0.65 ? "var(--gold)" : "var(--red)"; })()}">
           ${Math.round((S.gradeStats.pts / S.gradeStats.n) * 100)}%
         </div>
-        <div class="stat-label">GTO Accuracy (${S.gradeStats.n} decisions)</div>
+        <div class="stat-label">MCE Accuracy (${S.gradeStats.n} decisions)</div>
         <div class="grade-breakdown">
           <span class="g-ok">${S.gradeStats.gto} on-strategy</span>
           <span class="g-mix">${S.gradeStats.mixed} rare mix</span>
@@ -3203,10 +3203,10 @@ function renderLeaks(): void {
     else if ((d.chosen === "bet" || d.chosen === "raise") && (d.rec === "check" || d.rec === "call" || d.rec === "fold")) overAggro++;
   }
   const biases = [
-    { k: "fold too much", n: overFold, fix: "You're folding hands GTO continues with — defend wider and don't give up your equity." },
-    { k: "play too many hands", n: tooLoose, fix: "You're entering pots GTO folds — tighten up, especially out of position." },
-    { k: "play too passively", n: tooPassive, fix: "You check/call where GTO bets or raises — bet your value and your bluffs." },
-    { k: "over-bluff / over-bet", n: overAggro, fix: "You bet/raise where GTO checks or folds — pick better spots, respect strength." },
+    { k: "fold too much", n: overFold, fix: "You're folding hands the MCE line continues with — defend wider and don't give up your equity." },
+    { k: "play too many hands", n: tooLoose, fix: "You're entering pots the MCE line folds — tighten up, especially out of position." },
+    { k: "play too passively", n: tooPassive, fix: "You check/call where the MCE line bets or raises — bet your value and your bluffs." },
+    { k: "over-bluff / over-bet", n: overAggro, fix: "You bet/raise where the MCE line checks or folds — pick better spots, respect strength." },
   ].sort((a, b) => b.n - a.n);
   const topBias = biases[0]!.n > 0 ? biases[0]! : null;
 
@@ -3225,7 +3225,7 @@ function renderLeaks(): void {
   app.innerHTML = `
     <div class="setup">
       <h1>🔍 Leak Report</h1>
-      <span class="hint" style="text-align:center;display:block;margin-bottom:14px">Your decisions vs GTO · ${all.length} graded · build it up in Training (try Quiz mode)</span>
+      <span class="hint" style="text-align:center;display:block;margin-bottom:14px">Your decisions vs the MCE line · ${all.length} graded · build it up in Training (try Quiz mode)</span>
 
       ${!enough ? `
         <div class="stats-card"><div class="stat-label" style="text-align:center;padding:20px 0">
@@ -3233,7 +3233,7 @@ function renderLeaks(): void {
         </div></div>` : `
         <div class="stats-card">
           <div class="stat-big" style="color:${accColor(overall)}">${pctTxt(overall)}</div>
-          <div class="stat-label">Overall GTO accuracy${
+          <div class="stat-label">Overall MCE accuracy${
             trend !== null ? ` · <span style="color:${trend >= 0.02 ? "var(--green)" : trend <= -0.02 ? "var(--red)" : "var(--muted)"}">${trend >= 0.02 ? "▲ improving" : trend <= -0.02 ? "▼ slipping" : "▬ steady"}</span>` : ""
           }</div>
         </div>
@@ -3362,7 +3362,7 @@ function renderMpSetup(): void {
       </div>` : `<div class="field"><div class="room-broke">You need at least 🪙 ${minBuy.toLocaleString()} to sit at ${tier.name}. Buy chips, or pick lower stakes.</div></div>`}
 
       <div class="field"><label>Players</label>
-        <div class="mp-prow you-row"><span class="you-tag">🧠 You</span><span class="hint">your seat — full GTO tool</span></div>
+        <div class="mp-prow you-row"><span class="you-tag">🧠 You</span><span class="hint">your seat — the MCE Engine</span></div>
         ${su.players.slice(1).map((p, oi) => { const i = oi + 1; return `
           <div class="mp-prow">
             <input class="mp-name" id="mp-name-${i}" value="${p.name.replace(/"/g, "&quot;")}" maxlength="14" />
@@ -3846,10 +3846,10 @@ function renderStore(): void {
         <span class="hint">Unlocks with Stripe (next phase). Fair-play caps: ~$20/day, ~$50/week. No FOMO timers, ever.</span>
       </div>
 
-      <div class="set-group"><div class="set-head">Edge Pass · the GTO tool, live</div>
+      <div class="set-group"><div class="set-head">Edge Pass · the Monte Carlo Edge, live</div>
         <div class="store-edge ${S.edgePass ? "active" : ""}">
           <div class="se-price">$6.99<span>/mo</span></div>
-          <div class="set-note">Bring your trained edge to LIVE tables: the real-time GTO overlay in Play Online + assisted seats, hand-history review, and a weekly leak report. <strong>The solo trainer stays 100% free, forever.</strong></div>
+          <div class="set-note">Bring your trained edge to LIVE tables: the real-time MCE overlay in Play Online + assisted seats, hand-history review, and a weekly leak report. <strong>The solo trainer stays 100% free, forever.</strong></div>
           ${S.edgePass
             ? `<div class="se-active">✓ Edge Pass active</div><button class="hdr-btn" id="edge-manage" style="width:100%;margin-top:8px">Manage subscription</button>`
             : `<button class="start-btn" id="edge-buy" style="margin-top:8px;background:linear-gradient(135deg,#f7cf72,#b8860b);color:#2a1c05">${S.net.busy ? "…" : "Get Edge Pass · $6.99/mo"}</button>`}
@@ -3925,13 +3925,13 @@ function renderHome(): void {
           <span class="mc-hc">A<i>♠</i></span>
         </div>
         <h1 class="mc-wordmark"><span>MONTECARLO</span><b>EDGE</b></h1>
-        <p class="mc-tag">Play the math. Own the table.</p>
+        <p class="mc-tag">Play the player. Own the table.</p>
       </div>
 
       ${loggedIn ? "" : `<button class="mc-login-banner" id="home-signin-banner">🔒 <strong>Not logged in</strong> — sign in to save your chips &amp; play online. <span>Train is free →</span></button>`}
 
       <div class="mc-modes">
-        <button class="mc-mode train" id="home-train" style="--d:.05s"><span class="mc-mi">🎯</span><span class="mc-mtext"><span class="mc-mt">Train</span><span class="mc-md">Solo vs the GTO engine · free</span></span><span class="mc-arrow">→</span></button>
+        <button class="mc-mode train" id="home-train" style="--d:.05s"><span class="mc-mi">🎯</span><span class="mc-mtext"><span class="mc-mt">Train</span><span class="mc-md">Solo vs the MCE Engine · free</span></span><span class="mc-arrow">→</span></button>
         <button class="mc-mode online ${loggedIn ? "" : "locked"}" id="home-pass" style="--d:.12s"><span class="mc-mi">🌐</span><span class="mc-mtext"><span class="mc-mt">Play Online</span><span class="mc-md">${loggedIn ? "Create a room · play for chips" : "Sign in to play"}</span></span><span class="mc-arrow">${loggedIn ? "→" : "🔒"}</span></button>
         <button class="mc-mode pass ${loggedIn ? "" : "locked"}" id="home-store-tile" style="--d:.19s"><span class="mc-mi">🛍</span><span class="mc-mtext"><span class="mc-mt">Store</span><span class="mc-md">${loggedIn ? "Chips · cosmetics · Edge Pass" : "Sign in to shop"}</span></span><span class="mc-arrow">${loggedIn ? "→" : "🔒"}</span></button>
         <button class="mc-mode profile" id="home-profile2" style="--d:.26s"><span class="mc-mi">👤</span><span class="mc-mtext"><span class="mc-mt">Profile</span><span class="mc-md">Avatar · name · chips</span></span><span class="mc-arrow">→</span></button>
@@ -4066,7 +4066,7 @@ function renderSettings(): void {
       </div>
       <div class="set-group"><div class="set-head">About</div>
         <div class="about-name">MONTECARLO EDGE</div>
-        <div class="set-note">A free NLHE GTO trainer + social play-money app. Built by Caspar, a solo developer in Singapore. No ads · no data selling · no real-money wagering. v${APP_VERSION}</div>
+        <div class="set-note">A free NLHE exploitative-poker trainer powered by the Monte Carlo Edge (MCE) engine + social play-money app. Built by Caspar, a solo developer in Singapore. No ads · no data selling · no real-money wagering. v${APP_VERSION}</div>
         <div class="about-links"><a href="https://github.com/xynkro/MonteCarloEdge" target="_blank" rel="noopener">GitHub</a> · <a href="https://xynkro.github.io/MonteCarloEdge/" target="_blank" rel="noopener">Live app</a></div>
       </div>
       <button class="hdr-btn" id="set-back" style="width:100%;padding:12px;margin-top:6px">Back to Home</button>
