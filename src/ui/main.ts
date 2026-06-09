@@ -850,6 +850,12 @@ function renderSetup(): void {
   const positions = getPositions(S.tableSize);
   app.innerHTML = `
     <div class="setup">
+      <div class="setup-footer setup-top">
+        <button class="hdr-btn" id="home-btn">← Leave Training Mode</button>
+        <button class="hdr-btn" id="view-stats">Session Stats</button>
+        <button class="hdr-btn" id="sound-toggle">${isSoundEnabled() ? "🔊 Sound On" : "🔇 Sound Off"}</button>
+      </div>
+
       <div class="brand">
         <img class="brand-logo" src="${import.meta.env.BASE_URL}logo.png" alt="" onerror="this.style.display='none'" />
         <h1>MonteCarloEdge<small>Poker Decision Assistant</small></h1>
@@ -956,11 +962,10 @@ function renderSetup(): void {
         </div>
       </div>
 
-      <button class="start-btn" id="start">DEAL HAND</button>
-      <button class="start-btn" id="start-training" style="background:linear-gradient(135deg,var(--violet),var(--violet-2));color:#fff;box-shadow:0 8px 22px rgba(124,92,255,.3);margin-top:8px">TRAINING MODE</button>
+      <button class="start-btn" id="start-training" style="background:linear-gradient(135deg,var(--violet),var(--violet-2));color:#fff;box-shadow:0 8px 22px rgba(124,92,255,.3)">TRAINING MODE</button>
       <span class="hint" style="text-align:center">Training: practice against the AI. It deals cards, makes villain decisions, reveals hands at showdown.</span>
-      <button class="start-btn" id="start-mp" style="background:linear-gradient(135deg,#f59e0b,#b45309);color:#fff;box-shadow:0 8px 22px rgba(245,158,11,.3);margin-top:8px">👥 MULTIPLAYER / BENCHMARK</button>
-      <span class="hint" style="text-align:center">Pass-and-play with friends. Toggle who gets the strategy tool (assisted) vs who plays blind — then benchmark the edge. (Online play with accounts is coming.)</span>
+      <button class="start-btn" id="start">🃏 LIVE IN PERSON</button>
+      <span class="hint" style="text-align:center">Live game tracker: you're at a real table — tap each opponent's action and the app calls your play in real time.</span>
 
       <div class="help-banner" id="help-toggle">
         <span class="help-icon">?</span> How does this work?
@@ -976,11 +981,6 @@ function renderSetup(): void {
         </ol>
       </div>
 
-      <div class="setup-footer">
-        <button class="hdr-btn" id="home-btn">🏠 Home</button>
-        <button class="hdr-btn" id="view-stats">Session Stats</button>
-        <button class="hdr-btn" id="sound-toggle">${isSoundEnabled() ? "🔊 Sound On" : "🔇 Sound Off"}</button>
-      </div>
     </div>`;
 
   onEl($("#help-toggle"), "click", () => {
@@ -1028,8 +1028,9 @@ function renderSetup(): void {
   app.querySelectorAll(".seat-btn").forEach(btn =>
     onEl(btn, "click", () => { S.heroSeat = +(btn as HTMLElement).dataset.seat!; render(); }),
   );
-  onEl($("#start"), "click", () => { S.mode = "live"; S.currency = "usd"; startHand(); });
+  onEl($("#start"), "click", () => { endRoom(); S.mode = "live"; S.currency = "usd"; startHand(); });
   onId("start-training", "click", () => {
+    endRoom();
     S.mode = "training";
     S.currency = "usd";
     S.trainingOver = null;
@@ -1043,7 +1044,7 @@ function renderSetup(): void {
   onId("view-stats", "click", () => {
     S.screen = "stats"; render();
   });
-  onId("home-btn", "click", () => { S.screen = "home"; render(); });
+  onId("home-btn", "click", () => { endRoom(); S.currency = "usd"; S.screen = "home"; render(); });
   onId("start-mp", "click", () => { S.screen = "mp-setup"; render(); });
 }
 
@@ -1865,7 +1866,10 @@ function renderGame(): void {
   }
 
   // ── Events ──
-  onEl($("#new-hand"), "click", () => { S.screen = "setup"; S.dealerSeat = -1; S.handNumber = 0; render(); });
+  onEl($("#new-hand"), "click", () => {
+    if (_roomActive) { endRoom(); S.currency = "usd"; S.screen = "mp-setup"; render(); return; } // chip room → back to Play Online
+    S.screen = "setup"; S.dealerSeat = -1; S.handNumber = 0; render();
+  });
   onId("speed-btn", "click", () => { cycleSpeed(); render(); });
   onId("quiz-btn", "click", () => { toggleQuiz(); render(); });
   onId("undo-btn", "click", undo);
@@ -2623,6 +2627,8 @@ function saveHandRecord(heroPnl: number): void {
   playSound(heroPnl > 0 ? "win" : heroPnl < 0 ? "lose" : "check");
   // Win → one-shot celebratory table glow (every mode now, consumed by next render).
   if (heroPnl > 0) S.celebrate = true;
+  // Chip-room: push the hand result to the real wallet so wins/losses bank.
+  syncRoomWallet();
 
   saveHand({
     timestamp: Date.now(),
@@ -3299,26 +3305,46 @@ const AI_SKILLS = [
 let _aiTimer: ReturnType<typeof setTimeout> | null = null;
 const aiDelayMs = (): number => ({ slow: 1300, normal: 850, fast: 420, instant: 140 })[trainingSpeed()];
 
+// Chip-room (Play Online) wallet session: the buy-in is staked from the wallet
+// and the wallet is synced to (start − buyIn + current stack) after every hand,
+// so winning/losing at the table moves your real chip balance.
+let _roomActive = false, _roomStartWallet = 0, _roomBuyIn = 0;
+function syncRoomWallet(): void {
+  if (!_roomActive) return;
+  const stackChips = (S.seatStacks[S.heroSeat] ?? 0) * S.bbValue;
+  S.profile.chips = Math.max(0, Math.round(_roomStartWallet - _roomBuyIn + stackChips));
+  saveProfile();
+}
+function endRoom(): void { _roomActive = false; }
+
 function renderMpSetup(): void {
   cancelVillainTimer();
+  bustRescue(); // ensure you can always afford a Micro buy-in
   const su = S.mp.setup;
   const tier = ROOM_TIERS[su.tier]!;
+  const wallet = S.profile.chips;
   const minBuy = 20 * su.bb;
+  const maxBuy = Math.min(tier.max, wallet);
+  const canAfford = wallet >= minBuy;
+  if (canAfford) su.buyIn = Math.max(minBuy, Math.min(maxBuy, su.buyIn || tier.max));
   if (su.players[0]) { su.players[0].ai = null; su.players[0].name = S.profile.nickname || "You"; } // seat 0 = the human hero
   app.innerHTML = `
     <div class="setup">
-      <h1>👥 Create Room</h1>
-      <span class="hint" style="text-align:center;display:block;margin-bottom:14px">Play a table vs the AI. Pick stakes + your buy-in, add opponents and set their skill. (Playing a friend? Use <strong>Play Online</strong> — you each play on your own phone.)</span>
+      <h1>🌐 Play Online</h1>
+      <span class="hint" style="text-align:center;display:block;margin-bottom:10px">Create a room and play for chips. (Live networked tables with friends are coming — sign in below to reserve your name. For now you sit vs the house.)</span>
+
+      <div class="room-bal"><span>Balance <strong>🪙 ${wallet.toLocaleString()}</strong></span><button class="hdr-btn" id="room-buychips">＋ Buy chips</button></div>
 
       <div class="field"><label>Stakes</label>
         <div class="seg room-stakes" id="room-tier">${ROOM_TIERS.map((t, i) => `<button class="seg-btn ${su.tier === i ? "sel" : ""}" data-tier="${i}"><span class="rs-name">${t.name}</span><span class="rs-blinds">🪙 ${t.sb.toLocaleString()}/${t.bb.toLocaleString()}</span></button>`).join("")}</div>
       </div>
 
-      <div class="field"><label>Buy-in</label>
+      ${canAfford ? `
+      <div class="field"><label>Your buy-in</label>
         <div class="buyin-value">🪙 ${su.buyIn.toLocaleString()}<span> · ${Math.round(su.buyIn / su.bb)}bb</span></div>
-        <input class="buyin-slider" id="room-buyin" type="range" min="${minBuy}" max="${tier.max}" step="${Math.max(1, Math.round(su.bb))}" value="${su.buyIn}"/>
-        <div class="buyin-ends"><span>min ${minBuy.toLocaleString()}</span><span>max ${tier.max.toLocaleString()} · 100bb</span></div>
-      </div>
+        <input class="buyin-slider" id="room-buyin" type="range" min="${minBuy}" max="${maxBuy}" step="${Math.max(1, Math.round(su.bb))}" value="${su.buyIn}"/>
+        <div class="buyin-ends"><span>min ${minBuy.toLocaleString()}</span><span>you have 🪙 ${wallet.toLocaleString()}</span></div>
+      </div>` : `<div class="field"><div class="room-broke">You need at least 🪙 ${minBuy.toLocaleString()} to sit at ${tier.name}. Buy chips, or pick lower stakes.</div></div>`}
 
       <div class="field"><label>Players</label>
         <div class="mp-prow you-row"><span class="you-tag">🧠 You</span><span class="hint">your seat — full GTO tool</span></div>
@@ -3331,17 +3357,19 @@ function renderMpSetup(): void {
         ${su.players.length < 9 ? `<button class="hdr-btn" id="mp-add-ai" style="width:100%;margin-top:6px">+ AI opponent</button>` : ""}
       </div>
 
-      <button class="start-btn" id="mp-start" style="background:linear-gradient(135deg,#f59e0b,#b45309);color:#fff">START ROOM</button>
-      <button class="start-btn" id="mp-online" style="background:linear-gradient(135deg,#4285F4,#1a73e8);color:#fff;margin-top:8px">🌐 Play Online (vs friends)</button>
+      ${canAfford ? `<button class="start-btn" id="mp-start" style="background:linear-gradient(135deg,#f59e0b,#b45309);color:#fff">PLAY · buy in 🪙 ${su.buyIn.toLocaleString()}</button>` : `<button class="start-btn" id="mp-buychips2" style="background:var(--gold-foil);color:#2a1c05">＋ Buy chips to play</button>`}
+      <button class="start-btn" id="mp-online" style="background:linear-gradient(135deg,#4285F4,#1a73e8);color:#fff;margin-top:8px">🌐 Sign in (networked beta)</button>
       <button class="hdr-btn" id="mp-back" style="width:100%;padding:12px;margin-top:6px">Back</button>
     </div>`;
 
   app.querySelectorAll("[data-tier]").forEach((b) => onEl(b, "click", () => {
     const i = +(b as HTMLElement).dataset.tier!; const t = ROOM_TIERS[i]!;
-    su.tier = i; su.sb = t.sb; su.bb = t.bb; su.buyIn = t.max; // default to 100bb
+    su.tier = i; su.sb = t.sb; su.bb = t.bb; su.buyIn = Math.min(t.max, S.profile.chips); // cap to wallet
     render();
   }));
-  onId("room-buyin", "input", (e) => { su.buyIn = Math.max(minBuy, Math.min(tier.max, +(e.target as HTMLInputElement).value)); render(); });
+  onId("room-buychips", "click", () => { S.screen = "store"; render(); });
+  onId("mp-buychips2", "click", () => { S.screen = "store"; render(); });
+  onId("room-buyin", "input", (e) => { su.buyIn = Math.max(minBuy, Math.min(maxBuy, +(e.target as HTMLInputElement).value)); render(); });
   su.players.forEach((_, i) => {
     if (i === 0) return;
     onId(`mp-name-${i}`, "change", (e) => { su.players[i]!.name = (e.target as HTMLInputElement).value.trim() || `P${i + 1}`; });
@@ -3375,6 +3403,8 @@ function renderMpSetup(): void {
     S.handNumber = 0;
     S.seatStacks = [];
     S.streak = 0;
+    // Stake the buy-in from the wallet; the wallet tracks table P&L per hand.
+    _roomActive = true; _roomStartWallet = S.profile.chips; _roomBuyIn = su.buyIn;
     startTrainingHand();
   });
 }
@@ -3608,6 +3638,7 @@ function renderStore(): void {
 
 function renderHome(): void {
   cancelVillainTimer();
+  bustRescue(); // never broke at the hub
   const p = S.profile;
   app.innerHTML = `
     <div class="mc-home">
@@ -3640,8 +3671,8 @@ function renderHome(): void {
 
       <div class="mc-modes">
         <button class="mc-mode train" id="home-train" style="--d:.05s"><span class="mc-mi">🎯</span><span class="mc-mtext"><span class="mc-mt">Train</span><span class="mc-md">Solo vs the GTO engine</span></span><span class="mc-arrow">→</span></button>
-        <button class="mc-mode online" id="home-online" style="--d:.12s"><span class="mc-mi">🌐</span><span class="mc-mtext"><span class="mc-mt">Play Online</span><span class="mc-md">Sign in · see who's on</span></span><span class="mc-arrow">→</span></button>
-        <button class="mc-mode pass" id="home-pass" style="--d:.19s"><span class="mc-mi">👥</span><span class="mc-mtext"><span class="mc-mt">Create Room</span><span class="mc-md">vs AI or friends · pick stakes</span></span><span class="mc-arrow">→</span></button>
+        <button class="mc-mode online" id="home-pass" style="--d:.12s"><span class="mc-mi">🌐</span><span class="mc-mtext"><span class="mc-mt">Play Online</span><span class="mc-md">Create a room · play for chips</span></span><span class="mc-arrow">→</span></button>
+        <button class="mc-mode pass" id="home-store-tile" style="--d:.19s"><span class="mc-mi">🛍</span><span class="mc-mtext"><span class="mc-mt">Store</span><span class="mc-md">Chips · cosmetics · Edge Pass</span></span><span class="mc-arrow">→</span></button>
         <button class="mc-mode profile" id="home-profile2" style="--d:.26s"><span class="mc-mi">👤</span><span class="mc-mtext"><span class="mc-mt">Profile</span><span class="mc-md">Avatar · name · chips</span></span><span class="mc-arrow">→</span></button>
       </div>
 
@@ -3659,9 +3690,9 @@ function renderHome(): void {
   onId("home-profile", "click", () => { S.screen = "profile"; render(); });
   onId("home-profile2", "click", () => { S.screen = "profile"; render(); });
   onId("home-store", "click", () => { S.screen = "store"; render(); });
+  onId("home-store-tile", "click", () => { S.screen = "store"; render(); });
   onId("home-train", "click", () => { S.screen = "setup"; render(); });
-  onId("home-online", "click", () => { void goOnline(); });
-  onId("home-pass", "click", () => {
+  onId("home-pass", "click", () => { // Play Online → the multiplayer room
     if (S.mp.setup.players[0]) S.mp.setup.players[0]!.name = S.profile.nickname;
     S.screen = "mp-setup"; render();
   });

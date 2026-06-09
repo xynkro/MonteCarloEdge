@@ -220,6 +220,11 @@ body::before {
 
 .setup-footer { display: flex; gap: 8px; }
 .setup-footer .hdr-btn { flex: 1; padding: 13px; font-size: 14px; }
+.setup-footer.setup-top { margin-bottom: 12px; }
+.room-bal { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 14px; border-radius: 12px; background: var(--glass); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); border: 1px solid var(--glass-edge); margin-bottom: 14px; font-size: 14px; }
+.room-bal strong { font-size: 16px; background: var(--gold-foil); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+.room-bal .hdr-btn { padding: 7px 12px; }
+.room-broke { font-size: 13px; color: #ffb3c2; background: rgba(239,71,111,.1); border: 1px solid rgba(239,71,111,.32); border-radius: 11px; padding: 12px 14px; text-align: center; line-height: 1.4; }
 
 /* ═══════ Game ═══════ */
 
