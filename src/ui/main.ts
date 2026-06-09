@@ -3321,9 +3321,12 @@ const capWord = (s: string): string => s.charAt(0).toUpperCase() + s.slice(1);
 // Stakes tiers — 100bb max buy-in per the monetization council (chips buy ACCESS,
 // never power; a 100bb cap defuses big-stack bullying on a friends table).
 const ROOM_TIERS = [
-  { name: "Micro", sb: 5, bb: 10, max: 1000 },
-  { name: "Mid", sb: 50, bb: 100, max: 10000 },
-  { name: "High", sb: 500, bb: 1000, max: 100000 },
+  { name: "1/2", sb: 1, bb: 2, max: 200 },
+  { name: "5/10", sb: 5, bb: 10, max: 1000 },
+  { name: "25/50", sb: 25, bb: 50, max: 5000 },
+  { name: "50/100", sb: 50, bb: 100, max: 10000 },
+  { name: "100/200", sb: 100, bb: 200, max: 20000 },
+  { name: "500/1000", sb: 500, bb: 1000, max: 100000 },
 ];
 // AI styles map to the trainer's opponent archetypes (keys of PROFILES).
 // "rand" = a random style assigned at room start (so you can spam-add a varied
@@ -3354,115 +3357,78 @@ function endRoom(): void { _roomActive = false; }
 
 function renderMpSetup(): void {
   cancelVillainTimer();
-  bustRescue(); // ensure you can always afford a Micro buy-in
   const su = S.mp.setup;
+  if (!S.mp.auth) {
+    app.innerHTML = `
+    <div class="setup">
+      <div class="doc-top"><button class="hdr-btn" id="mp-back">← Back</button><h1>🌐 Play Online</h1><span style="width:54px"></span></div>
+      <div class="hint" style="text-align:center;margin:30px 0 16px">Sign in to play online — your chips are saved to your account and you can join friends by room code.</div>
+      <button class="si-btn primary" id="mp-signin">Sign in / Register</button>
+    </div>`;
+    onId("mp-back", "click", () => { S.screen = "home"; render(); });
+    onId("mp-signin", "click", () => { S.screen = "signin"; render(); });
+    return;
+  }
   const tier = ROOM_TIERS[su.tier]!;
-  const wallet = S.profile.chips;
+  const premium = _roomCurrency === "premium";
+  const sym = premium ? "💎" : "🪙";
+  const bal = premium ? (S.wallet.premium ?? 0) : (S.wallet.play ?? 0);
   const minBuy = 20 * su.bb;
-  const maxBuy = Math.min(tier.max, wallet);
-  const canAfford = wallet >= minBuy;
-  if (canAfford) su.buyIn = Math.max(minBuy, Math.min(maxBuy, su.buyIn || tier.max));
-  if (su.players[0]) { su.players[0].ai = null; su.players[0].name = S.profile.nickname || "You"; } // seat 0 = the human hero
+  const maxBuy = Math.max(minBuy, Math.min(tier.max, bal));
+  const canAfford = bal >= minBuy;
+  if (canAfford) su.buyIn = Math.max(minBuy, Math.min(maxBuy, su.buyIn || maxBuy));
+  const online = S.mp.online;
+  const noPrem = premium && bal <= 0;
   app.innerHTML = `
     <div class="setup">
-      <h1>🌐 Play Online</h1>
-      <span class="hint" style="text-align:center;display:block;margin-bottom:10px">Play instantly vs AI, or create an online room and share the code so friends can join from their own phones.</span>
+      <div class="doc-top"><button class="hdr-btn" id="mp-back">← Back</button><h1>🌐 Play Online</h1><span style="width:54px"></span></div>
 
-      <div class="room-bal"><span>Balance <strong>🪙 ${wallet.toLocaleString()}</strong></span><button class="hdr-btn" id="room-buychips">＋ Buy chips</button></div>
+      <div class="room-bal"><span>Balance <strong>🪙 ${fmtBal(S.wallet.play)}</strong> · <strong>💎 ${fmtBal(S.wallet.premium)}</strong></span><button class="hdr-btn" id="room-buychips">＋ Buy chips</button></div>
 
-      <div class="field"><label>Stakes</label>
-        <div class="seg room-stakes" id="room-tier">${ROOM_TIERS.map((t, i) => `<button class="seg-btn ${su.tier === i ? "sel" : ""}" data-tier="${i}"><span class="rs-name">${t.name}</span><span class="rs-blinds">🪙 ${t.sb.toLocaleString()}/${t.bb.toLocaleString()}</span></button>`).join("")}</div>
+      <div class="cur-seg" id="room-cur">
+        <button class="${!premium ? "sel" : ""}" data-cur="play">🪙 Chips</button>
+        <button class="${premium ? "sel" : ""}" data-cur="premium">💎 Premium Chips</button>
       </div>
 
-      ${canAfford ? `
-      <div class="field"><label>Your buy-in</label>
-        <div class="buyin-value">🪙 ${su.buyIn.toLocaleString()}<span> · ${Math.round(su.buyIn / su.bb)}bb</span></div>
-        <input class="buyin-slider" id="room-buyin" type="range" min="${minBuy}" max="${maxBuy}" step="${Math.max(1, Math.round(su.bb))}" value="${su.buyIn}"/>
-        <div class="buyin-ends"><span>min ${minBuy.toLocaleString()}</span><span>you have 🪙 ${wallet.toLocaleString()}</span></div>
-      </div>` : `<div class="field"><div class="room-broke">You need at least 🪙 ${minBuy.toLocaleString()} to sit at ${tier.name}. Buy chips, or pick lower stakes.</div></div>`}
+      <div class="${noPrem ? "room-greyed" : ""}">
+        ${noPrem ? `<div class="room-broke">You have no 💎 Premium Chips. Win them at premium tables, or buy them in the Store.</div><button class="start-btn" id="room-buyprem" style="background:var(--gold-foil);color:#2a1c05;margin:8px 0">Get Premium Chips</button>` : ""}
 
-      <div class="field"><label>Players</label>
-        <div class="mp-prow you-row"><span class="you-tag">🧠 You</span><span class="hint">your seat — the MCE Engine</span></div>
-        ${su.players.slice(1).map((p, oi) => { const i = oi + 1; return `
-          <div class="mp-prow">
-            <input class="mp-name" id="mp-name-${i}" value="${p.name.replace(/"/g, "&quot;")}" maxlength="14" />
-            <select class="mp-type" id="mp-type-${i}">${AI_SKILLS.map((s) => `<option value="${s.key}" ${(p.ai || "rand") === s.key ? "selected" : ""}>${s.label}</option>`).join("")}</select>
-            <button class="hdr-btn mp-rm" id="mp-rm-${i}" title="Remove">✕</button>
-          </div>`; }).join("")}
-        ${su.players.length < 9 ? `<button class="hdr-btn" id="mp-add-ai" style="width:100%;margin-top:6px">+ AI opponent</button>` : ""}
-      </div>
-
-      ${canAfford ? `<button class="start-btn" id="mp-start" style="background:linear-gradient(135deg,#f59e0b,#b45309);color:#fff">▶ PLAY vs AI · buy in 🪙 ${su.buyIn.toLocaleString()}</button>` : `<button class="start-btn" id="mp-buychips2" style="background:var(--gold-foil);color:#2a1c05">＋ Buy chips to play</button>`}
-
-      <div class="net-section">
-        <div class="set-head" style="margin-top:14px">Play with friends · online</div>
-        <div class="cur-seg" id="room-cur">
-          <button class="${_roomCurrency === "play" ? "sel" : ""}" data-cur="play">🪙 Play chips</button>
-          <button class="${_roomCurrency === "premium" ? "sel" : ""}" data-cur="premium">💎 Premium</button>
+        <div class="field"><label>Stakes ${premium ? "💎" : "🪙"}</label>
+          <div class="seg room-stakes" id="room-tier">${ROOM_TIERS.map((t, i) => `<button class="seg-btn ${su.tier === i ? "sel" : ""}" data-tier="${i}" ${noPrem ? "disabled" : ""}><span class="rs-name">${t.name}</span></button>`).join("")}</div>
         </div>
-        <span class="hint" style="display:block;margin-bottom:8px">${_roomCurrency === "premium"
-          ? `Premium room: <strong>everyone plays premium, no AI</strong>. ${S.mp.auth ? `You have 💎 ${fmtBal(S.wallet.premium)}.` : ""}`
-          : `Play-chip room: AI opponents allowed (the bots above). ${S.mp.auth ? `You have 🪙 ${fmtBal(S.wallet.play)}.` : ""}`} Share the code; each player only sees their own cards.</span>
-        <button class="start-btn" id="net-create" style="background:linear-gradient(135deg,#4285F4,#1a73e8);color:#fff">🌐 Create ${_roomCurrency === "premium" ? "💎 premium" : "🪙 play"} room</button>
-        <div class="net-join"><input class="mp-num" id="net-code" placeholder="MCE-XXXX" maxlength="8" value="${S.net.joinCode.replace(/"/g, "")}" style="text-transform:uppercase"/><button class="hdr-btn" id="net-join">Join</button></div>
-        ${S.net.err ? `<div class="room-broke" style="margin-top:8px">${S.net.err}</div>` : ""}
-        <span class="hint" style="display:block;text-align:center;margin-top:6px">${S.mp.auth ? `✓ Signed in as ${esc(S.mp.auth.name)}` : "You'll sign in to create or join."}</span>
+
+        ${canAfford && !noPrem ? `
+        <div class="field"><label>Your buy-in</label>
+          <div class="buyin-value">${sym} ${su.buyIn.toLocaleString()}<span> · ${Math.round(su.buyIn / su.bb)}bb</span></div>
+          <input class="buyin-slider" id="room-buyin" type="range" min="${minBuy}" max="${maxBuy}" step="${Math.max(1, Math.round(su.bb))}" value="${su.buyIn}"/>
+          <div class="buyin-ends"><span>min ${minBuy.toLocaleString()}</span><span>you have ${sym} ${bal.toLocaleString()}</span></div>
+        </div>` : (!noPrem ? `<div class="room-broke">You need at least ${sym} ${minBuy.toLocaleString()} to sit at ${tier.name}. Lower the stakes or top up.</div>` : "")}
+
+        <div class="field"><label>MCE Strategy overlay</label>
+          <button class="mce-toggle ${S.edgePass && _roomAssisted ? "on" : ""} ${!S.edgePass ? "locked" : ""}" id="room-mce" ${noPrem ? "disabled" : ""}>${!S.edgePass ? "🔒 Edge Pass" : _roomAssisted ? "🧠 ON" : "OFF"}</button>
+          <span class="hint" style="display:block;margin-top:4px">${!S.edgePass ? "Live in-game GTO recommendations — unlock with Edge Pass in the Store." : "Show the live MCE recommendation at your seat this room."}</span>
+        </div>
+
+        ${canAfford && !noPrem ? `<button class="start-btn" id="net-create" style="background:linear-gradient(135deg,#4285F4,#1a73e8);color:#fff">${S.net.busy ? "…" : `🌐 Create ${premium ? "💎 Premium" : "🪙 Play"} Room`}</button>` : ""}
       </div>
 
-      <button class="hdr-btn" id="mp-back" style="width:100%;padding:12px;margin-top:10px">Back</button>
-    </div>`;
+      <div class="net-join"><input class="mp-num" id="net-code" placeholder="Join code · MCE-XXXX" maxlength="8" value="${S.net.joinCode.replace(/"/g, "")}" style="text-transform:uppercase"/><button class="hdr-btn" id="net-join">Join</button></div>
+      ${S.net.err ? `<div class="room-broke" style="margin-top:8px">${esc(S.net.err)}</div>` : ""}
 
-  app.querySelectorAll("[data-tier]").forEach((b) => onEl(b, "click", () => {
-    const i = +(b as HTMLElement).dataset.tier!; const t = ROOM_TIERS[i]!;
-    su.tier = i; su.sb = t.sb; su.bb = t.bb; su.buyIn = Math.min(t.max, S.profile.chips); // cap to wallet
-    render();
-  }));
-  onId("room-buychips", "click", () => { S.screen = "store"; render(); });
-  onId("mp-buychips2", "click", () => { S.screen = "store"; render(); });
-  onId("room-buyin", "input", (e) => { su.buyIn = Math.max(minBuy, Math.min(maxBuy, +(e.target as HTMLInputElement).value)); render(); });
-  su.players.forEach((_, i) => {
-    if (i === 0) return;
-    onId(`mp-name-${i}`, "change", (e) => { su.players[i]!.name = (e.target as HTMLInputElement).value.trim() || `P${i + 1}`; });
-    onId(`mp-type-${i}`, "change", (e) => { su.players[i]!.ai = (e.target as HTMLSelectElement).value; });
-    onId(`mp-rm-${i}`, "click", () => { su.players.splice(i, 1); render(); });
-  });
-  onId("mp-add-ai", "click", () => { su.players.push({ name: seatName(su.players.length), assisted: false, ai: "rand" }); render(); });
+      <div class="field" style="margin-top:14px"><label>Who's online${online.length ? ` · ${online.length}` : ""}</label>
+        ${online.length ? `<div class="online-list">${online.map((p) => `<span class="online-chip">🟢 ${esc(p.name)}</span>`).join("")}</div>` : `<span class="hint">No one else online right now. Share a room code to bring friends in.</span>`}
+      </div>
+    </div>`;
   onId("mp-back", "click", () => { S.screen = "home"; render(); });
-  onId("net-code", "change", (e) => { S.net.joinCode = (e.target as HTMLInputElement).value.trim().toUpperCase(); });
+  onId("room-buychips", "click", () => { S.screen = "store"; render(); });
+  onId("room-buyprem", "click", () => { S.screen = "store"; render(); });
   app.querySelectorAll("#room-cur [data-cur]").forEach((b) => onEl(b, "click", () => { _roomCurrency = (b as HTMLElement).dataset.cur === "premium" ? "premium" : "play"; S.net.err = ""; render(); }));
+  app.querySelectorAll("[data-tier]").forEach((b) => onEl(b, "click", () => { const i = +(b as HTMLElement).dataset.tier!; const t = ROOM_TIERS[i]!; su.tier = i; su.sb = t.sb; su.bb = t.bb; su.buyIn = Math.min(t.max, premium ? (S.wallet.premium ?? 0) : (S.wallet.play ?? 0)); render(); }));
+  onId("room-buyin", "input", (e) => { su.buyIn = Math.max(minBuy, Math.min(maxBuy, +(e.target as HTMLInputElement).value)); render(); });
+  onId("room-mce", "click", () => { if (!S.edgePass) { S.screen = "store"; render(); return; } _roomAssisted = !_roomAssisted; render(); });
   onId("net-create", "click", () => { void createNetRoom(); });
-  onId("net-join", "click", () => {
-    const v = (document.getElementById("net-code") as HTMLInputElement | null)?.value.trim().toUpperCase() || S.net.joinCode;
-    void joinNetRoom(v);
-  });
-  onId("mp-start", "click", () => {
-    // A local room = you (hero) vs AI = exactly the Training engine. Launch the
-    // training table so it looks/sounds/animates identically — no pass-the-phone.
-    const n = su.players.length;
-    S.tableSize = n;
-    S.heroSeat = 0;
-    S.bbValue = su.bb; S.sbValue = su.sb;
-    S.stackBB = Math.max(2, Math.round(su.buyIn / su.bb));
-    S.currency = "chips";
-    S.archetype = "TAG";
-    S.seatTypes = new Map();
-    S.seatNames = su.players.map((p, i) => p.name.trim() || (i === 0 ? "You" : `P${i + 1}`));
-    for (let i = 1; i < n; i++) {
-      let a = su.players[i]!.ai;
-      if (!a || a === "rand") a = AI_ARCHES[Math.floor(Math.random() * AI_ARCHES.length)]!;
-      S.seatTypes.set(i, a);
-    }
-    S.mode = "training";
-    S.trainingOver = null;
-    S.trainingStartSize = n;
-    S.dealerSeat = -1;
-    S.handNumber = 0;
-    S.seatStacks = [];
-    S.streak = 0;
-    // Stake the buy-in from the wallet; the wallet tracks table P&L per hand.
-    _roomActive = true; _roomStartWallet = S.profile.chips; _roomBuyIn = su.buyIn;
-    startTrainingHand();
-  });
+  onId("net-code", "change", (e) => { S.net.joinCode = (e.target as HTMLInputElement).value.trim().toUpperCase(); });
+  onId("net-join", "click", () => { const v = (document.getElementById("net-code") as HTMLInputElement | null)?.value.trim().toUpperCase() || S.net.joinCode; void joinNetRoom(v); });
 }
 
 // AI seats auto-act (local rooms only) via the trainer's archetype-flavored villain AI.
@@ -3586,6 +3552,7 @@ function renderMpTable(): void {
 
 let _netTableUnsub: (() => void) | null = null, _netHandUnsub: (() => void) | null = null;
 let _roomCurrency: "play" | "premium" = "play";
+let _roomAssisted = false; // MCE Strategy overlay toggle (Edge Pass only)
 function clearNetSubs(): void { if (_netTableUnsub) { _netTableUnsub(); _netTableUnsub = null; } if (_netHandUnsub) { _netHandUnsub(); _netHandUnsub = null; } }
 
 function friendlyErr(e: unknown): string {
@@ -3626,9 +3593,8 @@ async function createNetRoom(): Promise<void> {
   const su = S.mp.setup; const tier = ROOM_TIERS[su.tier]!;
   S.net.busy = true; render();
   try {
-    // Premium rooms are human-only (no AI); play rooms carry the configured bots.
-    const bots = _roomCurrency === "premium" ? [] : su.players.slice(1).map((p) => (!p.ai || p.ai === "rand") ? AI_ARCHES[Math.floor(Math.random() * AI_ARCHES.length)]! : p.ai);
-    const { code } = await FB.createRoom({ tier: tier.name, buyIn: su.buyIn, name: S.profile.nickname, bots, currency: _roomCurrency });
+    // Create EMPTY (no AI) — bots are added in the lobby. MCE overlay only if entitled.
+    const { code } = await FB.createRoom({ tier: tier.name, buyIn: su.buyIn, name: S.profile.nickname, bots: [], currency: _roomCurrency, assisted: S.edgePass && _roomAssisted });
     S.net.busy = false; await enterRoom(code);
   } catch (e) { S.net.busy = false; S.net.err = friendlyErr(e); render(); }
 }
@@ -3657,63 +3623,94 @@ async function netLeave(): Promise<void> {
   S.screen = "mp-setup"; render();
 }
 
+async function netAddBot(archetype: string): Promise<void> {
+  const code = S.net.code; if (!code || S.net.busy) return;
+  S.net.busy = true; render();
+  try { await FB.addBot(code, archetype); S.net.busy = false; render(); }
+  catch (e) { S.net.busy = false; S.net.err = friendlyErr(e); render(); }
+}
+
 function renderNetTable(): void {
   cancelVillainTimer();
   const code = S.net.code, uid = S.mp.auth?.uid;
   if (!code) { S.screen = "mp-setup"; render(); return; }
   const pub = S.net.pub;
   if (!pub) {
-    app.innerHTML = `<div class="setup"><h1>🌐 Room ${code}</h1><div class="mp-thinking">connecting<span>.</span><span>.</span><span>.</span></div>${S.net.err ? `<div class="room-broke">${S.net.err}</div>` : ""}<button class="hdr-btn" id="net-leave" style="width:100%;padding:12px;margin-top:10px">Leave</button></div>`;
+    app.innerHTML = `<div class="setup"><div class="doc-top"><span style="width:54px"></span><h1>🌐 ${code}</h1><button class="hdr-btn" id="net-leave">Leave</button></div><div class="mp-thinking">connecting<span>.</span><span>.</span><span>.</span></div>${S.net.err ? `<div class="room-broke">${esc(S.net.err)}</div>` : ""}</div>`;
     onId("net-leave", "click", () => void netLeave());
     return;
   }
   const seats = (pub.seats || []) as Array<{ uid: string | null; ai: string | null; name: string; chips: number; bet: number; folded: boolean }>;
   const status = pub.status as string;
+  const currency = (pub.currency as string) === "premium" ? "premium" : "play";
+  const sym = currency === "premium" ? "💎" : "🪙";
   const isOwner = pub.ownerUid === uid;
+  const lobby = status === "waiting";
   const revealed = (pub.revealedHoles || {}) as Record<string, [number, number]>;
-  const boardHtml = (pub.board || []).length ? (pub.board as number[]).map(mpCard).join("") : `<span class="hint">— ${capWord(status === "waiting" ? "preflop" : (pub.street || "preflop"))} —</span>`;
-  const seatsHtml = seats.map((s, ti) => {
-    if (!s.uid && !s.ai) return "";
+  const occupied = seats.map((s, ti) => ({ s, ti })).filter((x) => x.s.uid || x.s.ai);
+  const humans = occupied.filter((x) => x.s.uid).length;
+  const N = Math.max(2, occupied.length);
+  const myOrder = Math.max(0, occupied.findIndex((x) => x.s.uid === uid));
+  const coord = (orderIdx: number) => { const vis = (orderIdx - myOrder + N) % N; const a = (vis * 2 * Math.PI) / N; return { left: 50 - 41 * Math.sin(a), top: 50 + 38 * Math.cos(a) }; };
+  const seatHtml = occupied.map((x, orderIdx) => {
+    const { s, ti } = x; const { left, top } = coord(orderIdx);
     const me = !!s.uid && s.uid === uid;
     const active = ti === pub.toAct && status === "in_hand";
-    const rev = revealed[String(ti)] || revealed[ti as unknown as string];
-    const cards = me && S.net.myHand ? S.net.myHand : (rev || null);
+    const rev = revealed[String(ti)];
+    const cards = !lobby && !me && rev ? rev : null;
+    const cls = ["table-seat", me ? "hero-seat" : "", s.folded ? "folded" : "", active ? "active" : ""].filter(Boolean).join(" ");
     const tag = s.ai ? "🤖" : me ? "🧠" : "🙂";
-    return `<div class="mp-seat ${active ? "active" : ""} ${s.folded ? "folded" : ""}">
-      <span class="mp-seat-name">${tag} ${s.name}${ti === pub.dealerSeat ? " Ⓓ" : ""}${me ? " (you)" : ""}</span>
-      <span class="mp-seat-chips">🪙 ${mpc(s.chips)}${s.bet > 0 ? ` · bet ${mpc(s.bet)}` : ""}${s.folded ? " · folded" : ""}</span>
-      ${cards ? `<div class="mp-hole">${cards.map(mpCard).join("")}</div>` : ""}
+    return `<div class="${cls}" style="left:${left.toFixed(1)}%;top:${top.toFixed(1)}%">
+      ${ti === pub.dealerSeat && !lobby ? '<div class="dealer-btn">D</div>' : ""}
+      <div class="seat-chip">
+        <div class="seat-pos">${tag} ${esc(s.name)}${me ? " (you)" : ""}</div>
+        <div class="seat-stack">${sym} ${mpc(s.chips)}</div>
+        ${s.folded ? `<div class="seat-act">folded</div>` : ""}
+      </div>
+      ${s.bet > 0 && !s.folded ? `<div class="seat-bet ${top < 50 ? "below" : "above"}"><span class="chip-dot"></span>${mpc(s.bet)}</div>` : ""}
+      ${cards ? `<div class="seat-cards ${top < 50 ? "below" : "above"}">${cards.map((c) => `<span class="seat-hole reveal ${isRed(c) ? "red" : ""}">${cardDisplay(c)}</span>`).join("")}</div>` : ""}
     </div>`;
   }).join("");
+  const board = (pub.board as number[]) || [];
+  const center = lobby
+    ? `<div class="lobby-center">🌐 Lobby<span>${humans} player${humans === 1 ? "" : "s"}${occupied.length - humans > 0 ? ` · ${occupied.length - humans} bot${occupied.length - humans === 1 ? "" : "s"}` : ""}</span></div>`
+    : `<div class="net-board">${[0, 1, 2, 3, 4].map((i) => board[i] != null ? `<div class="board-card dealt ${isRed(board[i]!) ? "red" : ""}">${cardDisplay(board[i]!)}</div>` : `<div class="board-card empty"></div>`).join("")}</div>
+       <div class="pot-line"><span class="table-pot">${sym} ${mpc((pub.pot as number) || 0)}</span><span class="pot-street">${capWord(pub.street || "preflop")}</span></div>`;
 
-  let panel = "";
   const myTurn = status === "in_hand" && pub.toAct >= 0 && seats[pub.toAct]?.uid === uid;
-  if (status === "waiting" || status === "hand_over") {
-    panel = `${status === "hand_over" ? `<div class="mp-result">${pub.lastResult || "Hand over"}</div>` : `<div class="net-share">Share this code:<button class="net-copy" id="net-copy"><strong>${code}</strong> 📋</button></div>`}
-      ${isOwner ? `<button class="start-btn" id="net-deal">${status === "hand_over" ? "NEXT HAND" : "DEAL"}</button>` : `<div class="hint" style="text-align:center">Waiting for the host to deal…</div>`}`;
+  let controls = "";
+  if (lobby) {
+    const canAddAi = isOwner && currency === "play" && occupied.length < seats.length;
+    const aiBtns = [["Station", "🐟 Fish"], ["TAG", "🎯 Reg"], ["LAG", "🔥 LAG"], ["rand", "🎲 Random"]];
+    controls = `
+      <div class="net-share">Share code <button class="net-copy" id="net-copy"><strong>${code}</strong> 📋</button></div>
+      ${canAddAi ? `<div class="lobby-ai"><span class="hint">＋ AI:</span>${aiBtns.map(([a, l]) => `<button class="hdr-btn add-ai" data-arch="${a}">${l}</button>`).join("")}</div>` : currency === "premium" ? `<div class="hint" style="text-align:center">Premium room — humans only. Share the code.</div>` : ""}
+      ${isOwner ? `<button class="start-btn" id="net-deal" ${occupied.length < 2 ? "disabled style=opacity:.5" : ""}>${S.net.busy ? "…" : occupied.length < 2 ? "Waiting for players…" : "DEAL"}</button>` : `<div class="hint" style="text-align:center">Waiting for the host to deal…</div>`}`;
+  } else if (status === "hand_over") {
+    controls = `<div class="mp-result">${esc(pub.lastResult || "Hand over")}</div>${isOwner ? `<button class="start-btn" id="net-deal">${S.net.busy ? "…" : "NEXT HAND"}</button>` : `<div class="hint" style="text-align:center">Waiting for the next deal…</div>`}`;
   } else if (myTurn) {
     const seat = seats[pub.toAct]!; const toCall = (pub.currentBet as number) - seat.bet;
-    panel = `<div class="mp-turn"><strong>Your turn</strong></div>${S.net.myHand ? `<div class="mp-hole">${S.net.myHand.map(mpCard).join("")}</div>` : ""}
+    controls = `${S.net.myHand ? `<div class="net-hero">${S.net.myHand.map((c) => `<span class="hero-card ${isRed(c) ? "red" : ""}">${cardDisplay(c)}</span>`).join("")}</div>` : ""}
       <div class="action-bar">
         <button class="action-btn fold" id="na-fold">Fold</button>
         ${toCall > 0 ? `<button class="action-btn call" id="na-call">Call ${mpc(toCall)}</button>` : `<button class="action-btn check" id="na-check">Check</button>`}
-        <button class="action-btn ${pub.currentBet > 0 ? "raise" : "bet"}" id="na-bet">${pub.currentBet > 0 ? "Raise" : "Bet"} pot</button>
+        <button class="action-btn ${(pub.currentBet as number) > 0 ? "raise" : "bet"}" id="na-bet">${(pub.currentBet as number) > 0 ? "Raise" : "Bet"} pot</button>
         <button class="action-btn raise" id="na-allin">All-in</button>
       </div>`;
   } else {
-    panel = `<div class="mp-turn">${seats[pub.toAct]?.name || "…"}'s turn</div><div class="mp-thinking">waiting<span>.</span><span>.</span><span>.</span></div>`;
+    controls = `${S.net.myHand ? `<div class="net-hero">${S.net.myHand.map((c) => `<span class="hero-card ${isRed(c) ? "red" : ""}">${cardDisplay(c)}</span>`).join("")}</div>` : ""}<div class="mp-turn">${esc(seats[pub.toAct]?.name || "…")}'s turn</div><div class="mp-thinking">waiting<span>.</span><span>.</span><span>.</span></div>`;
   }
 
   app.innerHTML = `
-    <div class="game">
-      <div class="game-topbar"><span>Room <strong>${code}</strong> · 🪙 chips</span><button class="hdr-btn" id="net-leave">Leave</button></div>
-      <div class="mp-felt"><div class="mp-board">${boardHtml}</div><div class="mp-pot">POT 🪙 ${mpc((pub.pot as number) || 0)} · ${capWord(pub.street || "preflop")}</div></div>
-      <div class="mp-seats">${seatsHtml}</div>
-      <div class="controls"><div class="controls-body">${panel}${S.net.err ? `<div class="room-broke" style="margin-top:8px">${S.net.err}</div>` : ""}</div></div>
+    <div class="game net-game">
+      <div class="game-topbar"><span>Room <strong>${code}</strong> · ${sym} ${currency === "premium" ? "premium" : "play"}</span><button class="hdr-btn" id="net-leave">Leave</button></div>
+      <div class="net-table-wrap"><div class="poker-table"><div class="felt"></div>${seatHtml}<div class="board-center">${center}</div></div></div>
+      <div class="controls"><div class="controls-body">${controls}${S.net.err ? `<div class="room-broke" style="margin-top:8px">${esc(S.net.err)}</div>` : ""}</div></div>
     </div>`;
   onId("net-leave", "click", () => void netLeave());
   onId("net-deal", "click", () => void netDeal());
   onId("net-copy", "click", () => { try { void navigator.clipboard?.writeText(code); } catch { /* */ } });
+  app.querySelectorAll(".add-ai").forEach((b) => onEl(b, "click", () => void netAddBot((b as HTMLElement).dataset.arch!)));
   onId("na-fold", "click", () => void netAct({ type: "fold" }));
   onId("na-check", "click", () => void netAct({ type: "check" }));
   onId("na-call", "click", () => void netAct({ type: "call" }));

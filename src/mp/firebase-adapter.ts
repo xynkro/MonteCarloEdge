@@ -32,9 +32,11 @@ async function callFn<T>(name: string, data: unknown): Promise<T> {
   const res = await m.httpsCallable(fns, name)(data);
   return res.data as T;
 }
-export const createRoom = (opts: { tier: string; buyIn: number; name: string; bots: string[]; currency?: "play" | "premium" }) =>
+export const createRoom = (opts: { tier: string; buyIn: number; name: string; bots: string[]; currency?: "play" | "premium"; assisted?: boolean }) =>
   callFn<{ code: string; currency?: string }>("createTable", opts);
 export const joinRoom = (code: string, name: string) => callFn<{ code: string; seatIdx?: number; already?: boolean }>("joinTable", { code, name });
+/** Add an AI bot to an existing (waiting) play-currency room. Owner-only (server-enforced). */
+export const addBot = (code: string, archetype = "TAG") => callFn<{ ok: boolean }>("addBot", { code, archetype });
 export const dealHand = (code: string) => callFn<{ ok: boolean }>("startHand", { code });
 export const actRoom = (code: string, action: unknown, expectedVersion: number) =>
   callFn<{ ok: boolean }>("act", { code, action, expectedVersion });

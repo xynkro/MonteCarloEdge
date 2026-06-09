@@ -1418,3 +1418,25 @@ body::before {
 .grade-breakdown { display: flex; justify-content: center; gap: 12px; font-size: 11px; font-weight: 700; margin-top: 6px; }
 
 .hidden { display: none !important; }
+
+
+/* ── Play Online redesign + networked oval table (engine lane) ── */
+.room-greyed { opacity: .5; pointer-events: none; }
+.mce-toggle { padding: 9px 18px; border-radius: 999px; border: 1px solid var(--glass-edge); background: var(--glass); color: var(--text); font-weight: 800; font-size: 13px; cursor: pointer; }
+.mce-toggle.on { background: color-mix(in srgb, var(--emerald) 22%, transparent); border-color: var(--emerald); color: var(--emerald); }
+.mce-toggle.locked { color: var(--muted); }
+.online-list { display: flex; flex-wrap: wrap; gap: 6px; }
+.online-chip { font-size: 12px; padding: 4px 10px; border-radius: 999px; background: var(--glass); border: 1px solid var(--glass-edge); color: var(--text); }
+.room-stakes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.room-stakes .seg-btn { padding: 10px 4px; }
+.net-game .net-table-wrap { padding: 6px 4px 0; }
+.net-game .poker-table { position: relative; width: 100%; height: 44vh; min-height: 290px; margin: 4px 0 10px; }
+.net-board { display: flex; gap: 4px; justify-content: center; flex-wrap: wrap; }
+.net-game .pot-line { text-align: center; margin-top: 6px; }
+.lobby-center { text-align: center; color: var(--muted); font-weight: 800; font-size: 15px; }
+.lobby-center span { display: block; font-size: 12px; font-weight: 600; margin-top: 4px; color: var(--faint); }
+.net-hero { display: flex; gap: 6px; justify-content: center; margin-bottom: 8px; }
+.net-hero .hero-card { font: 800 22px var(--display); background: #fff; color: var(--card-black); border-radius: 8px; padding: 5px 9px; box-shadow: 0 6px 14px rgba(0,0,0,.4); }
+.net-hero .hero-card.red { color: var(--card-red); }
+.lobby-ai { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; justify-content: center; margin-bottom: 8px; }
+.lobby-ai .hint { width: 100%; text-align: center; margin-bottom: 2px; }
