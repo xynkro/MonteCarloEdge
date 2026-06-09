@@ -84,3 +84,33 @@ Reuses the existing grade/leak engine, now multi-seat + server-recorded.
 Build **Phase 0** (local-first prototype) so you can play the assisted-vs-blind
 benchmark across two tabs and feel the whole product — then we wire Firebase +
 Stripe to make it real.
+
+---
+
+## Phase 2 lobby design (rooms + codes) — added per feedback
+
+The Online Lobby is **private friend rooms**, not a public free-for-all:
+
+- **Create Room** → the `createTable` callable mints a short, human-typeable code
+  (e.g. `MCE-7QK2`) which IS the table id. Returns the code to share. Host picks
+  stakes tier + max buy-in (100bb cap stands). Status `waiting`.
+- **Join Room** → `joinTable(code)` looks up the table, seats you, debits buy-in
+  from your server-held chip balance. No code = no entry, so randoms can't join.
+- **Share**: the code (and/or a deep link `?room=MCE-7QK2`) is what you text your
+  friends. Optionally a QR for in-person sharing.
+- **Lobby list**: shows YOUR open/active rooms + a "Join by code" field. (No public
+  random list initially — friend rooms only.)
+
+### Region / latency — deliberately NOT doing matchmaking
+Poker is **turn-based** (seconds to act), so per-action latency of 100–500ms is
+imperceptible. Region-based matchmaking + relay netcode is an FPS/real-time concern,
+not a poker one. Decisions:
+- Friend rooms (code-based): region is irrelevant — anyone joins from anywhere.
+- Cloud Functions pinned to `asia-southeast1` (closest to the SG user) — the only
+  region lever that helps; already set.
+- A public/random matchmaker (with optional region filter) is a *later* nice-to-have,
+  not a launch need. Skip until public play exists.
+
+Gating: all of the above runs through the `createTable`/`joinTable` Cloud Functions
+(server-authoritative), so it needs the **Blaze plan + functions deploy** — same gate
+as networked dealing. Lobby + table ship together.
