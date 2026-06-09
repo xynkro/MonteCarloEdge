@@ -1159,7 +1159,9 @@ body::before {
 .mc-wordmark span { display: block; background: var(--gold-foil); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; filter: drop-shadow(0 2px 14px rgba(247,207,114,.25)); }
 .mc-wordmark b { display: block; color: var(--emerald); text-shadow: var(--glow-emerald); }
 .mc-tag { color: var(--muted); font-size: 11px; letter-spacing: 3px; text-transform: uppercase; margin-top: 3px; }
-.mc-hero-art { display: block; width: min(78%, 320px); height: auto; margin: -6px auto 0; filter: drop-shadow(0 16px 40px rgba(0,0,0,.55)); animation: mcFan .7s cubic-bezier(.2,.8,.3,1.2) both; }
+.mc-hero-art { display: block; width: min(82%, 340px); height: auto; margin: -6px auto -4px; filter: drop-shadow(0 16px 40px rgba(0,0,0,.55)); animation: mcFan .7s cubic-bezier(.2,.8,.3,1.2) both;
+  -webkit-mask-image: radial-gradient(125% 120% at 50% 46%, #000 56%, transparent 90%);
+  mask-image: radial-gradient(125% 120% at 50% 46%, #000 56%, transparent 90%); }
 @media (prefers-reduced-motion: reduce) { .mc-hero-art { animation: none; } }
 
 /* mode cards */
