@@ -3712,22 +3712,27 @@ function renderSignIn(): void {
   cancelVillainTimer();
   const reg = _signinMode === "register";
   app.innerHTML = `
-    <div class="setup doc">
-      <h1>${reg ? "Create account" : "Sign in"}</h1>
-      <span class="hint" style="text-align:center;display:block;margin-bottom:14px">Sign in so your chips are saved to your account and you can play online. (Solo Train is free without an account.)</span>
-      <button class="start-btn" id="si-google" style="background:#fff;color:#1f1f1f">Continue with Google</button>
+    <div class="signin">
+      <div class="si-bg" aria-hidden="true"><span class="mc-glow g-emerald"></span><span class="mc-glow g-gold"></span></div>
+      <div class="si-brand"><div class="si-cards"><span class="si-c back"></span><span class="si-c red">A<i>♥</i></span><span class="si-c">A<i>♠</i></span></div>
+        <h1 class="si-word"><span>MONTECARLO</span><b>EDGE</b></h1></div>
+      <p class="si-sub">${reg ? "Create your account" : "Sign in to continue"} — your chips save to your account &amp; you can play online.</p>
+
+      <button class="si-btn apple" id="si-apple"> Continue with Apple</button>
+      <button class="si-btn google" id="si-google"> Continue with Google</button>
       <div class="si-or"><span>or with email</span></div>
-      ${reg ? `<div class="field"><label>Nickname</label><input class="mp-num" id="si-name" maxlength="14" value="${S.profile.nickname.replace(/"/g, "&quot;")}"/></div>` : ""}
-      <div class="field"><label>Email</label><input class="mp-num" id="si-email" type="email" autocomplete="email" placeholder="you@email.com"/></div>
-      <div class="field"><label>Password</label><input class="mp-num" id="si-pw" type="password" autocomplete="${reg ? "new-password" : "current-password"}" placeholder="${reg ? "min 6 characters" : "your password"}"/></div>
+      ${reg ? `<input class="si-input" id="si-name" placeholder="Nickname" maxlength="14" value="${S.profile.nickname.replace(/"/g, "&quot;")}"/>` : ""}
+      <input class="si-input" id="si-email" type="email" autocomplete="email" placeholder="Email address"/>
+      <input class="si-input" id="si-pw" type="password" autocomplete="${reg ? "new-password" : "current-password"}" placeholder="${reg ? "Password (min 6)" : "Password"}"/>
       ${S.net.err ? `<div class="room-broke">${S.net.err}</div>` : ""}
-      <button class="start-btn" id="si-submit" style="margin-top:4px;${S.net.busy ? "opacity:.6" : ""}">${S.net.busy ? "…" : reg ? "Create account" : "Sign in"}</button>
+      <button class="si-btn primary" id="si-submit">${S.net.busy ? "…" : reg ? "Create account" : "Sign in"}</button>
       <div class="si-links">
-        <button class="mc-foot-link" id="si-toggle">${reg ? "Have an account? Sign in" : "New here? Create an account"}</button>
+        <button class="mc-foot-link" id="si-toggle">${reg ? "Have an account? Sign in" : "New? Create account"}</button>
         ${!reg ? `<button class="mc-foot-link" id="si-reset">Forgot password?</button>` : ""}
       </div>
-      <button class="hdr-btn" id="si-back" style="width:100%;padding:12px;margin-top:8px">Skip — Train only</button>
+      <button class="si-skip" id="si-back">Skip — Train only (no account)</button>
     </div>`;
+  onId("si-apple", "click", () => void doSignIn(() => FB.signInWithApple()));
   onId("si-google", "click", () => void doSignIn(() => FB.signInWithGoogle()));
   onId("si-submit", "click", () => {
     const email = (document.getElementById("si-email") as HTMLInputElement | null)?.value.trim() ?? "";

@@ -73,6 +73,18 @@ export async function signInWithGoogle(): Promise<MPUser> {
   return user;
 }
 
+/** Sign in with Apple (provider enabled in the Firebase console). */
+export async function signInWithApple(): Promise<MPUser> {
+  const app = await getFirebaseApp();
+  const { getAuth, OAuthProvider, signInWithPopup } = await import("firebase/auth");
+  const provider = new OAuthProvider("apple.com");
+  provider.addScope("name"); provider.addScope("email");
+  const res = await signInWithPopup(getAuth(app), provider);
+  const user = toUser(res.user);
+  try { const { m, db } = await firestore(); await m.setDoc(m.doc(db, "users", user.uid), { name: user.name }, { merge: true }); } catch { /* */ }
+  return user;
+}
+
 /** Register a new account with email + password. */
 export async function registerEmail(email: string, password: string, name: string): Promise<MPUser> {
   const app = await getFirebaseApp();
