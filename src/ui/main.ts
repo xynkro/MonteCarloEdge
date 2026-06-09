@@ -3775,7 +3775,10 @@ async function doSignIn(fn: () => Promise<MPUser>, regName?: string): Promise<vo
     const u = await fn();
     S.mp.auth = u;
     try { localStorage.setItem("mce-signed-in", "1"); } catch { /* */ }
+    // Default the table nickname to the real account name (so seats don't all show
+    // "You"). Keep any custom nickname the player already set.
     if (regName) { S.profile.nickname = regName; saveProfile(); }
+    else if (!S.profile.nickname || S.profile.nickname === "You") { S.profile.nickname = u.name; saveProfile(); }
     void FB.startPresence(u).catch(() => {});
     void startEconomySubs(u.uid);
     S.net.busy = false;
@@ -4359,14 +4362,12 @@ function renderHome(): void {
 function renderProfile(): void {
   cancelVillainTimer();
   const p = S.profile;
-  const last = +(localStorage.getItem("mce-dailychips") || 0);
-  const canClaim = Date.now() - last > 20 * 3600 * 1000;
-  const packs: [string, string][] = [["50,000", "$4.99"], ["150,000", "$9.99"], ["500,000", "$24.99"]];
+  const loggedIn = !!S.mp.auth;
   app.innerHTML = `
     <div class="setup">
-      <h1>👤 Profile</h1>
+      <div class="doc-top"><button class="hdr-btn" id="pf-back">← Back</button><h1>👤 Profile</h1><span style="width:54px"></span></div>
       <div style="text-align:center;margin-bottom:10px">${avatarChip(p.avatar, p.nickname, 76)}</div>
-      <div class="field"><label>Nickname</label><input class="mp-num" id="pf-nick" maxlength="14" value="${p.nickname.replace(/"/g, "&quot;")}"/></div>
+      <div class="field"><label>Nickname (shown at the tables)</label><input class="mp-num" id="pf-nick" maxlength="14" value="${esc(p.nickname)}"/></div>
       <div class="field"><label>Avatar</label>
         <div class="avatar-grid">
           <button class="avatar-pick ${!p.avatar ? "sel" : ""}" id="pf-av-auto" title="Auto identicon">${avatarChip("", p.nickname, 38)}</button>
@@ -4374,25 +4375,25 @@ function renderProfile(): void {
         </div>
       </div>
       <div class="mp-scoreboard">
-        <div class="mp-score-row"><span>🪙 Chip balance</span><span class="g-ok">${p.chips.toLocaleString()}</span></div>
-        <button class="start-btn" id="pf-daily" style="margin-top:8px;${canClaim ? "" : "opacity:.5"}">${canClaim ? "🎁 Claim daily free chips (+500)" : "🎁 Claimed — come back tomorrow"}</button>
+        <div class="mp-score-row"><span>🪙 Play chips</span><span class="g-ok">${fmtBal(loggedIn ? S.wallet.play : p.chips)}</span></div>
+        ${loggedIn ? `<div class="mp-score-row"><span>💎 Premium chips</span><span class="g-ok">${fmtBal(S.wallet.premium)}</span></div>` : ""}
+        <span class="hint" style="display:block;margin-top:6px">${loggedIn ? "Free play chips every week — claim on Home / in the Store. Win 💎 at premium tables." : "Sign in (Play Online) to save your chips to your account + play online."}</span>
       </div>
-      <div class="field" style="margin-top:12px"><label>Buy chips</label>
-        <div class="chip-store">
-          ${packs.map(([c, pr]) => `<button class="chip-pack" disabled>🪙 ${c}<br><span>${pr}</span></button>`).join("")}
-        </div>
-        <span class="hint">Purchases unlock with Stripe (next phase). Chips are play-money — <strong>no cash value, never withdrawable</strong>.</span>
-      </div>
-      <div class="hint" style="text-align:center;margin-top:8px">${S.mp.auth ? `✓ Synced to your Google account (${S.mp.auth.name})` : "Sign in under Play Online to sync your profile across devices."}</div>
-      <button class="hdr-btn" id="pf-back" style="width:100%;padding:12px;margin-top:8px">Back to Home</button>
+      ${loggedIn ? `<button class="hdr-btn" id="pf-store" style="width:100%;padding:12px;margin-top:10px">🛍 Store · buy chips</button>` : ""}
+      <div class="hint" style="text-align:center;margin-top:10px">${loggedIn ? `✓ Signed in as ${esc(S.mp.auth!.name)}` : "Not signed in"}</div>
+      ${loggedIn
+        ? `<button class="hdr-btn" id="pf-signout" style="width:100%;padding:12px;margin-top:6px;color:var(--red)">Sign out</button>`
+        : `<button class="si-btn primary" id="pf-signin" style="margin-top:6px">Sign in / Register</button>`}
+      <button class="hdr-btn" id="pf-back2" style="width:100%;padding:12px;margin-top:6px">Back to Home</button>
     </div>`;
-  onId("pf-nick", "change", (e) => { S.profile.nickname = (e.target as HTMLInputElement).value.trim() || "You"; saveProfile(); render(); });
+  onId("pf-nick", "change", (e) => { S.profile.nickname = (e.target as HTMLInputElement).value.trim() || "Player"; saveProfile(); render(); });
   onId("pf-av-auto", "click", () => { S.profile.avatar = ""; saveProfile(); render(); });
   app.querySelectorAll("[data-av]").forEach((b) => onEl(b, "click", () => { S.profile.avatar = (b as HTMLElement).dataset.av!; saveProfile(); render(); }));
-  onId("pf-daily", "click", () => {
-    if (canClaim) { S.profile.chips += 500; saveProfile(); try { localStorage.setItem("mce-dailychips", String(Date.now())); } catch { /* */ } render(); }
-  });
+  onId("pf-store", "click", () => { S.screen = "store"; render(); });
+  onId("pf-signin", "click", () => { S.screen = "signin"; render(); });
+  onId("pf-signout", "click", () => { if (confirm("Sign out of your account?")) void goOffline().then(() => { S.screen = "home"; render(); }); });
   onId("pf-back", "click", () => { S.screen = "home"; render(); });
+  onId("pf-back2", "click", () => { S.screen = "home"; render(); });
 }
 
 /* ═══════════════════ SETTINGS / LEGAL / EXPLAINER ═══════════════════ */
@@ -4598,7 +4599,7 @@ async function initAuth(): Promise<void> {
   } catch { /* */ }
   // 2) Keep auth state live for returning sessions / sign-out elsewhere.
   void FB.onAuthChanged((u) => {
-    if (u && !S.mp.auth) { S.mp.auth = u; void FB.startPresence(u).catch(() => {}); void startEconomySubs(u.uid); if (S.screen === "home" || S.screen === "signin") render(); }
+    if (u && !S.mp.auth) { S.mp.auth = u; if (!S.profile.nickname || S.profile.nickname === "You") { S.profile.nickname = u.name; saveProfile(); } void FB.startPresence(u).catch(() => {}); void startEconomySubs(u.uid); if (S.screen === "home" || S.screen === "signin") render(); }
     else if (!u && S.mp.auth) { S.mp.auth = null; stopEconomySubs(); try { localStorage.removeItem("mce-signed-in"); } catch { /* */ } if (S.screen === "home") render(); }
   });
 }
