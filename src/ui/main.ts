@@ -4231,11 +4231,7 @@ function renderHome(): void {
       </header>
 
       <div class="mc-hero">
-        <div class="mc-fan" aria-hidden="true">
-          <span class="mc-hc back"></span>
-          <span class="mc-hc red">A<i>♥</i></span>
-          <span class="mc-hc">A<i>♠</i></span>
-        </div>
+        <img class="mc-hero-art" src="hero.png" alt="" aria-hidden="true" width="1200" height="655" />
         <h1 class="mc-wordmark"><span>MONTECARLO</span><b>EDGE</b></h1>
         <p class="mc-tag">Play the player. Own the table.</p>
       </div>
