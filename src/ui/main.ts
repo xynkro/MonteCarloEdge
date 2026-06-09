@@ -3730,7 +3730,7 @@ function renderSignIn(): void {
         <button class="mc-foot-link" id="si-toggle">${reg ? "Have an account? Sign in" : "New? Create account"}</button>
         ${!reg ? `<button class="mc-foot-link" id="si-reset">Forgot password?</button>` : ""}
       </div>
-      <button class="si-skip" id="si-back">Skip — Train only (no account)</button>
+      <button class="si-skip" id="si-back">Skip — Poker Training only</button>
     </div>`;
   onId("si-apple", "click", () => void doSignIn(() => FB.signInWithApple()));
   onId("si-google", "click", () => void doSignIn(() => FB.signInWithGoogle()));
