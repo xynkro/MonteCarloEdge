@@ -382,6 +382,25 @@ export const adminGift = onCall(async (req) => {
   });
 });
 
+/** Super-admin only (same gate as adminGift): grant/revoke the Edge Pass entitlement
+ *  on a target user. Writes a ledger entry + an inbox note. */
+export const adminSetEdgePass = onCall(async (req) => {
+  uidOf(req);
+  const tok = (req.auth?.token ?? {}) as { email?: string; email_verified?: boolean; admin?: boolean };
+  const isAdmin = tok.admin === true || (ADMIN_EMAILS.has(tok.email ?? "") && tok.email_verified === true);
+  if (!isAdmin) throw new HttpsError("permission-denied", "Admins only.");
+  const { toUid, on } = (req.data ?? {}) as { toUid?: string; on?: boolean };
+  if (!toUid) throw new HttpsError("invalid-argument", "Recipient required.");
+  return db.runTransaction(async (tx) => {
+    const snap = await tx.get(userRef(toUid)); // read before write
+    if (!snap.exists) throw new HttpsError("not-found", "Recipient not found.");
+    tx.set(userRef(toUid), { edgePass: !!on }, { merge: true });
+    tx.set(ledgerRef().doc(), { type: "edgepass", from: "admin", fromName: (req.auth?.token?.email as string) ?? "admin", to: toUid, on: !!on, at: FieldValue.serverTimestamp() });
+    tx.set(inboxRef(toUid).doc(), { kind: "admin", from: "admin", fromName: "MonteCarloEdge", text: on ? "Edge Pass unlocked for you 🎉" : "Edge Pass removed", createdAt: FieldValue.serverTimestamp(), read: false });
+    return { ok: true, edgePass: !!on };
+  });
+});
+
 /** Claim the weekly free PLAY chips on a DETERMINISTIC streak ladder (no RNG / no loot
  *  box). Server-timed (anti-cheat). Streak grows if you return within 2 weeks. */
 const WEEKLY_LADDER = [500, 600, 750, 1000]; // wk1, wk2, wk3, wk4+ (deterministic)

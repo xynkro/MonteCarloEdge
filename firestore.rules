@@ -20,7 +20,8 @@ service cloud.firestore {
     // server-authoritative (Cloud Functions only) so a client cannot mint
     // play-chips or unlock the paywalled strategy by writing its own doc.
     match /users/{uid} {
-      allow read: if signedIn();
+      allow get: if signedIn();
+      allow list: if signedIn() && request.auth.token.admin == true;
       allow create: if signedIn() && request.auth.uid == uid
         && request.resource.data.diff({}).affectedKeys().hasOnly(['name']);
       allow update: if signedIn() && request.auth.uid == uid
