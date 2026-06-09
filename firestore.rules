@@ -33,12 +33,12 @@ service cloud.firestore {
       allow write: if false;        // written only by Cloud Functions
 
       // The secret authority: deck + every player's holes + serialized engine.
-      // No client may ever read or write this.
-      match /private/state {
+      // No client may ever read or write anything under private/.
+      match /private/{doc} {
         allow read, write: if false;
       }
       // Per-player private hand: you read ONLY your own; nobody writes from a client.
-      match /private/holes/{uid} {
+      match /hands/{uid} {
         allow read: if signedIn() && request.auth.uid == uid;
         allow write: if false;
       }

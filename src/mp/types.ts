@@ -25,8 +25,9 @@ export interface MPUser {
 
 // A seat as seen by EVERYONE (public). No hole cards here.
 export interface MPSeat {
-  uid: string | null;       // null = empty seat
+  uid: string | null;       // null = empty seat (or a bot)
   name: string;
+  ai: string | null;        // bot archetype if this seat is AI; null = human/empty
   chips: number;            // stack at the table
   bet: number;              // chips wagered this street
   folded: boolean;

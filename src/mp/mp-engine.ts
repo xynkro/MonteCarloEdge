@@ -25,6 +25,7 @@ export interface AuthSeat {
   chips: number;          // stack at the table (play-money; never cashable)
   assisted: boolean;      // admin-set: does this seat get the strategy tool?
   sittingOut: boolean;
+  ai: string | null;      // bot archetype (e.g. "TAG") if this is an AI seat; null = human/empty
 }
 
 export interface AuthTable {
@@ -59,9 +60,9 @@ const ordered = (a: Card, b: Card): [Card, Card] => (a <= b ? [a, b] : [b, a]);
 
 export function createAuthTable(id: string, owner: { uid: string; name: string }, opts: CreateTableOpts): AuthTable {
   const seats: AuthSeat[] = Array.from({ length: opts.maxSeats }, () => ({
-    uid: null, name: "", chips: 0, assisted: false, sittingOut: false,
+    uid: null, name: "", chips: 0, assisted: false, sittingOut: false, ai: null,
   }));
-  seats[0] = { uid: owner.uid, name: owner.name, chips: opts.startingStack, assisted: true, sittingOut: false };
+  seats[0] = { uid: owner.uid, name: owner.name, chips: opts.startingStack, assisted: true, sittingOut: false, ai: null };
   return {
     id, ownerUid: owner.uid, name: opts.name, blinds: opts.blinds,
     startingStack: opts.startingStack, maxSeats: opts.maxSeats, seats,
@@ -74,14 +75,23 @@ export function sit(t: AuthTable, uid: string, name: string, seatIdx: number): b
   if (seatIdx < 0 || seatIdx >= t.seats.length) return false;
   if (t.seats.some((s) => s.uid === uid)) return false; // already seated
   const s = t.seats[seatIdx]!;
-  if (s.uid) return false; // taken
-  s.uid = uid; s.name = name; s.chips = t.startingStack; s.assisted = false; s.sittingOut = false;
+  if (s.uid || s.ai) return false; // taken
+  s.uid = uid; s.name = name; s.chips = t.startingStack; s.assisted = false; s.sittingOut = false; s.ai = null;
+  return true;
+}
+
+/** Seat a bot (no uid; identified by archetype). House chips, never a user wallet. */
+export function seatAi(t: AuthTable, seatIdx: number, name: string, archetype: string): boolean {
+  if (seatIdx < 0 || seatIdx >= t.seats.length) return false;
+  const s = t.seats[seatIdx]!;
+  if (s.uid || s.ai) return false; // taken
+  s.uid = null; s.name = name; s.chips = t.startingStack; s.assisted = false; s.sittingOut = false; s.ai = archetype;
   return true;
 }
 
 export function leave(t: AuthTable, uid: string): void {
   const i = t.seats.findIndex((s) => s.uid === uid);
-  if (i >= 0) t.seats[i] = { uid: null, name: "", chips: 0, assisted: false, sittingOut: false };
+  if (i >= 0) t.seats[i] = { uid: null, name: "", chips: 0, assisted: false, sittingOut: false, ai: null };
 }
 
 export function setAssisted(t: AuthTable, requesterUid: string, seatIdx: number, assisted: boolean): boolean {
@@ -92,9 +102,9 @@ export function setAssisted(t: AuthTable, requesterUid: string, seatIdx: number,
   return true;
 }
 
-/** Seats eligible to be dealt in: occupied, with chips, not sitting out. */
+/** Seats eligible to be dealt in: occupied (human OR bot), with chips, not sitting out. */
 function eligible(t: AuthTable): number[] {
-  return t.seats.map((s, i) => (s.uid && s.chips > 0 && !s.sittingOut ? i : -1)).filter((i) => i >= 0);
+  return t.seats.map((s, i) => ((s.uid || s.ai) && s.chips > 0 && !s.sittingOut ? i : -1)).filter((i) => i >= 0);
 }
 
 export function startHand(t: AuthTable, rng: Rng): boolean {
@@ -150,19 +160,33 @@ export function toActTableSeat(t: AuthTable): number {
   return g === null ? -1 : gsToTable(t, g);
 }
 
-/** Apply a player's action (authority validates it's their turn + legal). */
+/** Apply a HUMAN player's action (validates it's their turn + legal). */
 export function act(t: AuthTable, uid: string, action: MPAction): { ok: boolean; err?: string } {
-  if (!t.gs || t.status !== "in_hand") return { ok: false, err: "no hand in progress" };
   const tableSeat = t.seats.findIndex((s) => s.uid === uid);
   if (tableSeat < 0) return { ok: false, err: "not seated" };
+  return actSeat(t, tableSeat, action);
+}
+
+/** Apply an action for a specific table seat (used by act() and the server AI loop).
+ *  Enforces turn order, legality, and min-bet/min-raise. */
+export function actSeat(t: AuthTable, tableSeat: number, action: MPAction): { ok: boolean; err?: string } {
+  if (!t.gs || t.status !== "in_hand") return { ok: false, err: "no hand in progress" };
   const g = tableToGs(t, tableSeat);
   if (g < 0) return { ok: false, err: "not in this hand" };
   if (t.gs.nextToAct() !== g) return { ok: false, err: "not your turn" };
   const legal = t.gs.legalActionsFor(g);
-  let type = action.type as ActionType;
+  const type = action.type as ActionType;
   let amount = action.amount ?? 0;
   if (!legal.includes(type)) return { ok: false, err: `illegal: ${type}` };
-  if (type !== "bet" && type !== "raise") amount = 0;
+  if (type !== "bet" && type !== "raise") {
+    amount = 0;
+  } else {
+    // Min-bet / min-raise enforcement: must meet the minimum OR be all-in.
+    const allInTo = t.gs.stacks[g]! + t.gs.streetInvested[g]!;
+    const minTo = type === "bet" ? t.gs.bb : t.gs.minRaiseTo();
+    if (amount > allInTo) amount = allInTo;          // cap to all-in
+    if (amount < minTo && amount < allInTo) return { ok: false, err: `below min ${type} (${minTo})` };
+  }
   t.gs.applyAction({ seat: g, type, amount });
   advance(t);
   return { ok: true };
@@ -256,7 +280,7 @@ export function publicState(t: AuthTable): PublicTableState {
     const g = t.status !== "waiting" ? tableToGs(t, ts) : -1;
     const inHand = g >= 0 && gs != null;
     return {
-      uid: s.uid, name: s.name,
+      uid: s.uid, name: s.name, ai: s.ai,
       chips: inHand ? gs!.stacks[g]! : s.chips, // stack BEHIND (the bet is separate, in the pot)
       bet: inHand ? gs!.streetInvested[g]! : 0,
       folded: inHand ? gs!.folded[g]! : false,

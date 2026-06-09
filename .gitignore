@@ -15,3 +15,5 @@ functions/.env
 functions/node_modules/
 functions/lib/
 .firebase/
+
+emu-test.mjs
