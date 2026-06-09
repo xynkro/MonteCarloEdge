@@ -34,9 +34,12 @@ const PROFILES: Record<string, OpponentProfile> = { Auto: AUTO, TAG, LAG, Statio
 const TURN_SECONDS = 40;
 const DEFAULT_CHIPS = 1_000; // ~$9.90 of value at the ~100 chips/$ ratio
 const TIERS: Record<string, { sb: number; bb: number; max: number }> = {
-  Micro: { sb: 5, bb: 10, max: 1_000 },
-  Mid: { sb: 50, bb: 100, max: 10_000 },
-  High: { sb: 500, bb: 1_000, max: 100_000 },
+  "1/2": { sb: 1, bb: 2, max: 200 },
+  "5/10": { sb: 5, bb: 10, max: 1_000 },
+  "25/50": { sb: 25, bb: 50, max: 5_000 },
+  "50/100": { sb: 50, bb: 100, max: 10_000 },
+  "100/200": { sb: 100, bb: 200, max: 20_000 },
+  "500/1000": { sb: 500, bb: 1_000, max: 100_000 },
 };
 
 // ── helpers ──
@@ -146,14 +149,14 @@ function persist(tx: Transaction, code: string, t: AuthTable, version: number, b
 /** Create a private room. Returns the shareable code. Owner buys in from their wallet. */
 export const createTable = onCall(async (req) => {
   const uid = uidOf(req);
-  const { tier = "Micro", buyIn, name = "Player", bots = [], currency = "play" } = (req.data ?? {}) as
-    { tier?: string; buyIn?: number; name?: string; bots?: string[]; currency?: Currency };
+  const { tier = "5/10", buyIn, name = "Player", bots = [], currency = "play", assisted = false } = (req.data ?? {}) as
+    { tier?: string; buyIn?: number; name?: string; bots?: string[]; currency?: Currency; assisted?: boolean };
   const cur: Currency = currency === "premium" ? "premium" : "play";
   // Premium tables are human-only (for now): no AI seats allowed.
   if (cur === "premium" && bots.length > 0) {
     throw new HttpsError("failed-precondition", "Premium rooms can't add AI players.");
   }
-  const T = TIERS[tier] ?? TIERS.Micro!;
+  const T = TIERS[tier] ?? TIERS["5/10"]!;
   const stack = Math.max(20 * T.bb, Math.min(T.max, Math.round(buyIn ?? T.max)));
   const seats = 2 + Math.min(7, cur === "premium" ? 0 : bots.length); // owner + bots (+ room to join)
 
@@ -169,6 +172,12 @@ export const createTable = onCall(async (req) => {
 
     const t = createAuthTable(code, { uid, name }, { name: `${tier} Room`, blinds: { sb: T.sb, bb: T.bb }, startingStack: stack, maxSeats: Math.max(seats, 2) });
     if (cur !== "premium") bots.slice(0, 7).forEach((arch, i) => seatAi(t, i + 1, `Bot ${i + 1}`, PROFILES[arch] ? arch : "TAG"));
+
+    // The owner's assisted (strategy-tool) seat flag is an Edge Pass entitlement.
+    // The engine defaults it on for seats[0], so gate it explicitly here: only honor
+    // assisted===true when the owner actually holds Edge Pass; otherwise leave it off.
+    const edgePass = (u.exists ? u.data()?.edgePass : undefined) === true;
+    if (t.seats[0]) t.seats[0].assisted = assisted === true && edgePass;
 
     tx.set(userRef(uid), { name, [balField(cur)]: bal - stack }, { merge: true });
     persist(tx, code, t, 1, 0, false, cur);
@@ -194,6 +203,26 @@ export const joinTable = onCall(async (req) => {
     tx.set(userRef(uid), { name, [balField(currency)]: bal - t.startingStack }, { merge: true });
     persist(tx, code, t, version + 1, 0, false, currency);
     return { code, seatIdx, currency };
+  });
+});
+
+/** Owner seats an AI bot into an open seat of an EXISTING room. Play-currency rooms
+ *  only (premium rooms are human-only); not while a hand is in progress. */
+export const addBot = onCall(async (req) => {
+  const uid = uidOf(req);
+  const { code, archetype } = (req.data ?? {}) as { code?: string; archetype?: string };
+  if (!code) throw new HttpsError("invalid-argument", "Room code required.");
+  const arch = archetype && PROFILES[archetype] ? archetype : "TAG";
+  return db.runTransaction(async (tx) => {
+    const { t, version, currency } = await loadState(tx, code);
+    if (uid !== t.ownerUid) throw new HttpsError("permission-denied", "Only the host can add a bot.");
+    if (currency !== "play") throw new HttpsError("failed-precondition", "Premium rooms can't add AI.");
+    if (t.status === "in_hand") throw new HttpsError("failed-precondition", "Finish the hand before adding a bot.");
+    const seatIdx = t.seats.findIndex((s) => !s.uid && !s.ai);
+    if (seatIdx < 0) throw new HttpsError("failed-precondition", "Room is full.");
+    if (!seatAi(t, seatIdx, `Bot ${seatIdx}`, arch)) throw new HttpsError("failed-precondition", "Couldn't seat the bot.");
+    persist(tx, code, t, version + 1, 0, false, currency);
+    return { ok: true, seatIdx, archetype: arch };
   });
 });
 
