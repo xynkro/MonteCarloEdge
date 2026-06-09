@@ -106,6 +106,14 @@ export const giftChips = (toUid: string, amount: number, note = "") => callFn<{ 
 export const sendMessage = (toUid: string, text: string) => callFn<{ ok: boolean }>("sendMessage", { toUid, text });
 export const claimWeekly = () => callFn<{ granted: number; balance: number }>("claimWeekly", {});
 export const adminGift = (toUid: string, currency: "play" | "premium", amount: number) => callFn<{ balance: number }>("adminGift", { toUid, currency, amount });
+export const adminSetEdgePass = (toUid: string, on: boolean) => callFn<{ edgePass: boolean }>("adminSetEdgePass", { toUid, on });
+export interface AdminUser { uid: string; name: string; play: number; premium: number; edgePass: boolean }
+/** Live list of ALL users (admin only — rules enforce list-if-admin). */
+export async function subscribeUsers(cb: (users: AdminUser[]) => void): Promise<() => void> {
+  const { m, db } = await firestore();
+  return m.onSnapshot(m.query(m.collection(db, "users"), m.limit(300)), (snap: { docs: { id: string; data: () => Record<string, unknown> }[] }) =>
+    cb(snap.docs.map((d) => { const x = d.data(); return { uid: d.id, name: (x.name as string) ?? "player", play: (x.chipsPlay as number) ?? (x.chips as number) ?? 0, premium: (x.chipsPremium as number) ?? 0, edgePass: !!x.edgePass }; })));
+}
 
 /** Is the signed-in user a super-admin (custom claim)? */
 export async function isAdminClaim(): Promise<boolean> {

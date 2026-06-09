@@ -1438,3 +1438,15 @@ body::before {
 .net-hero .hero-card.red { color: var(--card-red); }
 .lobby-ai { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; justify-content: center; margin-bottom: 8px; }
 .lobby-ai .hint { width: 100%; text-align: center; margin-bottom: 2px; }
+
+
+/* Admin users browser */
+.admin-user { display: flex; align-items: center; gap: 8px; padding: 9px 4px; border-bottom: 1px solid var(--line); }
+.admin-user .au-main { flex: 1; min-width: 0; }
+.admin-user .au-name { font-weight: 800; font-size: 13px; }
+.admin-user .au-bal { font-size: 12px; color: var(--muted); }
+.admin-user .au-actions { display: flex; gap: 5px; flex-shrink: 0; }
+.admin-user .au-actions .hdr-btn { padding: 6px 8px; font-size: 11px; }
+.admin-user .au-edge.on { background: color-mix(in srgb, var(--emerald) 22%, transparent); border-color: var(--emerald); color: var(--emerald); }
+.inbox-online { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+.inbox-online .io-chip { font-size: 12px; padding: 5px 11px; border-radius: 999px; background: var(--glass); border: 1px solid var(--glass-edge); color: var(--text); cursor: pointer; }

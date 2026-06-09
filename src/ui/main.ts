@@ -3405,8 +3405,8 @@ function renderMpSetup(): void {
         </div>` : (!noPrem ? `<div class="room-broke">You need at least ${sym} ${minBuy.toLocaleString()} to sit at ${tier.name}. Lower the stakes or top up.</div>` : "")}
 
         <div class="field"><label>MCE Strategy overlay</label>
-          <button class="mce-toggle ${S.edgePass && _roomAssisted ? "on" : ""} ${!S.edgePass ? "locked" : ""}" id="room-mce" ${noPrem ? "disabled" : ""}>${!S.edgePass ? "🔒 Edge Pass" : _roomAssisted ? "🧠 ON" : "OFF"}</button>
-          <span class="hint" style="display:block;margin-top:4px">${!S.edgePass ? "Live in-game GTO recommendations — unlock with Edge Pass in the Store." : "Show the live MCE recommendation at your seat this room."}</span>
+          <button class="mce-toggle ${hasEdge() && _roomAssisted ? "on" : ""} ${!hasEdge() ? "locked" : ""}" id="room-mce" ${noPrem ? "disabled" : ""}>${!hasEdge() ? "🔒 Edge Pass" : _roomAssisted ? "🧠 ON" : "OFF"}</button>
+          <span class="hint" style="display:block;margin-top:4px">${!hasEdge() ? "Live in-game GTO recommendations — unlock with Edge Pass in the Store." : "Show the live MCE recommendation at your seat this room."}</span>
         </div>
 
         ${canAfford && !noPrem ? `<button class="start-btn" id="net-create" style="background:linear-gradient(135deg,#4285F4,#1a73e8);color:#fff">${S.net.busy ? "…" : `🌐 Create ${premium ? "💎 Premium" : "🪙 Play"} Room`}</button>` : ""}
@@ -3425,7 +3425,7 @@ function renderMpSetup(): void {
   app.querySelectorAll("#room-cur [data-cur]").forEach((b) => onEl(b, "click", () => { _roomCurrency = (b as HTMLElement).dataset.cur === "premium" ? "premium" : "play"; S.net.err = ""; render(); }));
   app.querySelectorAll("[data-tier]").forEach((b) => onEl(b, "click", () => { const i = +(b as HTMLElement).dataset.tier!; const t = ROOM_TIERS[i]!; su.tier = i; su.sb = t.sb; su.bb = t.bb; su.buyIn = Math.min(t.max, premium ? (S.wallet.premium ?? 0) : (S.wallet.play ?? 0)); render(); }));
   onId("room-buyin", "input", (e) => { su.buyIn = Math.max(minBuy, Math.min(maxBuy, +(e.target as HTMLInputElement).value)); render(); });
-  onId("room-mce", "click", () => { if (!S.edgePass) { S.screen = "store"; render(); return; } _roomAssisted = !_roomAssisted; render(); });
+  onId("room-mce", "click", () => { if (!hasEdge()) { S.screen = "store"; render(); return; } _roomAssisted = !_roomAssisted; render(); });
   onId("net-create", "click", () => { void createNetRoom(); });
   onId("net-code", "change", (e) => { S.net.joinCode = (e.target as HTMLInputElement).value.trim().toUpperCase(); });
   onId("net-join", "click", () => { const v = (document.getElementById("net-code") as HTMLInputElement | null)?.value.trim().toUpperCase() || S.net.joinCode; void joinNetRoom(v); });
@@ -3594,7 +3594,7 @@ async function createNetRoom(): Promise<void> {
   S.net.busy = true; render();
   try {
     // Create EMPTY (no AI) — bots are added in the lobby. MCE overlay only if entitled.
-    const { code } = await FB.createRoom({ tier: tier.name, buyIn: su.buyIn, name: S.profile.nickname, bots: [], currency: _roomCurrency, assisted: S.edgePass && _roomAssisted });
+    const { code } = await FB.createRoom({ tier: tier.name, buyIn: su.buyIn, name: S.profile.nickname, bots: [], currency: _roomCurrency, assisted: hasEdge() && _roomAssisted });
     S.net.busy = false; await enterRoom(code);
   } catch (e) { S.net.busy = false; S.net.err = friendlyErr(e); render(); }
 }
@@ -3738,7 +3738,12 @@ async function startEconomySubs(uid: string): Promise<void> {
     _walletUnsub = await FB.subscribeWallet(uid, (w) => { S.wallet = { play: w.play, premium: w.premium }; S.edgePass = w.edgePass; S.lastWeekly = w.lastWeekly; S.weeklyStreak = w.weeklyStreak; S.collectibles = w.collectibles; renderIfEcon(); maybeShowWeekly(); });
     _inboxUnsub = await FB.subscribeInbox(uid, (msgs) => { S.inbox = msgs; renderIfEcon(); });
     _onlineUnsub = await FB.subscribeOnline((list) => { S.mp.online = list.filter((p) => p.uid !== uid); renderIfEcon(); });
-    FB.isAdminClaim().then((a) => { S.isAdmin = a; renderIfEcon(); }).catch(() => {});
+    FB.isAdminClaim().then((a) => {
+      S.isAdmin = a; renderIfEcon();
+      // Admins auto-get a real Edge Pass entitlement (server-side) so the live MCE
+      // overlay works in networked rooms too, not just the UI unlock.
+      if (a && !S.edgePass) FB.adminSetEdgePass(uid, true).catch(() => {});
+    }).catch(() => {});
   } catch { /* */ }
 }
 /** Back-compat: re-pull entitlement (the live wallet sub also keeps it fresh). */
@@ -3855,6 +3860,9 @@ function esc(s: unknown): string {
 }
 function fmtBal(n: number | null): string { return n == null ? "—" : Math.round(n).toLocaleString(); }
 function unreadCount(): number { return S.inbox.filter((m) => !m.read).length; }
+// Admin gets the MCE overlay / Edge Pass unlocked automatically (UI), alongside real
+// Stripe subscribers. (Server-side, admins self-grant a real entitlement on sign-in.)
+function hasEdge(): boolean { return S.edgePass || S.isAdmin; }
 
 // Admin "preview as a regular player": a client-only toggle that suppresses every
 // admin affordance so the owner can QA the normal experience. It does NOT drop the
@@ -3871,7 +3879,10 @@ function renderInbox(): void {
   app.innerHTML = `
     <div class="setup doc">
       <div class="doc-top"><button class="hdr-btn" id="ib-back">← Back</button><h1>✉️ Inbox</h1><button class="hdr-btn" id="ib-new">＋ New</button></div>
-      ${msgs.length === 0 ? `<div class="hint" style="text-align:center;margin-top:34px">No messages yet.<br/>Tap ＋ New to message or gift another player.</div>` : msgs.map((m) => {
+      <div class="set-head" style="margin:4px 0 6px">🟢 Online now · ${S.mp.online.length}</div>
+      ${S.mp.online.length ? `<div class="inbox-online">${S.mp.online.map((p) => `<button class="io-chip" data-uid="${esc(p.uid)}" data-name="${esc(p.name)}">🟢 ${esc(p.name)}</button>`).join("")}</div>` : `<div class="hint" style="margin-bottom:12px">No one else online right now — tap a name here when friends are on to message or gift them.</div>`}
+      <div class="set-head" style="margin:4px 0 6px">Messages</div>
+      ${msgs.length === 0 ? `<div class="hint" style="text-align:center;margin-top:14px">No messages yet.<br/>Tap a player above or ＋ New to message / gift.</div>` : msgs.map((m) => {
         const icon = m.kind === "gift" ? "🎁" : m.kind === "admin" ? "🛡" : "💬";
         const body = (m.kind === "gift" || m.kind === "admin")
           ? `sent you ${m.currency === "premium" ? "💎" : "🪙"} <strong>${(m.chips || 0).toLocaleString()}</strong>${m.text ? ` — “${esc(m.text)}”` : ""}`
@@ -3885,6 +3896,7 @@ function renderInbox(): void {
     </div>`;
   onId("ib-back", "click", () => { S.screen = "home"; render(); });
   onId("ib-new", "click", () => { S.compose = { toUid: "", toName: "", text: "", giftAmt: 0, busy: false, err: "", sent: "" }; S.screen = "compose"; render(); });
+  app.querySelectorAll(".io-chip").forEach((b) => onEl(b, "click", () => { const el = b as HTMLElement; S.compose = { toUid: el.dataset.uid!, toName: el.dataset.name!, text: "", giftAmt: 0, busy: false, err: "", sent: "" }; S.screen = "compose"; render(); }));
   app.querySelectorAll(".ib-reply").forEach((b) => onEl(b, "click", () => {
     const el = b as HTMLElement;
     S.compose = { toUid: el.dataset.uid!, toName: el.dataset.name!, text: "", giftAmt: 0, busy: false, err: "", sent: "" };
@@ -3930,35 +3942,72 @@ async function doSend(): Promise<void> {
 }
 
 let _ledgerUnsub: (() => void) | null = null;
+let _usersUnsub: (() => void) | null = null;
+let _adminUsers: import("../mp/firebase-adapter.js").AdminUser[] = [];
 function renderAdmin(): void {
   cancelVillainTimer();
   if (!S.isAdmin) { S.screen = "home"; render(); return; }
   const c = S.compose;
+  const myUid = S.mp.auth?.uid ?? "";
   if (!_ledgerUnsub) FB.subscribeLedger((rows) => { S.ledger = rows; if (S.screen === "admin") render(); }).then((u) => { _ledgerUnsub = u; }).catch(() => {});
+  if (!_usersUnsub) FB.subscribeUsers((us) => { _adminUsers = us; if (S.screen === "admin") render(); }).then((u) => { _usersUnsub = u; }).catch(() => {});
   app.innerHTML = `
     <div class="setup doc">
       <div class="doc-top"><button class="hdr-btn" id="ad-back">← Back</button><h1>🛡 Admin</h1><span style="width:54px"></span></div>
-      <div class="set-group"><div class="set-head">Gift / adjust chips</div>
-        <div class="field"><label>Recipient UID</label><input class="si-input" id="ad-uid" placeholder="user uid (from inbox / console)" value="${esc(c.toUid)}"/></div>
+
+      <div class="set-group"><div class="set-head">You</div>
+        <button class="hdr-btn" id="ad-myuid" style="width:100%;word-break:break-all">UID ${esc(myUid)} · 📋 copy</button>
+      </div>
+
+      <div class="set-group"><div class="set-head">All users · ${_adminUsers.length}</div>
+        ${_adminUsers.length === 0
+          ? `<div class="hint">Loading users… (needs the admin claim). If this stays empty, run functions/scripts/set-admin.mjs then sign out + in.</div>`
+          : _adminUsers.slice().sort((a, b) => (a.uid === myUid ? -1 : b.uid === myUid ? 1 : 0)).map((u) => `
+            <div class="admin-user">
+              <div class="au-main">
+                <div class="au-name">${esc(u.name)}${u.edgePass ? " 🧠" : ""}${u.uid === myUid ? " · you" : ""}</div>
+                <div class="au-bal">🪙 ${u.play.toLocaleString()} · 💎 ${u.premium.toLocaleString()}</div>
+              </div>
+              <div class="au-actions">
+                <button class="hdr-btn au-act" data-u="${u.uid}" data-cur="play" data-amt="500">+500🪙</button>
+                <button class="hdr-btn au-act" data-u="${u.uid}" data-cur="premium" data-amt="100">+100💎</button>
+                <button class="hdr-btn au-edge ${u.edgePass ? "on" : ""}" data-u="${u.uid}" data-on="${u.edgePass ? "0" : "1"}">${u.edgePass ? "Edge ✓" : "Edge"}</button>
+              </div>
+            </div>`).join("")}
+      </div>
+
+      <div class="set-group"><div class="set-head">Custom grant (by UID)</div>
+        <div class="field"><label>Recipient UID</label><input class="si-input" id="ad-uid" placeholder="paste a UID from above" value="${esc(c.toUid)}"/></div>
         <div class="field"><label>Currency</label><select class="mp-type" id="ad-cur"><option value="play">🪙 Play</option><option value="premium">💎 Premium</option></select></div>
         <div class="field"><label>Amount (negative = deduct)</label><input class="si-input" id="ad-amt" type="number" value="${c.giftAmt || ""}"/></div>
         ${c.err ? `<div class="room-broke">${esc(c.err)}</div>` : ""}${c.sent ? `<div class="se-active">${esc(c.sent)}</div>` : ""}
         <button class="si-btn primary" id="ad-give" ${c.busy ? "disabled" : ""}>${c.busy ? "…" : "Grant"}</button>
       </div>
-      <div class="set-group"><div class="set-head">Ledger — last ${S.ledger.length} transfers</div>
-        ${S.ledger.length === 0 ? `<div class="hint">No transfers yet (or grant one above).</div>` : S.ledger.map((r) => `<div class="ledger-row"><span>${r.type === "admin" ? "🛡" : "🎁"} ${r.currency === "premium" ? "💎" : "🪙"} ${(r.amount || 0).toLocaleString()}</span><span class="hint">${esc(r.fromName || r.from)} → ${esc(r.toName || r.to)}</span></div>`).join("")}
+
+      <div class="set-group"><div class="set-head">Ledger — last ${S.ledger.length}</div>
+        ${S.ledger.length === 0 ? `<div class="hint">No transfers yet.</div>` : S.ledger.map((r) => `<div class="ledger-row"><span>${r.type === "admin" ? "🛡" : r.type === "edgepass" ? "🧠" : r.type === "buy" ? "🛍" : "🎁"} ${r.currency === "premium" ? "💎" : r.currency === "play" ? "🪙" : ""} ${r.amount != null ? Number(r.amount).toLocaleString() : (r.on ? "on" : "off")}</span><span class="hint">${esc(r.fromName || r.from)} → ${esc(r.toName || r.to)}</span></div>`).join("")}
       </div>
 
       <div class="set-group"><div class="set-head">View</div>
-        <div class="set-note" style="margin-bottom:9px">See the app exactly as a regular player does — hides every admin affordance. Your access is unchanged; come back here via the banner on Home.</div>
+        <div class="set-note" style="margin-bottom:9px">See the app exactly as a regular player does. Your access is unchanged; return via the banner on Home.</div>
         <button class="hdr-btn" id="ad-preview" style="width:100%;padding:12px">👁 Preview as a regular player</button>
       </div>
     </div>`;
   onId("ad-back", "click", () => { S.screen = "home"; render(); });
+  onId("ad-myuid", "click", () => { try { void navigator.clipboard?.writeText(myUid); } catch { /* */ } });
   onId("ad-preview", "click", () => setViewAsPlayer(true));
   onId("ad-uid", "input", (e) => { c.toUid = (e.target as HTMLInputElement).value.trim(); });
   onId("ad-amt", "input", (e) => { c.giftAmt = Math.floor(+(e.target as HTMLInputElement).value || 0); });
   onId("ad-give", "click", () => void doAdminGift());
+  app.querySelectorAll(".au-act").forEach((b) => onEl(b, "click", () => { const el = b as HTMLElement; void doAdminGiftUser(el.dataset.u!, el.dataset.cur as "play" | "premium", +el.dataset.amt!); }));
+  app.querySelectorAll(".au-edge").forEach((b) => onEl(b, "click", () => { const el = b as HTMLElement; void doAdminEdge(el.dataset.u!, el.dataset.on === "1"); }));
+}
+async function doAdminGiftUser(uid: string, cur: "play" | "premium", amt: number): Promise<void> {
+  try { await FB.adminGift(uid, cur, amt); try { playSound("chip"); } catch { /* */ } }
+  catch (e) { S.compose.err = friendlyErr(e); render(); }
+}
+async function doAdminEdge(uid: string, on: boolean): Promise<void> {
+  try { await FB.adminSetEdgePass(uid, on); } catch (e) { S.compose.err = friendlyErr(e); render(); }
 }
 async function doAdminGift(): Promise<void> {
   const c = S.compose;
@@ -4164,7 +4213,7 @@ function renderStore(): void {
 
       <div class="set-group"><div class="set-head">Edge Pass · the Monte Carlo Edge, live</div>
         <div class="set-note" style="margin-bottom:9px">The real-time MCE overlay in online play + hand-history review + leak report. <strong>Solo Train stays 100% free, forever.</strong></div>
-        ${S.edgePass ? `<div class="se-active">✓ Edge Pass active</div><button class="hdr-btn" id="edge-manage" style="width:100%;margin-top:8px">Manage subscription</button>`
+        ${hasEdge() ? `<div class="se-active">✓ Edge Pass active${S.isAdmin && !S.edgePass ? " (admin)" : ""}</div>${S.edgePass && !S.isAdmin ? `<button class="hdr-btn" id="edge-manage" style="width:100%;margin-top:8px">Manage subscription</button>` : ""}`
           : `${EDGE_TIERS.map((t) => `<div class="edge-tier ${t.best ? "best" : ""}"><div class="et-main"><div class="et-price">${t.price}</div><div class="et-sub">${t.sub}</div></div><button class="et-buy" id="edge-buy">${S.net.busy ? "…" : "Get"}</button></div>`).join("")}
           <span class="hint">7-day free trial · cancel anytime in one tap.</span>`}
       </div>
