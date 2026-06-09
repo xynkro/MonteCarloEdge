@@ -85,10 +85,12 @@ function runBots(t: AuthTable): void {
 }
 
 // Persist secret state + public projection + per-player holes, in one transaction.
-function persist(tx: Transaction, code: string, t: AuthTable, version: number, baseline: number): void {
-  // Chip-conservation tripwire: at hand end, the banked seat chips must equal the
-  // chips that were in play when the hand started (settle never mints/burns chips).
-  if (t.status === "hand_over") {
+// `settled` = a hand JUST resolved this call (act/startHand), which is the only time
+// the chip-conservation tripwire is meaningful — join/leave legitimately change the
+// table chips between hands, so we must NOT run the check there (it would brick the
+// table after hand 1).
+function persist(tx: Transaction, code: string, t: AuthTable, version: number, baseline: number, settled = false): void {
+  if (settled && t.status === "hand_over") {
     const banked = t.seats.reduce((a, s) => a + (s.uid || s.ai ? s.chips : 0), 0);
     if (Math.abs(banked - baseline) > 0.5) {
       throw new HttpsError("internal", `chip conservation broken: ${banked} != ${baseline}`);
@@ -96,11 +98,13 @@ function persist(tx: Transaction, code: string, t: AuthTable, version: number, b
   }
 
   const pub = publicState(t);
+  // Reveal hole cards ONLY at a genuine multi-way showdown. On a fold-out the lone
+  // winner never has to show — publishing their cards would leak a confirmed bluff.
   const revealedHoles: Record<number, [number, number]> = {};
   if (t.status === "hand_over" && t.gs) {
-    for (const ts of t.liveSeats) {
-      const g = toGsSeat(t, ts);
-      if (g >= 0 && !t.gs.folded[g]) { const h = t.holes.get(ts); if (h) revealedHoles[ts] = h; }
+    const contenders = t.liveSeats.filter((ts) => { const g = toGsSeat(t, ts); return g >= 0 && !t.gs!.folded[g]; });
+    if (contenders.length > 1) {
+      for (const ts of contenders) { const h = t.holes.get(ts); if (h) revealedHoles[ts] = h; }
     }
   }
   const deadlineMs = t.status === "in_hand" ? Date.now() + TURN_SECONDS * 1000 : 0;
@@ -174,12 +178,17 @@ export const startHand = onCall(async (req) => {
     const { t, version } = await loadState(tx, code);
     if (uid !== t.ownerUid) throw new HttpsError("permission-denied", "Only the host can deal.");
     if (t.status === "in_hand") throw new HttpsError("failed-precondition", "Hand already in progress.");
+    // Require at least one seated HUMAN with chips — never deal a bot-only hand
+    // (blocks an owner-left startHand-spam grind).
+    if (!t.seats.some((s) => s.uid && s.chips > 0 && !s.sittingOut)) {
+      throw new HttpsError("failed-precondition", "Need a seated player with chips.");
+    }
     if (!engineStartHand(t, cryptoRng)) throw new HttpsError("failed-precondition", "Need 2+ players with chips.");
     // Total chips at the table (blinds are now in the pot, but seats[].chips still
     // hold each buy-in until settle). Conserved across the whole hand.
     const baseline = t.seats.reduce((a, s) => a + (s.uid || s.ai ? s.chips : 0), 0);
     runBots(t); // auto-play any leading bots up to the first human
-    persist(tx, code, t, version + 1, baseline);
+    persist(tx, code, t, version + 1, baseline, true);
     return { ok: true };
   });
 });
@@ -198,7 +207,7 @@ export const act = onCall(async (req) => {
     const r = engineAct(t, uid, action); // validates turn (from uid) + legality + min-raise
     if (!r.ok) throw new HttpsError("failed-precondition", r.err ?? "illegal action");
     runBots(t); // resolve any bots up to the next human / hand end
-    persist(tx, code, t, version + 1, baseline);
+    persist(tx, code, t, version + 1, baseline, true);
     return { ok: true };
   });
 });
