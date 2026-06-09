@@ -3994,40 +3994,61 @@ function showWeeklyClaim(): void {
   const reduce = reduceMotion();
   const amt = nextWeeklyAmt();
   const wkNum = S.weeklyStreak + 1; // the week you're claiming
-  const rain = reduce ? "" : Array.from({ length: 14 }, (_, i) => `<span class="wk-chip" style="left:${Math.round((i / 14) * 100)}%;animation-delay:${(i % 7) * 0.13}s">🪙</span>`).join("");
-  const ladder = WEEKLY_LADDER.map((v, i) => `<span class="wk-rung ${i === Math.min(S.weeklyStreak, 3) ? "now" : i < S.weeklyStreak ? "done" : ""}">${v}</span>`).join("<i>›</i>");
+  const ladder = WEEKLY_LADDER.map((v, i) => `<span class="wk-rung ${i === Math.min(S.weeklyStreak, 3) ? "now" : i < S.weeklyStreak ? "done" : ""}">${v.toLocaleString()}</span>`).join("");
   const wrap = document.createElement("div");
   wrap.id = "weekly-modal"; wrap.className = "weekly-modal";
   wrap.innerHTML = `
     <div class="weekly-card">
-      <div class="wk-rain" aria-hidden="true">${rain}</div>
-      <div class="wk-glow" aria-hidden="true"></div>
-      <div class="wk-gift">🎁</div>
-      <h2>Week ${wkNum} chips</h2>
-      <p class="wk-sub">🔥 ${S.weeklyStreak > 0 ? `${S.weeklyStreak}-week streak — keep it alive!` : "Start your weekly streak."}</p>
-      <div class="wk-amt">🪙 <span id="wk-num">${amt}</span></div>
+      <div class="wk-ring" aria-hidden="true"></div>
+      <div class="wk-coin">🪙</div>
+      <h2>Week ${wkNum}</h2>
+      <p class="wk-sub">${S.weeklyStreak > 0 ? `🔥 ${S.weeklyStreak}-week streak` : "Your weekly free chips"}</p>
+      <div class="wk-amt">+<span id="wk-num">${amt.toLocaleString()}</span></div>
       <div class="wk-ladder">${ladder}</div>
-      <button class="si-btn primary" id="wk-claim">CLAIM 🪙 ${amt.toLocaleString()}</button>
-      <button class="wk-later" id="wk-later">Maybe later</button>
+      <button class="si-btn primary" id="wk-claim">CLAIM</button>
+      <button class="wk-later" id="wk-later">Later</button>
     </div>`;
   document.body.appendChild(wrap);
-  const close = () => { wrap.classList.add("closing"); setTimeout(() => wrap.remove(), 250); };
+  let closed = false;
+  const close = () => { if (closed) return; closed = true; wrap.classList.add("closing"); setTimeout(() => wrap.remove(), 280); };
   wrap.querySelector("#wk-later")!.addEventListener("click", close);
   wrap.querySelector("#wk-claim")!.addEventListener("click", async () => {
     const btn = wrap.querySelector("#wk-claim") as HTMLButtonElement;
+    if (btn.disabled) return;
     btn.disabled = true; btn.textContent = "…";
     try {
       const r = await FB.claimWeekly();
+      S.lastWeekly = Date.now(); // kill any re-show race immediately (don't wait for the sub)
+      const card = wrap.querySelector(".weekly-card")!;
+      card.classList.add("claimed");
+      if (!reduce) coinBurst(card as HTMLElement, 18);
       try { playSound("chip"); } catch { /* */ }
-      countUp(wrap.querySelector("#wk-num"), r.granted, reduce);
-      wrap.querySelector(".weekly-card")!.classList.add("claimed");
+      countUp(wrap.querySelector("#wk-num"), r.granted ?? amt, reduce);
       btn.textContent = "✓ Claimed!";
-      setTimeout(close, 1300);
+      setTimeout(close, 1500);
     } catch (e) {
-      btn.disabled = false; btn.textContent = `CLAIM 🪙 ${amt.toLocaleString()}`;
-      const sub = wrap.querySelector(".wk-sub"); if (sub) sub.textContent = friendlyErr(e);
+      // Most likely "already claimed this week" — never leave the modal stuck.
+      S.lastWeekly = Date.now();
+      const msg = friendlyErr(e);
+      const sub = wrap.querySelector(".wk-sub"); if (sub) sub.textContent = /already|precondition/i.test(msg) ? "Already claimed — see you next week!" : msg;
+      btn.textContent = "OK"; btn.disabled = false;
+      btn.onclick = close;
+      setTimeout(close, 2400);
     }
   });
+}
+function coinBurst(card: HTMLElement, n: number): void {
+  for (let i = 0; i < n; i++) {
+    const c = document.createElement("span");
+    c.className = "wk-fly"; c.textContent = "🪙";
+    const ang = (i / n) * 2 * Math.PI + (i * 0.7);
+    const dist = 64 + (i % 5) * 18;
+    c.style.setProperty("--dx", `${(Math.cos(ang) * dist).toFixed(0)}px`);
+    c.style.setProperty("--dy", `${(Math.sin(ang) * dist - 24).toFixed(0)}px`);
+    c.style.animationDelay = `${((i % 6) * 0.03).toFixed(2)}s`;
+    card.appendChild(c);
+    setTimeout(() => c.remove(), 1400);
+  }
 }
 
 /* ═══════════════════ HOME HUB + PROFILE ═══════════════════ */
