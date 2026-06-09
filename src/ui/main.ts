@@ -60,7 +60,7 @@ interface UndoSnapshot {
 }
 
 interface AppState {
-  screen: "home" | "setup" | "game" | "stats" | "leaks" | "mp-setup" | "mp-table" | "mp-lobby" | "mp-net" | "profile" | "settings" | "legal" | "explainer" | "store" | "signin";
+  screen: "home" | "setup" | "game" | "stats" | "leaks" | "mp-setup" | "mp-table" | "mp-lobby" | "mp-net" | "profile" | "settings" | "legal" | "explainer" | "store" | "signin" | "inbox" | "compose" | "admin";
   // Player profile (local-first; syncs name/avatar to Firestore when signed in).
   profile: { nickname: string; avatar: string; chips: number };
   // Multiplayer / benchmark (Phase 0 hot-seat + Phase 1 online lobby).
@@ -85,6 +85,11 @@ interface AppState {
     err: string;
   };
   edgePass: boolean;        // Stripe Edge Pass subscription active (server-confirmed)
+  wallet: { play: number | null; premium: number | null }; // server balances (signed in)
+  isAdmin: boolean;         // super-admin custom claim
+  inbox: import("../mp/firebase-adapter.js").InboxMsg[];
+  compose: { toUid: string; toName: string; text: string; giftAmt: number; busy: boolean; err: string; sent: string };
+  ledger: Record<string, any>[];
   mode: "live" | "training";
   sessionStart: number;
   tableSize: number;
@@ -202,6 +207,11 @@ const S: AppState = {
   },
   net: { code: null, pub: null, myHand: null, serverChips: null, joinCode: "", busy: false, err: "" },
   edgePass: false,
+  wallet: { play: null, premium: null },
+  isAdmin: false,
+  inbox: [],
+  compose: { toUid: "", toName: "", text: "", giftAmt: 0, busy: false, err: "", sent: "" },
+  ledger: [],
   mode: "live",
   sessionStart: Date.now(),
   tableSize: 6,
@@ -401,6 +411,9 @@ function render(): void {
   else if (S.screen === "explainer") renderExplainer();
   else if (S.screen === "store") renderStore();
   else if (S.screen === "signin") renderSignIn();
+  else if (S.screen === "inbox") renderInbox();
+  else if (S.screen === "compose") renderCompose();
+  else if (S.screen === "admin") renderAdmin();
   else if (S.screen === "setup") renderSetup();
   else if (S.screen === "stats") renderStats();
   else if (S.screen === "leaks") renderLeaks();
@@ -3376,11 +3389,17 @@ function renderMpSetup(): void {
 
       <div class="net-section">
         <div class="set-head" style="margin-top:14px">Play with friends · online</div>
-        <span class="hint" style="display:block;margin-bottom:8px">Create a room and share the code. Friends sign in on their own phones and join — each only sees their own cards. Uses the stakes + bots above.</span>
-        <button class="start-btn" id="net-create" style="background:linear-gradient(135deg,#4285F4,#1a73e8);color:#fff">🌐 Create online room</button>
+        <div class="cur-seg" id="room-cur">
+          <button class="${_roomCurrency === "play" ? "sel" : ""}" data-cur="play">🪙 Play chips</button>
+          <button class="${_roomCurrency === "premium" ? "sel" : ""}" data-cur="premium">💎 Premium</button>
+        </div>
+        <span class="hint" style="display:block;margin-bottom:8px">${_roomCurrency === "premium"
+          ? `Premium room: <strong>everyone plays premium, no AI</strong>. ${S.mp.auth ? `You have 💎 ${fmtBal(S.wallet.premium)}.` : ""}`
+          : `Play-chip room: AI opponents allowed (the bots above). ${S.mp.auth ? `You have 🪙 ${fmtBal(S.wallet.play)}.` : ""}`} Share the code; each player only sees their own cards.</span>
+        <button class="start-btn" id="net-create" style="background:linear-gradient(135deg,#4285F4,#1a73e8);color:#fff">🌐 Create ${_roomCurrency === "premium" ? "💎 premium" : "🪙 play"} room</button>
         <div class="net-join"><input class="mp-num" id="net-code" placeholder="MCE-XXXX" maxlength="8" value="${S.net.joinCode.replace(/"/g, "")}" style="text-transform:uppercase"/><button class="hdr-btn" id="net-join">Join</button></div>
         ${S.net.err ? `<div class="room-broke" style="margin-top:8px">${S.net.err}</div>` : ""}
-        <span class="hint" style="display:block;text-align:center;margin-top:6px">${S.mp.auth ? `✓ Signed in as ${S.mp.auth.name}` : "You'll sign in with Google to create or join."}</span>
+        <span class="hint" style="display:block;text-align:center;margin-top:6px">${S.mp.auth ? `✓ Signed in as ${esc(S.mp.auth.name)}` : "You'll sign in to create or join."}</span>
       </div>
 
       <button class="hdr-btn" id="mp-back" style="width:100%;padding:12px;margin-top:10px">Back</button>
@@ -3403,6 +3422,7 @@ function renderMpSetup(): void {
   onId("mp-add-ai", "click", () => { su.players.push({ name: seatName(su.players.length), assisted: false, ai: "rand" }); render(); });
   onId("mp-back", "click", () => { S.screen = "home"; render(); });
   onId("net-code", "change", (e) => { S.net.joinCode = (e.target as HTMLInputElement).value.trim().toUpperCase(); });
+  app.querySelectorAll("#room-cur [data-cur]").forEach((b) => onEl(b, "click", () => { _roomCurrency = (b as HTMLElement).dataset.cur === "premium" ? "premium" : "play"; S.net.err = ""; render(); }));
   onId("net-create", "click", () => { void createNetRoom(); });
   onId("net-join", "click", () => {
     const v = (document.getElementById("net-code") as HTMLInputElement | null)?.value.trim().toUpperCase() || S.net.joinCode;
@@ -3558,6 +3578,7 @@ function renderMpTable(): void {
 /* ═══════════════════ NETWORKED ROOMS (Phase 2 — live backend) ═══════════════════ */
 
 let _netTableUnsub: (() => void) | null = null, _netHandUnsub: (() => void) | null = null;
+let _roomCurrency: "play" | "premium" = "play";
 function clearNetSubs(): void { if (_netTableUnsub) { _netTableUnsub(); _netTableUnsub = null; } if (_netHandUnsub) { _netHandUnsub(); _netHandUnsub = null; } }
 
 function friendlyErr(e: unknown): string {
@@ -3601,8 +3622,9 @@ async function createNetRoom(): Promise<void> {
   const su = S.mp.setup; const tier = ROOM_TIERS[su.tier]!;
   S.net.busy = true; render();
   try {
-    const bots = su.players.slice(1).map((p) => (!p.ai || p.ai === "rand") ? AI_ARCHES[Math.floor(Math.random() * AI_ARCHES.length)]! : p.ai);
-    const { code } = await FB.createRoom({ tier: tier.name, buyIn: su.buyIn, name: S.profile.nickname, bots });
+    // Premium rooms are human-only (no AI); play rooms carry the configured bots.
+    const bots = _roomCurrency === "premium" ? [] : su.players.slice(1).map((p) => (!p.ai || p.ai === "rand") ? AI_ARCHES[Math.floor(Math.random() * AI_ARCHES.length)]! : p.ai);
+    const { code } = await FB.createRoom({ tier: tier.name, buyIn: su.buyIn, name: S.profile.nickname, bots, currency: _roomCurrency });
     S.net.busy = false; await enterRoom(code);
   } catch (e) { S.net.busy = false; S.net.err = friendlyErr(e); render(); }
 }
@@ -3698,11 +3720,29 @@ function renderNetTable(): void {
 /* ═══════════════════ SIGN IN / REGISTER ═══════════════════ */
 
 let _signinMode: "signin" | "register" = "signin";
-/** Pull the player's Edge Pass entitlement (+ server chips) from their account doc. */
-async function refreshEntitlement(): Promise<void> {
-  const uid = S.mp.auth?.uid; if (!uid) { S.edgePass = false; return; }
-  try { const u = await FB.readUser(uid); S.edgePass = u.edgePass; if (u.chips != null) S.net.serverChips = u.chips; render(); } catch { /* */ }
+// Live economy subscriptions: two-wallet balance + Edge Pass, the inbox, and the
+// admin claim. Started on sign-in / restore; torn down on sign-out.
+let _walletUnsub: (() => void) | null = null, _inboxUnsub: (() => void) | null = null;
+const ECON_SCREENS = new Set(["home", "inbox", "compose", "admin", "store", "mp-setup", "profile", "settings"]);
+function renderIfEcon(): void { if (ECON_SCREENS.has(S.screen)) render(); }
+function stopEconomySubs(): void {
+  if (_walletUnsub) { _walletUnsub(); _walletUnsub = null; }
+  if (_inboxUnsub) { _inboxUnsub(); _inboxUnsub = null; }
+  if (_onlineUnsub) { _onlineUnsub(); _onlineUnsub = null; }
+  S.wallet = { play: null, premium: null }; S.inbox = []; S.isAdmin = false; S.edgePass = false; S.mp.online = [];
 }
+async function startEconomySubs(uid: string): Promise<void> {
+  stopEconomySubs();
+  try {
+    _walletUnsub = await FB.subscribeWallet(uid, (w) => { S.wallet = { play: w.play, premium: w.premium }; S.edgePass = w.edgePass; renderIfEcon(); });
+    _inboxUnsub = await FB.subscribeInbox(uid, (msgs) => { S.inbox = msgs; renderIfEcon(); });
+    _onlineUnsub = await FB.subscribeOnline((list) => { S.mp.online = list.filter((p) => p.uid !== uid); renderIfEcon(); });
+    FB.isAdminClaim().then((a) => { S.isAdmin = a; renderIfEcon(); }).catch(() => {});
+  } catch { /* */ }
+}
+/** Back-compat: re-pull entitlement (the live wallet sub also keeps it fresh). */
+async function refreshEntitlement(): Promise<void> { const uid = S.mp.auth?.uid; if (uid) await startEconomySubs(uid); }
+function unread(): number { return S.inbox.filter((m) => !m.read).length; }
 async function doSignIn(fn: () => Promise<MPUser>, regName?: string): Promise<void> {
   if (S.net.busy) return;
   S.net.busy = true; S.net.err = ""; render();
@@ -3712,7 +3752,7 @@ async function doSignIn(fn: () => Promise<MPUser>, regName?: string): Promise<vo
     try { localStorage.setItem("mce-signed-in", "1"); } catch { /* */ }
     if (regName) { S.profile.nickname = regName; saveProfile(); }
     void FB.startPresence(u).catch(() => {});
-    void refreshEntitlement();
+    void startEconomySubs(u.uid);
     S.net.busy = false; S.screen = "home"; render();
   } catch (e) { S.net.busy = false; S.net.err = friendlyErr(e); render(); }
 }
@@ -3756,6 +3796,113 @@ function renderSignIn(): void {
     void FB.sendReset(email).then(() => { S.net.err = "Reset email sent — check your inbox."; render(); }).catch((e) => { S.net.err = friendlyErr(e); render(); });
   });
   onId("si-back", "click", () => { S.net.err = ""; S.screen = "home"; render(); });
+}
+
+/* ═══════════════════ MESSAGING · GIFTING · ADMIN ═══════════════════ */
+
+function esc(s: unknown): string {
+  return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c] as string));
+}
+function fmtBal(n: number | null): string { return n == null ? "—" : Math.round(n).toLocaleString(); }
+function unreadCount(): number { return S.inbox.filter((m) => !m.read).length; }
+
+function renderInbox(): void {
+  cancelVillainTimer();
+  const uid = S.mp.auth?.uid;
+  const msgs = S.inbox;
+  app.innerHTML = `
+    <div class="setup doc">
+      <div class="doc-top"><button class="hdr-btn" id="ib-back">← Back</button><h1>✉️ Inbox</h1><button class="hdr-btn" id="ib-new">＋ New</button></div>
+      ${msgs.length === 0 ? `<div class="hint" style="text-align:center;margin-top:34px">No messages yet.<br/>Tap ＋ New to message or gift another player.</div>` : msgs.map((m) => {
+        const icon = m.kind === "gift" ? "🎁" : m.kind === "admin" ? "🛡" : "💬";
+        const body = (m.kind === "gift" || m.kind === "admin")
+          ? `sent you ${m.currency === "premium" ? "💎" : "🪙"} <strong>${(m.chips || 0).toLocaleString()}</strong>${m.text ? ` — “${esc(m.text)}”` : ""}`
+          : esc(m.text || "");
+        return `<div class="inbox-row ${m.read ? "" : "unread"}">
+          <span class="ib-ic">${icon}</span>
+          <div class="ib-body"><div class="ib-from">${esc(m.fromName)}</div><div class="ib-text">${body}</div></div>
+          ${m.from && m.from !== "admin" ? `<button class="hdr-btn ib-reply" data-uid="${esc(m.from)}" data-name="${esc(m.fromName)}">Reply</button>` : ""}
+        </div>`;
+      }).join("")}
+    </div>`;
+  onId("ib-back", "click", () => { S.screen = "home"; render(); });
+  onId("ib-new", "click", () => { S.compose = { toUid: "", toName: "", text: "", giftAmt: 0, busy: false, err: "", sent: "" }; S.screen = "compose"; render(); });
+  app.querySelectorAll(".ib-reply").forEach((b) => onEl(b, "click", () => {
+    const el = b as HTMLElement;
+    S.compose = { toUid: el.dataset.uid!, toName: el.dataset.name!, text: "", giftAmt: 0, busy: false, err: "", sent: "" };
+    S.screen = "compose"; render();
+  }));
+  // Mark everything read (fire-and-forget).
+  if (uid) msgs.filter((m) => !m.read).forEach((m) => void FB.markRead(uid, m.id).catch(() => {}));
+}
+
+function renderCompose(): void {
+  cancelVillainTimer();
+  const c = S.compose;
+  const online = S.mp.online;
+  app.innerHTML = `
+    <div class="setup doc">
+      <div class="doc-top"><button class="hdr-btn" id="co-back">← Back</button><h1>✉️ New message</h1><span style="width:54px"></span></div>
+      ${c.toUid
+        ? `<div class="co-to">To <strong>${esc(c.toName)}</strong> · <button class="mc-foot-link" id="co-clear">change</button></div>`
+        : `<div class="field"><label>To — players online now</label>${online.length ? `<div class="co-online">${online.map((p) => `<button class="hdr-btn co-pick" data-uid="${esc(p.uid)}" data-name="${esc(p.name)}">🙂 ${esc(p.name)}</button>`).join("")}</div>` : `<div class="hint">No one else is online right now. Reply from your inbox, or have a friend sign in.</div>`}</div>`}
+      <div class="field"><label>Message</label><textarea class="si-input" id="co-text" rows="3" maxlength="500" placeholder="Say something…">${esc(c.text)}</textarea></div>
+      <div class="field"><label>Gift play chips (optional) — you have 🪙 ${fmtBal(S.wallet.play)}</label>
+        <input class="si-input" id="co-gift" type="number" min="0" step="50" value="${c.giftAmt || ""}" placeholder="0"/></div>
+      ${c.err ? `<div class="room-broke">${esc(c.err)}</div>` : ""}${c.sent ? `<div class="se-active">${esc(c.sent)}</div>` : ""}
+      <button class="si-btn primary" id="co-send" ${!c.toUid || c.busy ? "disabled style=opacity:.5" : ""}>${c.busy ? "…" : c.giftAmt > 0 ? `Send + gift 🪙 ${c.giftAmt.toLocaleString()}` : "Send"}</button>
+    </div>`;
+  onId("co-back", "click", () => { S.screen = "inbox"; render(); });
+  onId("co-clear", "click", () => { c.toUid = ""; c.toName = ""; render(); });
+  app.querySelectorAll(".co-pick").forEach((b) => onEl(b, "click", () => { const el = b as HTMLElement; c.toUid = el.dataset.uid!; c.toName = el.dataset.name!; render(); }));
+  onId("co-text", "input", (e) => { c.text = (e.target as HTMLTextAreaElement).value; });
+  onId("co-gift", "input", (e) => { c.giftAmt = Math.max(0, Math.floor(+(e.target as HTMLInputElement).value || 0)); });
+  onId("co-send", "click", () => void doSend());
+}
+async function doSend(): Promise<void> {
+  const c = S.compose;
+  if (!c.toUid || c.busy) return;
+  c.busy = true; c.err = ""; c.sent = ""; render();
+  try {
+    if (c.giftAmt > 0) await FB.giftChips(c.toUid, c.giftAmt, c.text.trim().slice(0, 200));
+    else if (c.text.trim()) await FB.sendMessage(c.toUid, c.text.trim());
+    else { c.busy = false; c.err = "Write a message or set a gift amount."; render(); return; }
+    c.busy = false; c.sent = `Sent to ${c.toName}!`; c.text = ""; c.giftAmt = 0; render();
+  } catch (e) { c.busy = false; c.err = friendlyErr(e); render(); }
+}
+
+let _ledgerUnsub: (() => void) | null = null;
+function renderAdmin(): void {
+  cancelVillainTimer();
+  if (!S.isAdmin) { S.screen = "home"; render(); return; }
+  const c = S.compose;
+  if (!_ledgerUnsub) FB.subscribeLedger((rows) => { S.ledger = rows; if (S.screen === "admin") render(); }).then((u) => { _ledgerUnsub = u; }).catch(() => {});
+  app.innerHTML = `
+    <div class="setup doc">
+      <div class="doc-top"><button class="hdr-btn" id="ad-back">← Back</button><h1>🛡 Admin</h1><span style="width:54px"></span></div>
+      <div class="set-group"><div class="set-head">Gift / adjust chips</div>
+        <div class="field"><label>Recipient UID</label><input class="si-input" id="ad-uid" placeholder="user uid (from inbox / console)" value="${esc(c.toUid)}"/></div>
+        <div class="field"><label>Currency</label><select class="mp-type" id="ad-cur"><option value="play">🪙 Play</option><option value="premium">💎 Premium</option></select></div>
+        <div class="field"><label>Amount (negative = deduct)</label><input class="si-input" id="ad-amt" type="number" value="${c.giftAmt || ""}"/></div>
+        ${c.err ? `<div class="room-broke">${esc(c.err)}</div>` : ""}${c.sent ? `<div class="se-active">${esc(c.sent)}</div>` : ""}
+        <button class="si-btn primary" id="ad-give" ${c.busy ? "disabled" : ""}>${c.busy ? "…" : "Grant"}</button>
+      </div>
+      <div class="set-group"><div class="set-head">Ledger — last ${S.ledger.length} transfers</div>
+        ${S.ledger.length === 0 ? `<div class="hint">No transfers yet (or grant one above).</div>` : S.ledger.map((r) => `<div class="ledger-row"><span>${r.type === "admin" ? "🛡" : "🎁"} ${r.currency === "premium" ? "💎" : "🪙"} ${(r.amount || 0).toLocaleString()}</span><span class="hint">${esc(r.fromName || r.from)} → ${esc(r.toName || r.to)}</span></div>`).join("")}
+      </div>
+    </div>`;
+  onId("ad-back", "click", () => { S.screen = "home"; render(); });
+  onId("ad-uid", "input", (e) => { c.toUid = (e.target as HTMLInputElement).value.trim(); });
+  onId("ad-amt", "input", (e) => { c.giftAmt = Math.floor(+(e.target as HTMLInputElement).value || 0); });
+  onId("ad-give", "click", () => void doAdminGift());
+}
+async function doAdminGift(): Promise<void> {
+  const c = S.compose;
+  const cur = ((document.getElementById("ad-cur") as HTMLSelectElement | null)?.value === "premium") ? "premium" : "play";
+  if (!c.toUid || !c.giftAmt || c.busy) return;
+  c.busy = true; c.err = ""; c.sent = ""; render();
+  try { const r = await FB.adminGift(c.toUid, cur, c.giftAmt); c.busy = false; c.sent = `Done — new balance ${r.balance.toLocaleString()}`; render(); }
+  catch (e) { c.busy = false; c.err = friendlyErr(e); render(); }
 }
 
 /* ═══════════════════ HOME HUB + PROFILE ═══════════════════ */
@@ -3910,9 +4057,10 @@ function renderHome(): void {
       <header class="mc-topbar">
         <button class="mc-profile" id="home-profile">
           <span class="mc-ring">${avatarChip(p.avatar, loggedIn ? p.nickname : "?", 36)}</span>
-          ${loggedIn ? `<span class="mc-pmeta2"><span class="mc-pname">${S.mp.auth!.name}</span><span class="mc-pchips-big">🪙 ${p.chips.toLocaleString()}</span></span>` : `<span class="mc-pchips-big locked">🔒 Sign in</span>`}
+          ${loggedIn ? `<span class="mc-pmeta2"><span class="mc-pname">${esc(S.mp.auth!.name)}</span><span class="mc-bal2">🪙 ${fmtBal(S.wallet.play)} · 💎 ${fmtBal(S.wallet.premium)}</span></span>` : `<span class="mc-pchips-big locked">🔒 Sign in</span>`}
         </button>
         <div class="mc-top-right">
+          ${loggedIn ? `<button class="mc-gear" id="home-inbox" aria-label="Inbox">✉️${unreadCount() ? `<span class="ib-badge">${unreadCount()}</span>` : ""}</button>` : ""}
           <button class="mc-gear" id="home-settings" aria-label="Settings">⚙</button>
           ${loggedIn ? `<button class="mc-store" id="home-store">＋ Chips</button>` : `<button class="mc-store" id="home-signin2">Sign in</button>`}
         </div>
@@ -3942,8 +4090,11 @@ function renderHome(): void {
         <button class="mc-foot-link" id="home-explainer">How it works</button><span>·</span>
         <button class="mc-foot-link" id="home-legal">Terms</button><span>·</span>
         <button class="mc-foot-link" id="home-settings2">Settings</button>
+        ${S.isAdmin ? `<span>·</span><button class="mc-foot-link" id="home-admin" style="color:var(--gold-2)">🛡 Admin</button>` : ""}
       </div>
     </div>`;
+  onId("home-inbox", "click", () => { S.screen = "inbox"; render(); });
+  onId("home-admin", "click", () => { S.compose = { toUid: "", toName: "", text: "", giftAmt: 0, busy: false, err: "", sent: "" }; S.screen = "admin"; render(); });
   onId("home-settings", "click", () => { S.screen = "settings"; render(); });
   onId("home-settings2", "click", () => { S.screen = "settings"; render(); });
   onId("home-explainer", "click", () => { _docReturn = "home"; S.screen = "explainer"; render(); });
@@ -4132,7 +4283,8 @@ async function goOnline(): Promise<void> {
 async function goOffline(): Promise<void> {
   if (_onlineUnsub) { _onlineUnsub(); _onlineUnsub = null; }
   await FB.signOutUser().catch(() => {});
-  S.mp.auth = null; S.mp.online = []; S.net.serverChips = null;
+  stopEconomySubs();
+  S.mp.auth = null; S.net.serverChips = null;
   try { localStorage.removeItem("mce-signed-in"); } catch { /* */ }
 }
 
@@ -4184,8 +4336,8 @@ initCardTilt();
 try {
   if (localStorage.getItem("mce-signed-in") === "1") {
     void FB.onAuthChanged((u) => {
-      if (u) { S.mp.auth = u; void FB.startPresence(u).catch(() => {}); void refreshEntitlement(); }
-      else { S.mp.auth = null; S.edgePass = false; try { localStorage.removeItem("mce-signed-in"); } catch { /* */ } }
+      if (u) { S.mp.auth = u; void FB.startPresence(u).catch(() => {}); void startEconomySubs(u.uid); }
+      else { S.mp.auth = null; stopEconomySubs(); try { localStorage.removeItem("mce-signed-in"); } catch { /* */ } }
       if (S.screen === "home") render();
     });
   }

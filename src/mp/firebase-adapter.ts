@@ -32,8 +32,8 @@ async function callFn<T>(name: string, data: unknown): Promise<T> {
   const res = await m.httpsCallable(fns, name)(data);
   return res.data as T;
 }
-export const createRoom = (opts: { tier: string; buyIn: number; name: string; bots: string[] }) =>
-  callFn<{ code: string }>("createTable", opts);
+export const createRoom = (opts: { tier: string; buyIn: number; name: string; bots: string[]; currency?: "play" | "premium" }) =>
+  callFn<{ code: string; currency?: string }>("createTable", opts);
 export const joinRoom = (code: string, name: string) => callFn<{ code: string; seatIdx?: number; already?: boolean }>("joinTable", { code, name });
 export const dealHand = (code: string) => callFn<{ ok: boolean }>("startHand", { code });
 export const actRoom = (code: string, action: unknown, expectedVersion: number) =>
@@ -71,6 +71,47 @@ export async function readUser(uid: string): Promise<{ chips: number | null; edg
 export const edgePassCheckout = (origin: string) => callFn<{ url: string | null }>("createCheckoutSession", { origin });
 /** Open the Stripe billing portal (manage/cancel) — returns its URL. */
 export const billingPortal = (origin: string) => callFn<{ url: string | null }>("createBillingPortal", { origin });
+
+// ── economy: two wallets, gifting, messaging, admin, ledger ──
+export interface Wallet { play: number; premium: number; edgePass: boolean }
+/** Live two-wallet balance + Edge Pass for a player. */
+export async function subscribeWallet(uid: string, cb: (w: Wallet) => void): Promise<() => void> {
+  const { m, db } = await firestore();
+  return m.onSnapshot(m.doc(db, "users", uid), (s: { exists: () => boolean; data: () => Record<string, number | boolean> }) => {
+    const d = s.exists() ? s.data() : {};
+    cb({ play: (d.chipsPlay as number) ?? (d.chips as number) ?? 1000, premium: (d.chipsPremium as number) ?? 0, edgePass: !!d.edgePass });
+  });
+}
+export interface InboxMsg { id: string; kind: string; from: string; fromName: string; text?: string; chips?: number; currency?: string; read?: boolean; createdAt?: { seconds: number } }
+/** Live inbox (newest first). */
+export async function subscribeInbox(uid: string, cb: (msgs: InboxMsg[]) => void): Promise<() => void> {
+  const { m, db } = await firestore();
+  const q = m.query(m.collection(db, `users/${uid}/inbox`), m.orderBy("createdAt", "desc"), m.limit(50));
+  return m.onSnapshot(q, (snap: { docs: { id: string; data: () => Record<string, unknown> }[] }) => cb(snap.docs.map((d) => ({ id: d.id, ...d.data() } as InboxMsg))));
+}
+export async function markRead(uid: string, msgId: string): Promise<void> {
+  const { m, db } = await firestore();
+  await m.updateDoc(m.doc(db, `users/${uid}/inbox/${msgId}`), { read: true });
+}
+export const giftChips = (toUid: string, amount: number, note = "") => callFn<{ ok: boolean }>("giftChips", { toUid, amount, note });
+export const sendMessage = (toUid: string, text: string) => callFn<{ ok: boolean }>("sendMessage", { toUid, text });
+export const claimWeekly = () => callFn<{ granted: number; balance: number }>("claimWeekly", {});
+export const adminGift = (toUid: string, currency: "play" | "premium", amount: number) => callFn<{ balance: number }>("adminGift", { toUid, currency, amount });
+
+/** Is the signed-in user a super-admin (custom claim)? */
+export async function isAdminClaim(): Promise<boolean> {
+  const app = await getFirebaseApp();
+  const { getAuth } = await import("firebase/auth");
+  const u = getAuth(app).currentUser;
+  if (!u) return false;
+  try { const r = await u.getIdTokenResult(); return r.claims.admin === true; } catch { return false; }
+}
+/** Live ledger feed (admin only — rules enforce). Newest first. */
+export async function subscribeLedger(cb: (rows: Record<string, unknown>[]) => void): Promise<() => void> {
+  const { m, db } = await firestore();
+  const q = m.query(m.collection(db, "ledger"), m.orderBy("at", "desc"), m.limit(100));
+  return m.onSnapshot(q, (snap: { docs: { id: string; data: () => Record<string, unknown> }[] }) => cb(snap.docs.map((d) => ({ id: d.id, ...d.data() }))));
+}
 
 /** Pop the Google account picker and sign in. */
 export async function signInWithGoogle(): Promise<MPUser> {
