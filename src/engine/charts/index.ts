@@ -13,10 +13,16 @@ const POSITION_NAMES: Record<number, readonly string[]> = {
   8: ["UTG", "UTG1", "MP", "HJ", "CO", "BTN", "SB", "BB"],
   9: ["UTG", "UTG1", "UTG2", "MP", "HJ", "CO", "BTN", "SB", "BB"],
   10: ["UTG", "UTG1", "UTG2", "MP", "MP1", "HJ", "CO", "BTN", "SB", "BB"],
+  // 11/12-max aren't a real solved poker format (live tables cap at 10). The extra early
+  // seats (UTG3/UTG4) alias to UTG — the tightest range — which is directionally correct.
+  11: ["UTG", "UTG1", "UTG2", "UTG3", "MP", "MP1", "HJ", "CO", "BTN", "SB", "BB"],
+  12: ["UTG", "UTG1", "UTG2", "UTG3", "UTG4", "MP", "MP1", "HJ", "CO", "BTN", "SB", "BB"],
 };
 
 const POSITION_ALIASES: Record<string, string> = {
   MP1: "HJ",
+  UTG3: "UTG",
+  UTG4: "UTG",
 };
 
 function pickChart(tableSize: number) {
