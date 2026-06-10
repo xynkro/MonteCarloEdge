@@ -3580,7 +3580,7 @@ async function enterRoom(code: string): Promise<void> {
   S.net.code = code; S.net.pub = null; S.net.myHand = null; S.net.err = "";
   S.screen = "mp-net"; render();
   try {
-    _netTableUnsub = await FB.subscribeRoom(code, (pub) => { S.net.pub = pub; _netActing = false; if (S.screen === "mp-net") render(); });
+    _netTableUnsub = await FB.subscribeRoom(code, (pub) => { S.net.pub = pub; _netActing = false; S.net.err = ""; if (S.screen === "mp-net") render(); });
     const uid = S.mp.auth?.uid;
     if (uid) _netHandUnsub = await FB.subscribeMyHand(code, uid, (h) => { S.net.myHand = h?.holeCards ?? null; if (S.screen === "mp-net") render(); });
   } catch (e) { S.net.err = friendlyErr(e); render(); }
