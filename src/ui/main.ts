@@ -3387,6 +3387,15 @@ function renderMpSetup(): void {
 
       <div class="room-bal"><span>Balance <strong>🪙 ${fmtBal(S.wallet.play)}</strong> · <strong>💎 ${fmtBal(S.wallet.premium)}</strong></span><button class="hdr-btn" id="room-buychips">＋ Buy chips</button></div>
 
+      <div class="join-card">
+        <label>Join a room</label>
+        <div class="net-join"><input class="mp-num join-code" id="net-code" placeholder="CODE" maxlength="8" autocapitalize="characters" autocomplete="off" value="${S.net.joinCode.replace(/"/g, "")}"/><button class="join-btn" id="net-join">Join</button></div>
+        <span class="hint">Ask the host for their 4-letter code — no dashes needed.</span>
+      </div>
+      ${S.net.err ? `<div class="room-broke" style="margin:8px 0">${esc(S.net.err)}</div>` : ""}
+
+      <div class="join-divider"><span>or create your own</span></div>
+
       <div class="cur-seg" id="room-cur">
         <button class="${!premium ? "sel" : ""}" data-cur="play">🪙 Chips</button>
         <button class="${premium ? "sel" : ""}" data-cur="premium">💎 Premium Chips</button>
@@ -3413,9 +3422,6 @@ function renderMpSetup(): void {
 
         ${canAfford && !noPrem ? `<button class="start-btn" id="net-create" style="background:linear-gradient(135deg,#4285F4,#1a73e8);color:#fff">${S.net.busy ? "…" : `🌐 Create ${premium ? "💎 Premium" : "🪙 Play"} Room`}</button>` : ""}
       </div>
-
-      <div class="net-join"><input class="mp-num" id="net-code" placeholder="Join code · MCE-XXXX" maxlength="8" value="${S.net.joinCode.replace(/"/g, "")}" style="text-transform:uppercase"/><button class="hdr-btn" id="net-join">Join</button></div>
-      ${S.net.err ? `<div class="room-broke" style="margin-top:8px">${esc(S.net.err)}</div>` : ""}
 
       <div class="field" style="margin-top:14px"><label>Who's online${online.length ? ` · ${online.length}` : ""}</label>
         ${online.length ? `<div class="online-list">${online.map((p) => `<span class="online-chip">🟢 ${esc(p.name)}</span>`).join("")}</div>` : `<span class="hint">No one else online right now. Share a room code to bring friends in.</span>`}
@@ -3610,7 +3616,11 @@ async function createNetRoom(): Promise<void> {
 async function joinNetRoom(code: string): Promise<void> {
   if (S.net.busy) return;
   S.net.err = "";
-  if (!code || !/^MCE-/i.test(code)) { S.net.err = "Enter a room code like MCE-XXXX."; render(); return; }
+  // Accept any human form — "XK4P", "mce-xk4p", "MCE XK4P" — and normalise to MCE-XXXX.
+  let c = (code || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+  if (c.startsWith("MCE") && c.length > 4) c = c.slice(3);
+  if (c.length !== 4) { S.net.err = "Enter the 4-letter room code (e.g. XK4P)."; render(); return; }
+  code = `MCE-${c}`;
   if (!(await ensureSignedIn())) return;
   S.net.busy = true; render();
   try { await FB.joinRoom(code, S.profile.nickname); S.net.busy = false; await enterRoom(code); }
@@ -3767,11 +3777,12 @@ function renderNetTable(): void {
     const botLabel = (a: string): string => (({ Station: "Fish 🐟", TAG: "Reg 🎯", LAG: "LAG 🔥", Nit: "Nit 🪨", Auto: "Auto 🧮" }) as Record<string, string>)[a] || a;
     const assistedOn = !!(seats.find((s) => s.uid === uid) as { assisted?: boolean } | undefined)?.assisted;
     const canAddAi = isOwner && currency === "play" && occupied.length < seats.length;
-    const roster = seats.map((s, i) => {
-      if (s.uid) return `<div class="roster-row${s.uid === uid ? " me" : ""}"><span class="rr-ava">${s.uid === uid ? "🧠" : "🙂"}</span><span class="rr-name">${esc(s.name)}${s.uid === uid ? " (you)" : ""}${i === 0 ? ` <span class="rr-tag">HOST</span>` : ""}</span><span class="rr-chip">${sym} ${mpc(s.chips)}</span></div>`;
-      if (s.ai) return `<div class="roster-row bot"><span class="rr-ava">🤖</span><span class="rr-name">${esc(s.name)} · <span class="rr-arch">${botLabel(s.ai)}</span></span><span class="rr-chip">${sym} ${mpc(s.chips)}</span></div>`;
-      return `<div class="roster-row empty"><span class="rr-ava">＋</span><span class="rr-name">Open seat</span><span class="rr-wait">waiting…</span></div>`;
-    }).join("");
+    // Compact pills (2-3 per row) instead of one row per seat — 12 seats no longer overflow.
+    const openSeats = seats.length - occupied.length;
+    const roster = `<div class="roster-pills">${occupied.map(({ s, ti }) => {
+      if (s.uid) return `<span class="roster-pill${s.uid === uid ? " me" : ""}">${s.uid === uid ? "🧠" : "🙂"} ${esc(s.name)}${ti === 0 ? " 👑" : ""}<b>${mpc(s.chips)}</b></span>`;
+      return `<span class="roster-pill bot">🤖 ${esc(s.name)} <i>${botLabel(s.ai!)}</i><b>${mpc(s.chips)}</b></span>`;
+    }).join("")}</div>${openSeats > 0 ? `<div class="roster-open">＋ ${openSeats} open seat${openSeats > 1 ? "s" : ""} — share the code</div>` : ""}`;
     app.innerHTML = `
       <div class="net-game lobby-screen">
         <div class="game-topbar"><span>Room <strong>${code}</strong> · ${sym} ${currency === "premium" ? "premium" : "play"}</span><button class="hdr-btn" id="net-leave">Leave</button></div>

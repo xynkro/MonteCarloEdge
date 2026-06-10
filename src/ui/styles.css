@@ -199,7 +199,7 @@ body::before {
 .start-btn {
   background: linear-gradient(135deg, var(--emerald), var(--emerald-2));
   color: #042018; border: none; border-radius: var(--radius);
-  padding: 17px; font-family: var(--display); font-size: 16px; font-weight: 800; cursor: pointer;
+  width: 100%; padding: 14px; font-family: var(--display); font-size: 15px; font-weight: 800; cursor: pointer;
   margin-top: auto; letter-spacing: .6px; text-transform: uppercase;
   box-shadow: 0 8px 22px rgba(0,214,143,.32), inset 0 1px 0 rgba(255,255,255,.25);
   transition: transform .12s, filter .12s;
@@ -1343,7 +1343,7 @@ body::before {
 .co-to { margin-bottom: 12px; font-size: 15px; }
 .ledger-row { display: flex; justify-content: space-between; gap: 10px; padding: 8px 4px; border-bottom: 1px solid var(--line); font-size: 13px; }
 .cur-seg { display: flex; gap: 8px; margin: 6px 0 10px; }
-.cur-seg button { flex: 1; padding: 12px; border-radius: 12px; border: 1px solid var(--glass-edge); background: var(--glass); color: var(--muted); font-weight: 800; font-size: 14px; cursor: pointer; }
+.cur-seg button { flex: 1; padding: 8px 10px; border-radius: 10px; border: 1px solid var(--glass-edge); background: var(--glass); color: var(--muted); font-weight: 800; font-size: 13px; cursor: pointer; }
 .cur-seg button.sel { border-color: var(--gold-2); color: var(--text); background: color-mix(in srgb, var(--gold-2) 16%, transparent); }
 
 /* Weekly free-chips claim modal */
@@ -1398,6 +1398,17 @@ body::before {
 .net-join { display: flex; gap: 8px; margin-top: 8px; }
 .net-join .mp-num { flex: 1; letter-spacing: 1px; }
 .net-join .hdr-btn { padding: 0 20px; }
+/* Join-first entry: code field on top, prominent, dash-free */
+.join-card { padding: 12px 14px 10px; border-radius: 14px; background: var(--glass); border: 1px solid var(--glass-edge); margin-bottom: 4px; }
+.join-card label { font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); font-weight: 800; }
+.join-card .net-join { margin-top: 7px; }
+.join-card .hint { display: block; margin-top: 6px; }
+.join-code { text-transform: uppercase; text-align: center; letter-spacing: .45em !important; font-size: 19px !important; font-weight: 800 !important; }
+.join-code::placeholder { letter-spacing: .2em; font-size: 14px; color: var(--muted); }
+.join-btn { padding: 0 22px; border: none; border-radius: 10px; background: var(--gold-foil, linear-gradient(135deg,#f5c451,#e0a52e)); color: #2a1c05; font-weight: 800; font-size: 14px; cursor: pointer; }
+.join-btn:active { transform: scale(.97); }
+.join-divider { display: flex; align-items: center; gap: 10px; margin: 14px 0 10px; color: var(--muted); font-size: 11px; letter-spacing: .14em; text-transform: uppercase; font-weight: 800; }
+.join-divider::before, .join-divider::after { content: ""; flex: 1; height: 1px; background: var(--glass-edge); }
 .net-share { text-align: center; font-size: 14px; margin-bottom: 12px; color: var(--muted); }
 .net-copy { background: var(--glass); border: 1px solid var(--glass-edge); border-radius: 9px; color: var(--text); padding: 7px 13px; margin-left: 8px; cursor: pointer; font-size: 16px; }
 .net-copy strong { background: var(--gold-foil); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; letter-spacing: 1.5px; }
@@ -1426,7 +1437,8 @@ body::before {
 .online-list { display: flex; flex-wrap: wrap; gap: 6px; }
 .online-chip { font-size: 12px; padding: 4px 10px; border-radius: 999px; background: var(--glass); border: 1px solid var(--glass-edge); color: var(--text); }
 .room-stakes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
-.room-stakes .seg-btn { padding: 10px 4px; }
+.room-stakes .seg-btn { padding: 7px 4px; }
+.room-stakes .rs-name { font-size: 13px; }
 .net-game .net-table-wrap { padding: 6px 4px 0; }
 /* Net table mirrors the training oval (aspect-ratio), centered + bounded. */
 .net-game .poker-table { position: relative; width: 100%; max-width: 480px; aspect-ratio: 1 / 0.8; height: auto; max-height: 46vh; margin: 6px auto 14px; }
@@ -1487,6 +1499,14 @@ body::before {
 .lobby-sub { font-size: .85rem; color: rgba(255,255,255,.6); margin: 0; max-width: 320px; }
 .lobby-sub strong { color: rgba(255,255,255,.85); }
 .lobby-roster { background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.1); border-radius: 16px; overflow: hidden; }
+/* Pills: 2-3 players per row so 12 seats never overflow the lobby */
+.roster-pills { display: flex; flex-wrap: wrap; gap: 7px; padding: 12px 14px; }
+.roster-pill { display: inline-flex; align-items: center; gap: 6px; padding: 6px 11px; border-radius: 999px; background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.12); font-size: 12.5px; font-weight: 700; color: var(--text); }
+.roster-pill.me { background: rgba(31,157,107,.16); border-color: rgba(63,214,196,.45); }
+.roster-pill.bot { opacity: .85; }
+.roster-pill i { font-style: normal; font-size: 11px; color: var(--muted); }
+.roster-pill b { font-size: 11px; color: var(--gold-2, #f5c451); font-weight: 800; }
+.roster-open { padding: 0 14px 12px; font-size: 12px; color: var(--muted); }
 .roster-head { display: flex; justify-content: space-between; padding: 11px 16px; font-size: .76rem; font-weight: 800; letter-spacing: 1px; text-transform: uppercase; color: rgba(255,255,255,.5); border-bottom: 1px solid rgba(255,255,255,.07); }
 .roster-row { display: flex; align-items: center; gap: 11px; padding: 12px 16px; border-bottom: 1px solid rgba(255,255,255,.05); }
 .roster-row:last-child { border-bottom: none; }
