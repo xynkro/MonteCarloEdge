@@ -3580,7 +3580,7 @@ async function enterRoom(code: string): Promise<void> {
   S.net.code = code; S.net.pub = null; S.net.myHand = null; S.net.err = "";
   S.screen = "mp-net"; render();
   try {
-    _netTableUnsub = await FB.subscribeRoom(code, (pub) => { S.net.pub = pub; _netActing = false; S.net.err = ""; if (S.screen === "mp-net") render(); });
+    _netTableUnsub = await FB.subscribeRoom(code, (pub) => { S.net.pub = pub; _netActing = false; _netBetOpen = false; S.net.err = ""; if (S.screen === "mp-net") render(); });
     const uid = S.mp.auth?.uid;
     if (uid) _netHandUnsub = await FB.subscribeMyHand(code, uid, (h) => { S.net.myHand = h?.holeCards ?? null; if (S.screen === "mp-net") render(); });
   } catch (e) { S.net.err = friendlyErr(e); render(); }
@@ -3610,6 +3610,8 @@ async function joinNetRoom(code: string): Promise<void> {
 }
 
 let _netActing = false; // optimistic: true between tapping an action and the next snapshot
+let _netBetOpen = false; // bet-sizing slider panel open
+let _netBetAmt = 0; // current slider value = total bet / raise-to
 async function netAct(action: { type: string; amount?: number }): Promise<void> {
   const code = S.net.code, pub = S.net.pub;
   if (!code || !pub || _netActing) return;
@@ -3707,17 +3709,41 @@ function renderNetTable(): void {
   } else if (status === "hand_over") {
     controls = `<div class="mp-result">${esc(pub.lastResult || "Hand over")}</div>${isOwner ? `<button class="start-btn" id="net-deal">${S.net.busy ? "…" : "NEXT HAND"}</button>` : `<div class="hint" style="text-align:center">Waiting for the next deal…</div>`}`;
   } else if (myTurn) {
-    const seat = seats[pub.toAct]!; const toCall = (pub.currentBet as number) - seat.bet;
+    const seat = seats[pub.toAct]!; const cur = (pub.currentBet as number) || 0;
+    const toCall = cur - seat.bet; const bb = ((pub.blinds as { bb?: number })?.bb) || 2;
+    const myMax = seat.chips + seat.bet; // all-in total (stack behind + already-in bet)
+    const minTo = cur > 0 ? Math.min(myMax, cur * 2) : Math.min(myMax, bb);
+    const canSlide = myMax > minTo; // false = short stack, only legal aggression is all-in
     const hero = S.net.myHand ? `<div class="net-hero">${S.net.myHand.map((c) => `<span class="hero-card ${isRed(c) ? "red" : ""}">${cardDisplay(c)}</span>`).join("")}</div>` : "";
-    controls = _netActing
-      ? `${hero}<div class="action-bar pending"><button class="action-btn" disabled>sending<span class="dots">…</span></button></div>`
-      : `${hero}
+    if (_netActing) {
+      controls = `${hero}<div class="action-bar pending"><button class="action-btn" disabled>sending<span class="dots">…</span></button></div>`;
+    } else if (_netBetOpen && canSlide) {
+      const amt = Math.max(minTo, Math.min(myMax, _netBetAmt || minTo));
+      const step = Math.max(1, Math.round(bb / 2));
+      controls = `${hero}
+      <div class="bet-panel">
+        <div class="bet-amt-row"><span class="bet-amt">${sym} ${mpc(amt)}</span><span class="bet-amt-bb">${(amt / bb).toFixed(1)} bb${toCall > 0 ? ` · to call ${mpc(toCall)}` : ""}</span></div>
+        <input class="bet-slider" id="nb-slider" type="range" min="${minTo}" max="${myMax}" step="${step}" value="${amt}" />
+        <div class="bet-presets">
+          <button class="bp" data-bp="min">Min</button>
+          <button class="bp" data-bp="half">½ Pot</button>
+          <button class="bp" data-bp="pot">Pot</button>
+          <button class="bp" data-bp="max">All-in</button>
+        </div>
+        <div class="action-bar">
+          <button class="action-btn ghost" id="nb-cancel">← Back</button>
+          <button class="action-btn ${cur > 0 ? "raise" : "bet"}" id="nb-confirm">${cur > 0 ? "Raise to" : "Bet"} ${sym} ${mpc(amt)}</button>
+        </div>
+      </div>`;
+    } else {
+      controls = `${hero}
       <div class="action-bar">
         <button class="action-btn fold" id="na-fold">Fold</button>
         ${toCall > 0 ? `<button class="action-btn call" id="na-call">Call ${mpc(toCall)}</button>` : `<button class="action-btn check" id="na-check">Check</button>`}
-        <button class="action-btn ${(pub.currentBet as number) > 0 ? "raise" : "bet"}" id="na-bet">${(pub.currentBet as number) > 0 ? "Raise" : "Bet"} pot</button>
-        <button class="action-btn raise" id="na-allin">All-in</button>
+        <button class="action-btn ${cur > 0 ? "raise" : "bet"}" id="na-bet">${cur > 0 ? "Raise" : "Bet"}</button>
+        <button class="action-btn allin" id="na-allin">All-in</button>
       </div>`;
+    }
   } else {
     controls = `${S.net.myHand ? `<div class="net-hero">${S.net.myHand.map((c) => `<span class="hero-card ${isRed(c) ? "red" : ""}">${cardDisplay(c)}</span>`).join("")}</div>` : ""}<div class="mp-turn">${esc(seats[pub.toAct]?.name || "…")}'s turn</div><div class="mp-thinking">waiting<span>.</span><span>.</span><span>.</span></div>`;
   }
@@ -3735,8 +3761,33 @@ function renderNetTable(): void {
   onId("na-fold", "click", () => void netAct({ type: "fold" }));
   onId("na-check", "click", () => void netAct({ type: "check" }));
   onId("na-call", "click", () => void netAct({ type: "call" }));
-  onId("na-bet", "click", () => { const seat = seats[pub.toAct]!; const target = Math.min((pub.currentBet as number) > 0 ? (pub.currentBet as number) + (pub.pot as number) : (pub.pot as number), seat.chips + seat.bet); void netAct({ type: (pub.currentBet as number) > 0 ? "raise" : "bet", amount: target }); });
+  onId("na-bet", "click", () => {
+    const seat = seats[pub.toAct]!; const cur = (pub.currentBet as number) || 0;
+    const myMax = seat.chips + seat.bet; const bb = ((pub.blinds as { bb?: number })?.bb) || 2;
+    const minTo = cur > 0 ? Math.min(myMax, cur * 2) : Math.min(myMax, bb);
+    if (myMax <= minTo) { void netAct({ type: cur > 0 ? "raise" : "bet", amount: myMax }); return; } // short stack → straight all-in
+    _netBetAmt = Math.max(minTo, Math.min(myMax, cur > 0 ? cur + (pub.pot as number) : (pub.pot as number) || bb)); // default = pot
+    _netBetOpen = true; render();
+  });
   onId("na-allin", "click", () => { const seat = seats[pub.toAct]!; void netAct({ type: (pub.currentBet as number) > 0 ? "raise" : "bet", amount: seat.chips + seat.bet }); });
+  onId("nb-cancel", "click", () => { _netBetOpen = false; render(); });
+  onId("nb-confirm", "click", () => { _netBetOpen = false; void netAct({ type: (pub.currentBet as number) > 0 ? "raise" : "bet", amount: _netBetAmt }); });
+  const _sl = document.getElementById("nb-slider") as HTMLInputElement | null;
+  if (_sl) onEl(_sl, "input", () => { // live-update labels without a full re-render (keeps the drag smooth)
+    _netBetAmt = +_sl.value; const cur = (pub.currentBet as number) || 0; const bb = ((pub.blinds as { bb?: number })?.bb) || 2;
+    const a = document.querySelector(".bet-amt"); if (a) a.textContent = `${sym} ${mpc(_netBetAmt)}`;
+    const b = document.querySelector(".bet-amt-bb"); if (b) b.textContent = `${(_netBetAmt / bb).toFixed(1)} bb`;
+    const c = document.getElementById("nb-confirm"); if (c) c.textContent = `${cur > 0 ? "Raise to" : "Bet"} ${sym} ${mpc(_netBetAmt)}`;
+  });
+  app.querySelectorAll(".bp").forEach((b) => onEl(b, "click", () => {
+    const k = (b as HTMLElement).dataset.bp; const seat = seats[pub.toAct]!; const cur = (pub.currentBet as number) || 0;
+    const myMax = seat.chips + seat.bet; const bb = ((pub.blinds as { bb?: number })?.bb) || 2;
+    const potNow = (pub.pot as number) || 0; const toCall = cur - seat.bet;
+    const minTo = cur > 0 ? Math.min(myMax, cur * 2) : Math.min(myMax, bb);
+    const cl = (v: number) => Math.max(minTo, Math.min(myMax, Math.round(v)));
+    _netBetAmt = k === "min" ? minTo : k === "half" ? cl(cur + (potNow + Math.max(0, toCall)) / 2) : k === "pot" ? cl(cur + potNow + Math.max(0, toCall)) : myMax;
+    render();
+  }));
 }
 
 /* ═══════════════════ SIGN IN / REGISTER ═══════════════════ */
@@ -3754,11 +3805,12 @@ function stopEconomySubs(): void {
   if (_inboxUnsub) { _inboxUnsub(); _inboxUnsub = null; }
   if (_onlineUnsub) { _onlineUnsub(); _onlineUnsub = null; }
   S.wallet = { play: null, premium: null }; S.inbox = []; S.isAdmin = false; S.edgePass = false; S.mp.online = [];
+  _walletLoaded = false; _weeklyShown = false;
 }
 async function startEconomySubs(uid: string): Promise<void> {
   stopEconomySubs();
   try {
-    _walletUnsub = await FB.subscribeWallet(uid, (w) => { S.wallet = { play: w.play, premium: w.premium }; S.edgePass = w.edgePass; S.lastWeekly = w.lastWeekly; S.weeklyStreak = w.weeklyStreak; S.collectibles = w.collectibles; renderIfEcon(); maybeShowWeekly(); });
+    _walletUnsub = await FB.subscribeWallet(uid, (w) => { S.wallet = { play: w.play, premium: w.premium }; S.edgePass = w.edgePass; S.lastWeekly = w.lastWeekly; S.weeklyStreak = w.weeklyStreak; S.collectibles = w.collectibles; _walletLoaded = true; renderIfEcon(); maybeShowWeekly(); });
     _inboxUnsub = await FB.subscribeInbox(uid, (msgs) => { S.inbox = msgs; renderIfEcon(); });
     _onlineUnsub = await FB.subscribeOnline((list) => { S.mp.online = list.filter((p) => p.uid !== uid); renderIfEcon(); });
     FB.isAdminClaim().then((a) => {
@@ -4049,7 +4101,10 @@ async function doAdminGift(): Promise<void> {
    (which would be a regulated gambling mechanic for a non-gambling app). ── */
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 let _weeklyShown = false;
-function canClaimWeekly(): boolean { return !!S.mp.auth && (!S.lastWeekly || Date.now() - S.lastWeekly >= WEEK_MS); }
+let _walletLoaded = false; // true once the FIRST real wallet snapshot has arrived
+// Treat "never claimed" as claimable ONLY after the wallet has loaded — otherwise we
+// pop the modal on the stale lastWeekly=0 default, then the server says "already claimed".
+function canClaimWeekly(): boolean { return !!S.mp.auth && _walletLoaded && (!S.lastWeekly || Date.now() - S.lastWeekly >= WEEK_MS); }
 function maybeShowWeekly(): void {
   if (_weeklyShown || S.screen !== "home" || !canClaimWeekly()) return;
   _weeklyShown = true;

@@ -251,7 +251,9 @@ export const startHand = onCall(async (req) => {
 });
 
 /** A human acts. Actor derived from the verified token; version-locked; bots chain. */
-export const act = onCall(async (req) => {
+// minInstances:1 keeps the hot action path warm — kills the 1–2s cold-start lag spike
+// on the first action after idle. (~1 always-on instance; modest cost, big felt win.)
+export const act = onCall({ minInstances: 1 }, async (req) => {
   const uid = uidOf(req);
   const { code, action, expectedVersion } = (req.data ?? {}) as
     { code?: string; action?: MPAction; expectedVersion?: number };
