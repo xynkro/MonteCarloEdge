@@ -3613,10 +3613,21 @@ let _netActing = false; // optimistic: true between tapping an action and the ne
 async function netAct(action: { type: string; amount?: number }): Promise<void> {
   const code = S.net.code, pub = S.net.pub;
   if (!code || !pub || _netActing) return;
-  _netActing = true; // instant feedback — the action bar locks to "sending…" right away
+  _netActing = true;
+  // OPTIMISTIC LOCAL APPLY — reflect MY action instantly (chips + bet slide, pot grows)
+  // before the server round-trips. The authoritative snapshot replaces this ~300ms later.
+  const uid = S.mp.auth?.uid;
+  const seats = (pub.seats || []) as Array<{ uid: string | null; chips: number; bet: number; folded: boolean }>;
+  const mi = uid ? seats.findIndex((s) => s.uid === uid) : -1;
+  if (mi >= 0) {
+    const s = seats[mi]!, cur = (pub.currentBet as number) || 0;
+    if (action.type === "fold") s.folded = true;
+    else if (action.type === "call") { const add = Math.max(0, Math.min(cur - s.bet, s.chips)); s.chips -= add; s.bet += add; pub.pot = ((pub.pot as number) || 0) + add; }
+    else if (action.type === "bet" || action.type === "raise") { const add = Math.max(0, Math.min((action.amount ?? 0) - s.bet, s.chips)); s.chips -= add; s.bet += add; pub.pot = ((pub.pot as number) || 0) + add; pub.currentBet = Math.max(cur, s.bet); }
+  }
   if (S.screen === "mp-net") render();
   try { await FB.actRoom(code, action, pub.version as number); }
-  catch { _netActing = false; if (S.screen === "mp-net") render(); /* stale/illegal — snapshot corrects */ }
+  catch { _netActing = false; if (S.screen === "mp-net") render(); /* stale/illegal — next snapshot corrects */ }
 }
 async function netDeal(): Promise<void> { const code = S.net.code; if (!code) return; try { await FB.dealHand(code); } catch (e) { S.net.err = friendlyErr(e); render(); } }
 async function netLeave(): Promise<void> {
@@ -3663,12 +3674,16 @@ function renderNetTable(): void {
     const cards = !lobby && !me && rev ? rev : null;
     const cls = ["table-seat", me ? "hero-seat" : "", s.folded ? "folded" : "", active ? "active" : ""].filter(Boolean).join(" ");
     const tag = s.ai ? "🤖" : me ? "🧠" : "🙂";
+    // Turn timer: the server already sends deadlineMs (40s/turn) — drain a bar on the
+    // active seat so you can FOLLOW whose turn it is + how long they have (WSOP feel).
+    const secsLeft = active ? Math.max(0, Math.min(45, ((pub.deadlineMs as number) || 0) - Date.now()) / 1000) : 0;
     return `<div class="${cls}" style="left:${left.toFixed(1)}%;top:${top.toFixed(1)}%">
       ${ti === pub.dealerSeat && !lobby ? '<div class="dealer-btn">D</div>' : ""}
       <div class="seat-chip">
         <div class="seat-pos">${tag} ${esc(s.name)}${me ? " (you)" : ""}</div>
         <div class="seat-stack">${sym} ${mpc(s.chips)}</div>
         ${s.folded ? `<div class="seat-act">folded</div>` : ""}
+        ${active && secsLeft > 0 ? `<div class="turn-bar"><div class="tb-fill" style="animation-duration:${secsLeft.toFixed(1)}s"></div></div>` : ""}
       </div>
       ${s.bet > 0 && !s.folded ? `<div class="seat-bet ${top < 50 ? "below" : "above"}"><span class="chip-dot"></span>${mpc(s.bet)}</div>` : ""}
       ${cards ? `<div class="seat-cards ${top < 50 ? "below" : "above"}">${cards.map((c) => `<span class="seat-hole reveal ${isRed(c) ? "red" : ""}">${cardDisplay(c)}</span>`).join("")}</div>` : ""}
