@@ -3616,6 +3616,7 @@ async function joinNetRoom(code: string): Promise<void> {
   catch (e) { S.net.busy = false; S.net.err = friendlyErr(e); render(); }
 }
 
+let _fomoDismissed = false; // user closed the "unlock MCE" upsell this session
 let _netActing = false; // optimistic: true between tapping an action and the next snapshot
 let _netBetOpen = false; // bet-sizing slider panel open
 let _netBetAmt = 0; // current slider value = total bet / raise-to
@@ -3764,8 +3765,11 @@ function renderNetTable(): void {
     const betChip = s.bet > 0 && !s.folded ? `<div class="seat-bet ${top < 50 ? "below" : "above"}"><span class="chip-dot"></span>${mpc(s.bet)}</div>` : "";
     const holeCards = cards ? `<div class="seat-cards ${top < 50 ? "below" : "above"}">${cards.map((c) => `<span class="seat-hole reveal ${isRed(c) ? "red" : ""}">${cardDisplay(c)}</span>`).join("")}</div>` : "";
     // Mirror the training table seat: avatar silhouette + name/role + stack.
+    // FOMO: every player sees who is running MCE Strategy — the asymmetry IS the sales pitch.
+    const mceBadge = (s as { assisted?: boolean }).assisted ? `<div class="mce-badge" title="Running MCE Strategy">⚡ MCE</div>` : "";
     return `<div class="${cls}" data-seat="${ti}" style="left:${left.toFixed(1)}%;top:${top.toFixed(1)}%">
       ${ti === pub.dealerSeat ? '<div class="dealer-btn">D</div>' : ""}
+      ${mceBadge}
       ${avatarHtml(ti, me)}
       <div class="seat-chip">
         <div class="seat-pos">${me ? "YOU" : esc(s.name)}${s.ai ? ` <span class="seat-subpos">BOT</span>` : ""}</div>
@@ -3843,12 +3847,21 @@ function renderNetTable(): void {
     controls = `${S.net.myHand ? `<div class="net-hero">${S.net.myHand.map((c) => `<span class="hero-card ${isRed(c) ? "red" : ""}">${cardDisplay(c)}</span>`).join("")}</div>` : ""}<div class="mp-turn">${esc(seats[pub.toAct]?.name || "…")}'s turn</div><div class="mp-thinking">waiting<span>.</span><span>.</span><span>.</span></div>`;
   }
 
+  // FOMO upsell: a non-entitled player at a table where others run MCE Strategy. The
+  // visible asymmetry is the pitch — "they have the edge, you don't, unlock yours".
+  const iAmAssisted = !!(seats.find((s) => s.uid === uid) as { assisted?: boolean } | undefined)?.assisted;
+  const othersAssisted = seats.filter((s) => (s as { assisted?: boolean }).assisted && s.uid && s.uid !== uid).length;
+  const upsellHtml = (!iAmAssisted && !hasEdge() && othersAssisted > 0 && !_fomoDismissed)
+    ? `<div class="fomo-upsell" id="fomo-upsell"><span>⚡ <strong>${othersAssisted} player${othersAssisted === 1 ? "" : "s"}</strong> here ${othersAssisted === 1 ? "is" : "are"} running <strong>MCE Strategy</strong>. Unlock yours →</span><button class="fomo-x" id="fomo-x" aria-label="dismiss">✕</button></div>`
+    : "";
   app.innerHTML = `
     <div class="game net-game">
       <div class="game-topbar"><span>Room <strong>${code}</strong> · ${sym} ${currency === "premium" ? "premium" : "play"}</span><button class="hdr-btn" id="net-leave">Leave</button></div>
       <div class="net-table-wrap"><div class="poker-table"><div class="felt"></div>${seatHtml}<div class="board-center">${center}</div>${potHtml}</div></div>
-      <div class="controls"><div class="controls-body">${controls}${S.net.err ? `<div class="room-broke" style="margin-top:8px">${esc(S.net.err)}</div>` : ""}</div></div>
+      <div class="controls"><div class="controls-body">${upsellHtml}${controls}${S.net.err ? `<div class="room-broke" style="margin-top:8px">${esc(S.net.err)}</div>` : ""}</div></div>
     </div>`;
+  onId("fomo-upsell", "click", () => { S.screen = "store"; render(); });
+  onId("fomo-x", "click", (e) => { (e as Event).stopPropagation(); _fomoDismissed = true; render(); });
   onId("net-leave", "click", () => void netLeave());
   onId("net-deal", "click", () => void netDeal());
   onId("net-copy", "click", () => { try { void navigator.clipboard?.writeText(code); } catch { /* */ } });

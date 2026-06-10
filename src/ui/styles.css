@@ -1528,3 +1528,15 @@ body::before {
 .turn-clock.urgent { border-color: #ff5b6e; color: #ff8b95; animation: clockPulse .6s ease-in-out infinite; }
 @keyframes clockPulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.2); } }
 @media (prefers-reduced-motion: reduce) { .turn-clock.urgent { animation: none; } }
+
+/* FOMO: MCE-Strategy badge on entitled seats (visible to everyone = the asymmetry) */
+.mce-badge { position: absolute; top: -10px; left: 50%; transform: translateX(-50%); z-index: 8; font-size: .58rem; font-weight: 900; letter-spacing: .5px; color: #1a1305; background: linear-gradient(135deg, #ffe08a, var(--gold-2)); padding: 2px 7px; border-radius: 7px; white-space: nowrap; box-shadow: 0 0 10px 1px rgba(245,196,81,.6); animation: mcePulse 1.8s ease-in-out infinite; }
+@keyframes mcePulse { 0%,100% { box-shadow: 0 0 8px 0 rgba(245,196,81,.45); } 50% { box-shadow: 0 0 14px 3px rgba(245,196,81,.8); } }
+.table-seat.folded .mce-badge { opacity: .35; }
+/* Contextual upsell for the non-payer at a table where others run MCE */
+.fomo-upsell { display: flex; align-items: center; gap: 10px; justify-content: space-between; background: linear-gradient(135deg, rgba(245,196,81,.16), rgba(124,92,255,.12)); border: 1px solid rgba(245,196,81,.42); border-radius: 12px; padding: 10px 12px; margin-bottom: 9px; cursor: pointer; transition: transform .1s; }
+.fomo-upsell:active { transform: scale(.99); }
+.fomo-upsell span { font-size: .86rem; color: #fff; line-height: 1.3; }
+.fomo-upsell strong { color: var(--gold-2); }
+.fomo-x { flex: 0 0 auto; background: rgba(255,255,255,.12); border: none; color: rgba(255,255,255,.7); width: 24px; height: 24px; border-radius: 50%; font-size: .8rem; cursor: pointer; }
+@media (prefers-reduced-motion: reduce) { .mce-badge { animation: none; } }
