@@ -12,7 +12,8 @@
     "validate": "tsx src/engine/scripts/validate.ts",
     "validate-ranges": "tsx src/engine/scripts/validate-ranges.ts",
     "validate-decisions": "tsx src/engine/scripts/validate-decisions.ts",
-    "self-play": "tsx src/engine/scripts/self-play.ts"
+    "self-play": "tsx src/engine/scripts/self-play.ts",
+    "emu": "npm --prefix functions run build && firebase emulators:start --only auth,firestore,functions --project montecarloedge"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

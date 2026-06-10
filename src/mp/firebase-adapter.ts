@@ -5,8 +5,23 @@
 // pays for it. Table play / dealing (Phase 2) needs Cloud Functions + the Blaze
 // plan; this module is the free-tier foundation: identity + presence.
 
-import { getFirebaseApp } from "./firebase.js";
+import { getFirebaseApp, DEV_EMU } from "./firebase.js";
 import type { MPUser } from "./types.js";
+
+export { DEV_EMU } from "./firebase.js";
+
+/** DEV-ONLY (emulator) — sign in as a deterministic test user without Google OAuth.
+ *  Register-or-sign-in `dev-<label>@mce.test`. Throws off the emulator so it can't run
+ *  against real auth. Used by the local validation harness to drive a full online hand. */
+export async function devSignIn(label: string): Promise<MPUser> {
+  if (!DEV_EMU) throw new Error("dev sign-in is emulator-only");
+  const app = await getFirebaseApp();
+  const a = await import("firebase/auth");
+  const auth = a.getAuth(app);
+  const email = `dev-${label.toLowerCase().replace(/[^a-z0-9]/g, "")}@mce.test`, pw = "devpass123";
+  try { const c = await a.signInWithEmailAndPassword(auth, email, pw); return toUser(c.user); }
+  catch { const c = await a.createUserWithEmailAndPassword(auth, email, pw); try { await a.updateProfile(c.user, { displayName: label }); } catch { /* */ } return toUser(c.user); }
+}
 
 const PRESENCE_BEAT_MS = 20_000;   // heartbeat interval
 export const PRESENCE_STALE_MS = 45_000; // "online" if seen within this window

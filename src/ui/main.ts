@@ -4750,6 +4750,29 @@ async function initAuth(): Promise<void> {
 }
 void initAuth();
 
+// ── DEV harness (emulator/localhost ONLY — inert in production) ──────────────
+// Exposes window.__MCE_DEV so the validation harness can sign in as test users and
+// drive/inspect the live app state without Google OAuth. Gated on FB.DEV_EMU, which is
+// false off localhost, so this object never exists in the deployed app.
+if (FB.DEV_EMU) {
+  (window as unknown as { __MCE_DEV: unknown }).__MCE_DEV = {
+    get S() { return S; },
+    render,
+    async signIn(label = "caspar") {
+      const u = await FB.devSignIn(label);
+      S.mp.auth = u; S.profile.nickname = label; saveProfile();
+      try { localStorage.setItem("mce-signed-in", "1"); } catch { /* */ }
+      void FB.startPresence(u).catch(() => {});
+      void startEconomySubs(u.uid);
+      S.screen = "home"; render();
+      return u.uid;
+    },
+    go(screen: string) { S.screen = screen; render(); },
+  };
+  // eslint-disable-next-line no-console
+  console.log("%c🔧 __MCE_DEV ready — call __MCE_DEV.signIn('caspar')", "color:#1f9d6b;font-weight:bold");
+}
+
 // Returning from Stripe Checkout: clear the query param + re-pull entitlement (the
 // webhook may land a beat after the redirect, so poll a couple of times).
 try {

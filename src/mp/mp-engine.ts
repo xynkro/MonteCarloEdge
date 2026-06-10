@@ -277,7 +277,11 @@ function settle(t: AuthTable): void {
 export function publicState(t: AuthTable): PublicTableState {
   const gs = t.gs;
   const seats: MPSeat[] = t.seats.map((s, ts) => {
-    const g = t.status !== "waiting" ? tableToGs(t, ts) : -1;
+    // Only project the live engine stacks DURING a hand. At hand_over the hand has been
+    // settle()d — the pot is already banked into s.chips — so show those settled totals
+    // (else the winner's stack looks unchanged until the next deal, and the pot→winner
+    // animation finds no chip delta).
+    const g = t.status === "in_hand" ? tableToGs(t, ts) : -1;
     const inHand = g >= 0 && gs != null;
     return {
       uid: s.uid, name: s.name, ai: s.ai,
@@ -293,9 +297,9 @@ export function publicState(t: AuthTable): PublicTableState {
     seats, dealerSeat: t.buttonSeat,
     street: gs ? (gs.street as PublicTableState["street"]) : "preflop",
     board: gs ? gs.board.slice() : [],
-    pot: gs ? gs.pot : 0,
+    pot: t.status === "in_hand" && gs ? gs.pot : 0, // pot is distributed at hand_over
     toAct: toActTableSeat(t),
-    currentBet: gs ? gs.currentBet : 0,
+    currentBet: t.status === "in_hand" && gs ? gs.currentBet : 0,
     handId: t.handId,
     lastResult: t.lastResult,
   };
