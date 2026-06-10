@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>MonteCarloEdge — The Proof</title>
+<meta name="description" content="MonteCarloEdge's GTO engine, validated against exact enumeration. See how the MCE strategy beats the field, hand after hand." />
+<meta property="og:title" content="MonteCarloEdge — The Proof" />
+<meta property="og:description" content="The MCE strategy vs the field. Measured, reproducible, +bb/100." />
+<style>
+  :root{
+    --ink:#0a0e13; --ink2:#0f1a16; --panel:rgba(255,255,255,.045); --line:rgba(255,255,255,.10);
+    --gold:#f5c451; --emerald:#1f9d6b; --emerald-bright:#3fd6c4; --red:#d23b4e; --txt:#eef2f0; --mut:rgba(238,242,240,.55);
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{
+    font-family:'Bricolage Grotesque',system-ui,-apple-system,sans-serif;
+    background:radial-gradient(120% 80% at 50% -10%, #14241d 0%, var(--ink) 55%);
+    color:var(--txt); min-height:100vh; line-height:1.5; -webkit-font-smoothing:antialiased;
+    padding:clamp(20px,5vw,64px) clamp(16px,5vw,40px) 80px;
+  }
+  .wrap{max-width:760px;margin:0 auto}
+  .brand{display:flex;align-items:center;gap:10px;font-weight:800;font-size:.95rem;letter-spacing:.04em;color:var(--gold)}
+  .brand .bolt{font-size:1.2rem}
+  .eyebrow{margin-top:46px;font-size:.8rem;letter-spacing:.22em;text-transform:uppercase;color:var(--mut);font-weight:700}
+  h1{font-size:clamp(2.4rem,8vw,4.2rem);font-weight:800;line-height:1.02;letter-spacing:-.02em;margin:10px 0 18px}
+  h1 .hl{color:var(--gold)}
+  .lede{font-size:clamp(1.05rem,2.6vw,1.3rem);color:var(--mut);max-width:54ch}
+  .hero-num{margin:40px 0 8px;display:flex;align-items:baseline;gap:14px;flex-wrap:wrap}
+  .hero-num .big{font-size:clamp(3.6rem,16vw,7rem);font-weight:800;line-height:.9;color:var(--emerald-bright);font-variant-numeric:tabular-nums}
+  .hero-num .unit{font-size:clamp(1rem,3vw,1.4rem);font-weight:700;color:var(--mut)}
+  .hero-sub{color:var(--mut);font-size:.95rem}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:clamp(18px,4vw,30px);margin-top:34px;backdrop-filter:blur(6px)}
+  .card h2{font-size:1.05rem;font-weight:800;margin-bottom:4px}
+  .card .meta{font-size:.82rem;color:var(--mut);margin-bottom:20px}
+  .bar-row{margin:16px 0}
+  .bar-head{display:flex;justify-content:space-between;align-items:baseline;font-size:.92rem;margin-bottom:7px}
+  .bar-head .who{font-weight:700}
+  .bar-head .who small{color:var(--mut);font-weight:500;margin-left:6px}
+  .bar-head .val{font-weight:800;font-variant-numeric:tabular-nums}
+  .track{position:relative;height:14px;background:rgba(255,255,255,.06);border-radius:8px;overflow:hidden}
+  .fill{position:absolute;top:0;bottom:0;border-radius:8px;transition:width 1s cubic-bezier(.2,.8,.2,1);width:0}
+  .pos{background:linear-gradient(90deg,var(--emerald),var(--emerald-bright))}
+  .neg{background:linear-gradient(90deg,#8a2233,var(--red))}
+  .pillbar{display:flex;align-items:center;gap:10px;margin:26px 0 6px;padding:16px 20px;border:1px dashed rgba(245,196,81,.4);border-radius:14px;background:rgba(245,196,81,.05)}
+  .pillbar .lbl{font-size:.78rem;letter-spacing:.14em;text-transform:uppercase;color:var(--gold);font-weight:800}
+  .pillbar .num{margin-left:auto;font-size:1.5rem;font-weight:800;color:var(--emerald-bright);font-variant-numeric:tabular-nums}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px;margin-top:18px}
+  .stat{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px 18px}
+  .stat .k{font-size:.72rem;letter-spacing:.14em;text-transform:uppercase;color:var(--mut);font-weight:700}
+  .stat .v{font-size:1.4rem;font-weight:800;margin-top:4px}
+  .method{font-size:.86rem;color:var(--mut);margin-top:14px;line-height:1.6}
+  .cta{display:flex;flex-wrap:wrap;gap:14px;margin-top:40px;align-items:center}
+  .btn{display:inline-block;padding:15px 28px;border-radius:14px;font-weight:800;font-size:1rem;text-decoration:none;transition:transform .12s}
+  .btn:active{transform:scale(.97)}
+  .btn-gold{background:linear-gradient(135deg,var(--gold),#e0a52e);color:#1a1305;box-shadow:0 6px 22px rgba(245,196,81,.28)}
+  .btn-ghost{border:1px solid var(--line);color:var(--txt)}
+  .foot{margin-top:54px;color:var(--mut);font-size:.82rem;border-top:1px solid var(--line);padding-top:22px}
+  .foot b{color:var(--txt)}
+  .loading{color:var(--mut);font-style:italic}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="brand"><span class="bolt">⚡</span> MONTECARLO EDGE</div>
+
+  <div class="eyebrow">The Proof</div>
+  <h1>We don't claim an edge.<br><span class="hl">We measure it.</span></h1>
+  <p class="lede">The MCE engine's equity is validated against exact hand enumeration and canonical GTO ranges. Here's what its strategy does against the field — hand after hand, no hand-picking.</p>
+
+  <div class="hero-num">
+    <span class="big" id="blended">··</span>
+    <span class="unit">bb / 100 hands<br><span class="hero-sub">vs a typical field</span></span>
+  </div>
+
+  <div class="card">
+    <h2>MCE strategy vs each opponent type</h2>
+    <div class="meta" id="meta">Loading measured results…</div>
+    <div id="bars"><p class="loading">Crunching the simulation…</p></div>
+    <div class="pillbar">
+      <span class="lbl">Blended field edge</span>
+      <span class="num" id="blended2">··</span>
+    </div>
+    <p class="method" id="method"></p>
+  </div>
+
+  <div class="grid" id="stats"></div>
+
+  <div class="cta">
+    <a class="btn btn-gold" href="/">Play the math →</a>
+    <a class="btn btn-ghost" href="/?store=1">Unlock Edge Pass</a>
+  </div>
+
+  <div class="foot">
+    <b>How to read this:</b> bb/100 = big blinds won per 100 hands, poker's standard win-rate metric. Positive means the strategy profits. Results are reproducible heads-up self-play, seeded — not cherry-picked sessions. <br><br>
+    <b>MonteCarloEdge</b> · Play the math. Own the table.
+  </div>
+</div>
+
+<script>
+(async () => {
+  const fmt = (n) => (n >= 0 ? "+" : "") + n.toFixed(1);
+  try {
+    const res = await fetch("/proof-data.json", { cache: "no-cache" });
+    if (!res.ok) throw new Error("no data yet");
+    const d = await res.json();
+    const max = Math.max(...d.results.map((r) => Math.abs(r.bb100)), Math.abs(d.blendedBb100), 1);
+
+    document.getElementById("blended").textContent = fmt(d.blendedBb100);
+    document.getElementById("blended2").textContent = fmt(d.blendedBb100);
+    document.getElementById("meta").textContent =
+      `${d.totalHands.toLocaleString()} hands simulated · generated ${d.generated}`;
+    document.getElementById("method").textContent = d.method || "";
+
+    const bars = d.results.map((r) => {
+      const pct = (Math.abs(r.bb100) / max) * 100;
+      const cls = r.bb100 >= 0 ? "pos" : "neg";
+      return `<div class="bar-row">
+        <div class="bar-head">
+          <span class="who">${r.vs}<small>${r.label || ""}</small></span>
+          <span class="val" style="color:${r.bb100 >= 0 ? "var(--emerald-bright)" : "var(--red)"}">${fmt(r.bb100)} bb/100</span>
+        </div>
+        <div class="track"><div class="fill ${cls}" data-w="${pct}"></div></div>
+      </div>`;
+    }).join("");
+    document.getElementById("bars").innerHTML = bars;
+    requestAnimationFrame(() => document.querySelectorAll(".fill").forEach((el) => { el.style.width = el.dataset.w + "%"; }));
+
+    document.getElementById("stats").innerHTML = `
+      <div class="stat"><div class="k">Hands measured</div><div class="v">${d.totalHands.toLocaleString()}</div></div>
+      <div class="stat"><div class="k">Opponent types</div><div class="v">${d.results.length}</div></div>
+      <div class="stat"><div class="k">Engine</div><div class="v" style="font-size:1rem">${d.engine}</div></div>`;
+  } catch (e) {
+    document.getElementById("bars").innerHTML = '<p class="loading">Proof data is being generated — check back shortly.</p>';
+    document.getElementById("blended").textContent = "—";
+    document.getElementById("blended2").textContent = "—";
+  }
+})();
+</script>
+</body>
+</html>
