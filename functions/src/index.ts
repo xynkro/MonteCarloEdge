@@ -15,11 +15,12 @@ import { getFirestore, FieldValue, type Transaction } from "firebase-admin/fires
 
 import {
   createAuthTable, sit, seatAi, leave, startHand as engineStartHand,
-  act as engineAct, actSeat, publicState, toActTableSeat, toGsSeat, type AuthTable,
+  act as engineAct, actSeat, publicState, toActTableSeat, toGsSeat, recommendForSeat, type AuthTable,
 } from "../../src/mp/mp-engine.js";
 import { serializeAuthTable, deserializeAuthTable, type AuthTableSnapshot } from "../../src/mp/auth-table-codec.js";
 import type { MPAction } from "../../src/mp/types.js";
 import { villainDecision } from "../../src/engine/villain-ai.js";
+import { recommend } from "../../src/engine/decision.js";
 import { AUTO, TAG, LAG, STATION, NIT, type OpponentProfile } from "../../src/engine/opponent.js";
 import { cryptoRng } from "./crypto-rng.js";
 
@@ -140,7 +141,18 @@ function persist(tx: Transaction, code: string, t: AuthTable, version: number, b
   // Per-player hole cards — each human in the hand reads only their own doc.
   for (const ts of t.liveSeats) {
     const s = t.seats[ts];
-    if (s?.uid) tx.set(holeRef(code, s.uid), { handId: t.handId, holeCards: t.holes.get(ts) ?? null });
+    if (!s?.uid) continue;
+    // Live MCE Strategy recommendation: only for an Edge-Pass "assisted" seat, in a
+    // hand, on that seat's turn to act. Heuristics-only (see decision.ts ~L102) — no
+    // solver — so this is ~villainDecision cost. Never let it break the hand-doc write.
+    let rec: Record<string, unknown> | null = null;
+    if (s.assisted === true && t.status === "in_hand" && ts === toActTableSeat(t)) {
+      try {
+        const r = recommendForSeat(t, ts, recommend, PROFILES.Auto ?? TAG);
+        rec = r ? { action: r.action, amount: r.amount, handLabel: r.handLabel ?? "", reasoning: r.reasoning, equity: r.equity, potOdds: r.potOdds, source: r.source ?? "heuristic" } : null;
+      } catch { rec = null; }
+    }
+    tx.set(holeRef(code, s.uid), { handId: t.handId, holeCards: t.holes.get(ts) ?? null, rec });
   }
 }
 
@@ -251,9 +263,7 @@ export const startHand = onCall(async (req) => {
 });
 
 /** A human acts. Actor derived from the verified token; version-locked; bots chain. */
-// minInstances:1 keeps the hot action path warm — kills the 1–2s cold-start lag spike
-// on the first action after idle. (~1 always-on instance; modest cost, big felt win.)
-export const act = onCall({ minInstances: 1 }, async (req) => {
+export const act = onCall(async (req) => {
   const uid = uidOf(req);
   const { code, action, expectedVersion } = (req.data ?? {}) as
     { code?: string; action?: MPAction; expectedVersion?: number };

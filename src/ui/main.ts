@@ -79,6 +79,7 @@ interface AppState {
     code: string | null;
     pub: Record<string, any> | null; // public table snapshot
     myHand: [number, number] | null; // my own hole cards
+    myRec: { action: string; amount: number; handLabel: string; reasoning: string; equity: number; potOdds: number; source: string } | null; // MCE Strategy advice (assisted seats)
     serverChips: number | null;      // server-held balance
     joinCode: string;
     busy: boolean;
@@ -208,7 +209,7 @@ const S: AppState = {
     authBusy: false,
     authErr: "",
   },
-  net: { code: null, pub: null, myHand: null, serverChips: null, joinCode: "", busy: false, err: "" },
+  net: { code: null, pub: null, myHand: null, myRec: null, serverChips: null, joinCode: "", busy: false, err: "" },
   edgePass: false,
   wallet: { play: null, premium: null },
   lastWeekly: 0,
@@ -3577,12 +3578,12 @@ async function ensureSignedIn(): Promise<boolean> {
 
 async function enterRoom(code: string): Promise<void> {
   clearNetSubs();
-  S.net.code = code; S.net.pub = null; S.net.myHand = null; S.net.err = "";
+  S.net.code = code; S.net.pub = null; S.net.myHand = null; S.net.myRec = null; S.net.err = "";
   S.screen = "mp-net"; render();
   try {
     _netTableUnsub = await FB.subscribeRoom(code, (pub) => { S.net.pub = pub; _netActing = false; _netBetOpen = false; S.net.err = ""; if (S.screen === "mp-net") render(); });
     const uid = S.mp.auth?.uid;
-    if (uid) _netHandUnsub = await FB.subscribeMyHand(code, uid, (h) => { S.net.myHand = h?.holeCards ?? null; if (S.screen === "mp-net") render(); });
+    if (uid) _netHandUnsub = await FB.subscribeMyHand(code, uid, (h) => { S.net.myHand = h?.holeCards ?? null; S.net.myRec = (h as { rec?: typeof S.net.myRec })?.rec ?? null; if (S.screen === "mp-net") render(); });
   } catch (e) { S.net.err = friendlyErr(e); render(); }
 }
 
@@ -3635,7 +3636,7 @@ async function netDeal(): Promise<void> { const code = S.net.code; if (!code) re
 async function netLeave(): Promise<void> {
   const code = S.net.code; clearNetSubs();
   if (code) { try { await FB.leaveRoom(code); } catch { /* */ } }
-  S.net.code = null; S.net.pub = null; S.net.myHand = null; S.net.err = "";
+  S.net.code = null; S.net.pub = null; S.net.myHand = null; S.net.myRec = null; S.net.err = "";
   S.screen = "mp-setup"; render();
 }
 
@@ -3665,6 +3666,48 @@ function renderNetTable(): void {
   const revealed = (pub.revealedHoles || {}) as Record<string, [number, number]>;
   const occupied = seats.map((s, ti) => ({ s, ti })).filter((x) => x.s.uid || x.s.ai);
   const humans = occupied.filter((x) => x.s.uid).length;
+
+  // ── LOBBY = a real waiting room (NOT the oval table) — distinct screen so adding a
+  // bot never feels like the hand started. Roster, AI picker, share code, explicit START.
+  if (lobby) {
+    const botLabel = (a: string): string => (({ Station: "Fish 🐟", TAG: "Reg 🎯", LAG: "LAG 🔥", Nit: "Nit 🪨", Auto: "Auto 🧮" }) as Record<string, string>)[a] || a;
+    const assistedOn = !!(seats.find((s) => s.uid === uid) as { assisted?: boolean } | undefined)?.assisted;
+    const canAddAi = isOwner && currency === "play" && occupied.length < seats.length;
+    const roster = seats.map((s, i) => {
+      if (s.uid) return `<div class="roster-row${s.uid === uid ? " me" : ""}"><span class="rr-ava">${s.uid === uid ? "🧠" : "🙂"}</span><span class="rr-name">${esc(s.name)}${s.uid === uid ? " (you)" : ""}${i === 0 ? ` <span class="rr-tag">HOST</span>` : ""}</span><span class="rr-chip">${sym} ${mpc(s.chips)}</span></div>`;
+      if (s.ai) return `<div class="roster-row bot"><span class="rr-ava">🤖</span><span class="rr-name">${esc(s.name)} · <span class="rr-arch">${botLabel(s.ai)}</span></span><span class="rr-chip">${sym} ${mpc(s.chips)}</span></div>`;
+      return `<div class="roster-row empty"><span class="rr-ava">＋</span><span class="rr-name">Open seat</span><span class="rr-wait">waiting…</span></div>`;
+    }).join("");
+    app.innerHTML = `
+      <div class="net-game lobby-screen">
+        <div class="game-topbar"><span>Room <strong>${code}</strong> · ${sym} ${currency === "premium" ? "premium" : "play"}</span><button class="hdr-btn" id="net-leave">Leave</button></div>
+        <div class="lobby-wrap">
+          <div class="lobby-hero">
+            <div class="lobby-badge">● WAITING ROOM</div>
+            <button class="lobby-code" id="net-copy"><span class="lc-code">${code}</span><span class="lc-hint">tap to copy 📋</span></button>
+            <p class="lobby-sub">Share this code — friends open <strong>Play Online → Join with code</strong>.</p>
+          </div>
+          <div class="lobby-roster">
+            <div class="roster-head"><span>Players</span><span>${occupied.length} / ${seats.length}</span></div>
+            ${roster}
+          </div>
+          ${canAddAi ? `<div class="lobby-addai"><div class="la-label">Add a practice bot</div><div class="la-btns">${[["Station", "🐟 Fish"], ["TAG", "🎯 Reg"], ["LAG", "🔥 LAG"], ["rand", "🎲 Random"]].map(([a, l]) => `<button class="hdr-btn add-ai" data-arch="${a}"${S.net.busy ? " disabled" : ""}>${l}</button>`).join("")}</div></div>`
+        : currency === "premium" ? `<div class="lobby-note">💎 Premium room — humans only. Share the code to fill seats.</div>` : ""}
+          ${assistedOn ? `<div class="lobby-mce">💡 <strong>MCE Strategy is ON</strong> — you'll get live GTO advice on your turn.</div>` : ""}
+          ${isOwner
+        ? `<button class="start-btn lobby-start" id="net-deal"${occupied.length < 2 ? " disabled" : ""}>${S.net.busy ? "…" : occupied.length < 2 ? "Waiting for players…" : "▶ START GAME"}</button>
+             <p class="lobby-foot">${occupied.length < 2 ? "Add a bot or wait for a friend to join." : "Everyone in? Deal the first hand."}</p>`
+        : `<div class="lobby-waiting">Waiting for the host to start<span>.</span><span>.</span><span>.</span></div>`}
+          ${S.net.err ? `<div class="room-broke">${esc(S.net.err)}</div>` : ""}
+        </div>
+      </div>`;
+    onId("net-leave", "click", () => void netLeave());
+    onId("net-copy", "click", () => { try { void navigator.clipboard?.writeText(code); } catch { /* */ } });
+    onId("net-deal", "click", () => void netDeal());
+    app.querySelectorAll(".add-ai").forEach((b) => onEl(b, "click", () => void netAddBot((b as HTMLElement).dataset.arch!)));
+    return;
+  }
+
   const N = Math.max(2, occupied.length);
   const myOrder = Math.max(0, occupied.findIndex((x) => x.s.uid === uid));
   const coord = (orderIdx: number) => { const vis = (orderIdx - myOrder + N) % N; const a = (vis * 2 * Math.PI) / N; return { left: 50 - 41 * Math.sin(a), top: 50 + 38 * Math.cos(a) }; };
@@ -3715,12 +3758,19 @@ function renderNetTable(): void {
     const minTo = cur > 0 ? Math.min(myMax, cur * 2) : Math.min(myMax, bb);
     const canSlide = myMax > minTo; // false = short stack, only legal aggression is all-in
     const hero = S.net.myHand ? `<div class="net-hero">${S.net.myHand.map((c) => `<span class="hero-card ${isRed(c) ? "red" : ""}">${cardDisplay(c)}</span>`).join("")}</div>` : "";
+    // MCE Strategy overlay — live GTO advice for assisted (Edge Pass) seats.
+    const rec = S.net.myRec;
+    const mceCard = rec ? `<div class="net-mce">
+      <div class="nm-row"><span class="nm-tag">💡 MCE</span><span class="nm-action">${capWord(rec.action)}${rec.amount > 0 ? ` ${sym} ${mpc(rec.amount)}` : ""}</span><span class="nm-src">${esc(rec.source)}</span></div>
+      <div class="nm-meta">${rec.handLabel ? `${esc(rec.handLabel)} · ` : ""}${Math.round((rec.equity || 0) * 100)}% eq${rec.potOdds ? ` · ${Math.round(rec.potOdds * 100)}% to call` : ""}</div>
+      ${rec.reasoning ? `<div class="nm-why">${esc(rec.reasoning)}</div>` : ""}
+    </div>` : "";
     if (_netActing) {
       controls = `${hero}<div class="action-bar pending"><button class="action-btn" disabled>sending<span class="dots">…</span></button></div>`;
     } else if (_netBetOpen && canSlide) {
       const amt = Math.max(minTo, Math.min(myMax, _netBetAmt || minTo));
       const step = Math.max(1, Math.round(bb / 2));
-      controls = `${hero}
+      controls = `${hero}${mceCard}
       <div class="bet-panel">
         <div class="bet-amt-row"><span class="bet-amt">${sym} ${mpc(amt)}</span><span class="bet-amt-bb">${(amt / bb).toFixed(1)} bb${toCall > 0 ? ` · to call ${mpc(toCall)}` : ""}</span></div>
         <input class="bet-slider" id="nb-slider" type="range" min="${minTo}" max="${myMax}" step="${step}" value="${amt}" />
@@ -3736,7 +3786,7 @@ function renderNetTable(): void {
         </div>
       </div>`;
     } else {
-      controls = `${hero}
+      controls = `${hero}${mceCard}
       <div class="action-bar">
         <button class="action-btn fold" id="na-fold">Fold</button>
         ${toCall > 0 ? `<button class="action-btn call" id="na-call">Call ${mpc(toCall)}</button>` : `<button class="action-btn check" id="na-check">Check</button>`}
