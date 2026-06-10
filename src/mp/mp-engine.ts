@@ -41,6 +41,8 @@ export interface AuthTable {
   handId: string | null;
   handCount: number;
   lastResult: string;
+  lastWinners?: number[]; // table-seat indices that won the last hand (for the client share/animation)
+  lastPot?: number;       // size of the pot just won
   // Live hand (authority-only):
   gs: GameState | null;           // betting state over the LIVE seats
   liveSeats: number[];            // table-seat indices in this hand (gs idx → table idx)
@@ -143,7 +145,7 @@ export function startHand(t: AuthTable, rng: Rng): boolean {
   t.handCount++;
   t.handId = `${t.id}-h${t.handCount}`;
   t.status = "in_hand";
-  t.lastResult = "";
+  t.lastResult = ""; t.lastWinners = []; t.lastPot = 0;
   return true;
 }
 
@@ -270,6 +272,10 @@ function settle(t: AuthTable): void {
     const ts = gsToTable(t, i);
     t.seats[ts]!.chips = t.seats[ts]!.chips - invested[i]! + won[i]!;
   }
+  // Record winners (table seats) + pot so the client can show the share/animation without
+  // having to diff snapshots (instant fold-outs jump waiting→hand_over with no in_hand frame).
+  t.lastWinners = won.map((w, i) => (w > 0 ? gsToTable(t, i) : -1)).filter((i) => i >= 0);
+  t.lastPot = invested.reduce((a, b) => a + b, 0);
   t.status = "hand_over";
 }
 
@@ -302,6 +308,8 @@ export function publicState(t: AuthTable): PublicTableState {
     currentBet: t.status === "in_hand" && gs ? gs.currentBet : 0,
     handId: t.handId,
     lastResult: t.lastResult,
+    lastWinners: t.status === "hand_over" ? (t.lastWinners ?? []) : [],
+    lastPot: t.status === "hand_over" ? (t.lastPot ?? 0) : 0,
   };
 }
 

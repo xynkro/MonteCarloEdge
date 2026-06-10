@@ -54,6 +54,8 @@ export interface PublicTableState {
   currentBet: number;
   handId: string | null;
   lastResult: string;       // human-readable showdown / fold result
+  lastWinners?: number[];   // table-seat indices that won the last hand (hand_over only)
+  lastPot?: number;         // size of the pot just won (hand_over only)
 }
 
 // Pushed to a SINGLE player — their own hole cards only.

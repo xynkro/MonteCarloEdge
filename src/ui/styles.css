@@ -1540,3 +1540,7 @@ body::before {
 .fomo-upsell strong { color: var(--gold-2); }
 .fomo-x { flex: 0 0 auto; background: rgba(255,255,255,.12); border: none; color: rgba(255,255,255,.7); width: 24px; height: 24px; border-radius: 50%; font-size: .8rem; cursor: pointer; }
 @media (prefers-reduced-motion: reduce) { .mce-badge { animation: none; } }
+
+/* Share-win CTA — the viral hook on the hand-over screen */
+.share-win-btn { width: 100%; padding: 12px; margin-bottom: 8px; border: none; border-radius: 12px; background: linear-gradient(135deg, var(--gold-2), #e0a52e); color: #1a1305; font-weight: 800; font-size: .95rem; cursor: pointer; box-shadow: 0 4px 14px rgba(245,196,81,.3); transition: transform .1s; }
+.share-win-btn:active { transform: scale(.98); }

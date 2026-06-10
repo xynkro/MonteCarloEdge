@@ -4,6 +4,7 @@ import { mulberry32 } from "../engine/rng.js";
 import { GameState, type ActionType } from "../engine/game-state.js";
 import { getPositions, positionsForButton, getRfiRange, getBbDefenseRange } from "../engine/charts/index.js";
 import { estimateVillainRange, credibleRep, repIsPolar, scoreRunout, sizeClass, repsCapped } from "../engine/opponent.js";
+import { shareWin, buildWinCanvas } from "./share-card.js";
 import { solveSubgame, type RiverResult, type ActionFreq } from "../engine/gto/river-solver.js";
 import { solvePushFold, handClassKey, type PushFoldResult } from "../engine/gto/pushfold.js";
 import { allCombos, topSlice } from "../engine/hand-strength.js";
@@ -3650,13 +3651,11 @@ function netPreAnims(prev: Record<string, any>, pub: Record<string, any>): void 
   if (prev.status === "in_hand" && pub.status === "in_hand" && prev.street !== pub.street) animateChipsToPot();
 }
 function netPostAnims(prev: Record<string, any>, pub: Record<string, any>): void {
-  // Hand just ended → fly the pot to the biggest chip-gainer (the winner) + coin shower.
-  if (prev.status === "in_hand" && pub.status === "hand_over") {
-    const oldSeats = (prev.seats || []) as Array<{ chips?: number }>;
-    const newSeats = (pub.seats || []) as Array<{ chips?: number }>;
-    let winner = -1, best = 0;
-    newSeats.forEach((s, i) => { const d = (s.chips || 0) - (oldSeats[i]?.chips || 0); if (d > best) { best = d; winner = i; } });
-    if (winner >= 0) requestAnimationFrame(() => { animatePotToWinner([winner]); animateCoinShower(winner); });
+  // Just entered hand_over → fly the pot to the server-reported winner(s) + coin shower.
+  // Uses pub.lastWinners (robust — works even for instant fold-outs that skip an in_hand frame).
+  if (prev.status !== "hand_over" && pub.status === "hand_over") {
+    const winners = (pub.lastWinners || []) as number[];
+    if (winners.length) requestAnimationFrame(() => { animatePotToWinner(winners); winners.forEach((w) => animateCoinShower(w)); });
   }
 }
 // Live decision clock — ticks the countdown number on the active seat every 500ms
@@ -3790,6 +3789,11 @@ function renderNetTable(): void {
   const potHtml = `<div class="net-pot"><span class="np-amt">${sym} ${mpc((pub.pot as number) || 0)}</span><span class="np-street">${capWord(pub.street || "preflop")}</span></div>`;
 
   const myTurn = status === "in_hand" && pub.toAct >= 0 && seats[pub.toAct]?.uid === uid;
+  // Did I win the hand that just ended? Server tells us directly (pub.lastWinners), so it's
+  // robust even when an instant fold-out skips the in_hand frame. Drives the Share-win CTA.
+  const mySeatIdx = seats.findIndex((s) => s.uid === uid);
+  const iWonAmt = (status === "hand_over" && mySeatIdx >= 0 && (((pub.lastWinners as number[] | undefined)) || []).includes(mySeatIdx))
+    ? Math.round((pub.lastPot as number) || 0) : 0;
   let controls = "";
   if (lobby) {
     const canAddAi = isOwner && currency === "play" && occupied.length < seats.length;
@@ -3799,7 +3803,8 @@ function renderNetTable(): void {
       ${canAddAi ? `<div class="lobby-ai"><span class="hint">＋ AI:</span>${aiBtns.map(([a, l]) => `<button class="hdr-btn add-ai" data-arch="${a}">${l}</button>`).join("")}</div>` : currency === "premium" ? `<div class="hint" style="text-align:center">Premium room — humans only. Share the code.</div>` : ""}
       ${isOwner ? `<button class="start-btn" id="net-deal" ${occupied.length < 2 ? "disabled style=opacity:.5" : ""}>${S.net.busy ? "…" : occupied.length < 2 ? "Waiting for players…" : "DEAL"}</button>` : `<div class="hint" style="text-align:center">Waiting for the host to deal…</div>`}`;
   } else if (status === "hand_over") {
-    controls = `<div class="mp-result">${esc(pub.lastResult || "Hand over")}</div>${isOwner ? `<button class="start-btn" id="net-deal">${S.net.busy ? "…" : "NEXT HAND"}</button>` : `<div class="hint" style="text-align:center">Waiting for the next deal…</div>`}`;
+    const shareBtn = iWonAmt > 0 ? `<button class="share-win-btn" id="net-share-win">📸 Share this win · +${mpc(iWonAmt)}</button>` : "";
+    controls = `<div class="mp-result">${esc(pub.lastResult || "Hand over")}</div>${shareBtn}${isOwner ? `<button class="start-btn" id="net-deal">${S.net.busy ? "…" : "NEXT HAND"}</button>` : `<div class="hint" style="text-align:center">Waiting for the next deal…</div>`}`;
   } else if (myTurn) {
     const seat = seats[pub.toAct]!; const cur = (pub.currentBet as number) || 0;
     const toCall = cur - seat.bet; const bb = ((pub.blinds as { bb?: number })?.bb) || 2;
@@ -3864,6 +3869,10 @@ function renderNetTable(): void {
   onId("fomo-x", "click", (e) => { (e as Event).stopPropagation(); _fomoDismissed = true; render(); });
   onId("net-leave", "click", () => void netLeave());
   onId("net-deal", "click", () => void netDeal());
+  onId("net-share-win", "click", () => {
+    const cards = S.net.myHand ? S.net.myHand.map((c) => ({ t: cardDisplay(c), red: isRed(c) })) : undefined;
+    void shareWin({ amount: iWonAmt, sym, cards });
+  });
   onId("net-copy", "click", () => { try { void navigator.clipboard?.writeText(code); } catch { /* */ } });
   app.querySelectorAll(".add-ai").forEach((b) => onEl(b, "click", () => void netAddBot((b as HTMLElement).dataset.arch!)));
   onId("na-fold", "click", () => void netAct({ type: "fold" }));
@@ -4823,6 +4832,13 @@ if (FB.DEV_EMU) {
       return u.uid;
     },
     go(screen: string) { S.screen = screen; render(); },
+    previewCard(amount = 320) { // dev-only: render the share-win card to screenshot it
+      const cv = buildWinCanvas({ amount, sym: "🪙", cards: [{ t: "A♥", red: true }, { t: "K♥", red: true }], tag: "Top set" });
+      cv.id = "_cardprev";
+      cv.style.cssText = "position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);width:380px;height:380px;z-index:99999;border-radius:18px;box-shadow:0 0 0 9999px rgba(0,0,0,.7)";
+      document.getElementById("_cardprev")?.remove();
+      document.body.appendChild(cv);
+    },
     claimWeekly: () => FB.claimWeekly(),
   };
   // eslint-disable-next-line no-console
