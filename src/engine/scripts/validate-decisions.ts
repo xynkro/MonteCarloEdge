@@ -149,10 +149,13 @@ console.log("(3) Sizing bounds\n");
   const rec2 = recommend(gs2, TAG);
   if (rec2.action === "bet") {
     check("Postflop bet ≥ ⅓ pot", rec2.amount >= gs2.pot / 3 - 0.1);
-    check("Postflop bet ≤ pot", rec2.amount <= gs2.pot + 0.1);
+    // The engine INTENTIONALLY allows geometric overbets with deep stacks (see
+    // sizing.ts geometricSize — the old min(pot,…) cap killed valid overbets). The
+    // real upper bound is the effective stack: you can never bet more than you hold.
+    check("Postflop bet ≤ effective stack (overbets allowed)", rec2.amount <= gs2.stacks[0]! + 0.1);
   } else {
     check("Postflop bet ≥ ⅓ pot (skipped — checked)", true);
-    check("Postflop bet ≤ pot (skipped — checked)", true);
+    check("Postflop bet ≤ effective stack (skipped — checked)", true);
   }
 
   // 3-bet sizing
