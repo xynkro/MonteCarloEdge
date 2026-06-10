@@ -3581,7 +3581,13 @@ async function enterRoom(code: string): Promise<void> {
   S.net.code = code; S.net.pub = null; S.net.myHand = null; S.net.myRec = null; S.net.err = "";
   S.screen = "mp-net"; render();
   try {
-    _netTableUnsub = await FB.subscribeRoom(code, (pub) => { S.net.pub = pub; _netActing = false; _netBetOpen = false; S.net.err = ""; if (S.screen === "mp-net") render(); });
+    _netTableUnsub = await FB.subscribeRoom(code, (pub) => {
+      const prev = S.net.pub;
+      // Chip-to-pot must fire on the OLD DOM (this street's bets are still visible) BEFORE re-render.
+      if (S.screen === "mp-net" && prev) netPreAnims(prev as Record<string, any>, pub as Record<string, any>);
+      S.net.pub = pub; _netActing = false; _netBetOpen = false; S.net.err = "";
+      if (S.screen === "mp-net") { render(); if (prev) netPostAnims(prev as Record<string, any>, pub as Record<string, any>); }
+    });
     const uid = S.mp.auth?.uid;
     if (uid) _netHandUnsub = await FB.subscribeMyHand(code, uid, (h) => { S.net.myHand = h?.holeCards ?? null; S.net.myRec = (h as { rec?: typeof S.net.myRec })?.rec ?? null; if (S.screen === "mp-net") render(); });
   } catch (e) { S.net.err = friendlyErr(e); render(); }
@@ -3633,6 +3639,25 @@ async function netAct(action: { type: string; amount?: number }): Promise<void> 
   catch { _netActing = false; if (S.screen === "mp-net") render(); /* stale/illegal — next snapshot corrects */ }
 }
 async function netDeal(): Promise<void> { const code = S.net.code; if (!code) return; try { await FB.dealHand(code); } catch (e) { S.net.err = friendlyErr(e); render(); } }
+
+// ── Networked-table chip physics — reuse the trainer's animations on snapshot transitions.
+// Bets sit in front of each seat during a street, sweep into the pot when the street turns,
+// then the pot flies to the winner at showdown (just like a real table).
+function netPreAnims(prev: Record<string, any>, pub: Record<string, any>): void {
+  // Street advanced mid-hand → collect this street's bets into the pot. Runs on the OLD
+  // DOM (the .seat-bet chips are still rendered) so the chips fly from the right spots.
+  if (prev.status === "in_hand" && pub.status === "in_hand" && prev.street !== pub.street) animateChipsToPot();
+}
+function netPostAnims(prev: Record<string, any>, pub: Record<string, any>): void {
+  // Hand just ended → fly the pot to the biggest chip-gainer (the winner) + coin shower.
+  if (prev.status === "in_hand" && pub.status === "hand_over") {
+    const oldSeats = (prev.seats || []) as Array<{ chips?: number }>;
+    const newSeats = (pub.seats || []) as Array<{ chips?: number }>;
+    let winner = -1, best = 0;
+    newSeats.forEach((s, i) => { const d = (s.chips || 0) - (oldSeats[i]?.chips || 0); if (d > best) { best = d; winner = i; } });
+    if (winner >= 0) requestAnimationFrame(() => { animatePotToWinner([winner]); animateCoinShower(winner); });
+  }
+}
 async function netLeave(): Promise<void> {
   const code = S.net.code; clearNetSubs();
   if (code) { try { await FB.leaveRoom(code); } catch { /* */ } }
@@ -3722,7 +3747,7 @@ function renderNetTable(): void {
     // Turn timer: the server already sends deadlineMs (40s/turn) — drain a bar on the
     // active seat so you can FOLLOW whose turn it is + how long they have (WSOP feel).
     const secsLeft = active ? Math.max(0, Math.min(45, ((pub.deadlineMs as number) || 0) - Date.now()) / 1000) : 0;
-    return `<div class="${cls}" style="left:${left.toFixed(1)}%;top:${top.toFixed(1)}%">
+    return `<div class="${cls}" data-seat="${ti}" style="left:${left.toFixed(1)}%;top:${top.toFixed(1)}%">
       ${ti === pub.dealerSeat && !lobby ? '<div class="dealer-btn">D</div>' : ""}
       <div class="seat-chip">
         <div class="seat-pos">${tag} ${esc(s.name)}${me ? " (you)" : ""}</div>
