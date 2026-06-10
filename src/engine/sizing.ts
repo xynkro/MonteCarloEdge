@@ -11,7 +11,7 @@ export function geometricSize(
   // Clamp to [pot/3, stack] — NOT to pot. Geometric sizing is frequently larger
   // than pot (an overbet) when stacks are deep relative to the pot; the old
   // min(pot, …) cap silently killed every overbet the math called for.
-  return Math.min(stack, Math.max(pot / 3, bet));
+  return Math.round(Math.min(stack, Math.max(pot / 3, bet)));
 }
 
 export function recommendSize(
@@ -29,20 +29,20 @@ export function recommendSize(
     river: 0,
   };
   const n = streets[street];
-  if (n === 0) return Math.min(stack, pot * 0.67);
+  if (n === 0) return Math.round(Math.min(stack, pot * 0.67));
   return geometricSize(pot, stack, n);
 }
 
 export function openRaiseSize(bb: number, limpers = 0): number {
-  return bb * (2.5 + limpers);
+  return Math.round(bb * (2.5 + limpers));
 }
 
 export function threeBetSize(raiseTo: number, inPosition: boolean): number {
-  return raiseTo * (inPosition ? 3 : 3.5);
+  return Math.round(raiseTo * (inPosition ? 3 : 3.5));
 }
 
 export function fourBetSize(threeBetTo: number): number {
-  return threeBetTo * 2.25;
+  return Math.round(threeBetTo * 2.25);
 }
 
 export function minRaise(currentBet: number, bb: number): number {

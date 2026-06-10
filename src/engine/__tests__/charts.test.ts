@@ -23,7 +23,7 @@ describe("Chart position lists", () => {
 
   it("throws for unsupported table size", () => {
     expect(() => getPositions(1)).toThrow();
-    expect(() => getPositions(11)).toThrow();
+    expect(() => getPositions(13)).toThrow(); // 2–12 supported (12-max tables); 13 is out of range
   });
 });
 

@@ -112,7 +112,8 @@ export class GameState {
   }
 
   private _invest(seat: number, amount: number): void {
-    const amt = Math.min(amount, this.stacks[seat]!);
+    const amt = Math.round(Math.min(amount, this.stacks[seat]!)); // integer chips only
+
     this.stacks[seat]! -= amt;
     this.invested[seat]! += amt;
     this.streetInvested[seat]! += amt;
@@ -238,7 +239,9 @@ export class GameState {
       case "bet":
       case "raise": {
         const prevBet = this.currentBet;
-        const additional = input.amount - this.streetInvested[seat]!;
+        // Chips are integers — round the raise-to so a fractional sizing (geometric / 0.67·pot)
+        // can never leak fractional chips into stacks/pot and break conservation.
+        const additional = Math.round(input.amount) - this.streetInvested[seat]!;
         if (additional > 0) this._invest(seat, additional);
         const newBet = this.streetInvested[seat]!;
         const increment = newBet - prevBet;
