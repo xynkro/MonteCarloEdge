@@ -47,7 +47,7 @@ describe("recommendSize", () => {
 describe("openRaiseSize", () => {
   it("2.5bb with no limpers", () => {
     expect(openRaiseSize(2)).toBe(5);
-    expect(openRaiseSize(1)).toBe(3); // 2.5 rounds up — chips are integers
+    expect(openRaiseSize(1)).toBe(2.5);
   });
 
   it("adds 1bb per limper", () => {
@@ -68,7 +68,7 @@ describe("threeBetSize", () => {
 
 describe("fourBetSize", () => {
   it("2.25x the 3-bet", () => {
-    expect(fourBetSize(18)).toBe(41); // 40.5 rounds up — chips are integers
+    expect(fourBetSize(18)).toBeCloseTo(40.5);
   });
 });
 

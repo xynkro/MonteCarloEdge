@@ -178,7 +178,10 @@ export function actSeat(t: AuthTable, tableSeat: number, action: MPAction): { ok
   if (t.gs.nextToAct() !== g) return { ok: false, err: "not your turn" };
   const legal = t.gs.legalActionsFor(g);
   const type = action.type as ActionType;
-  let amount = action.amount ?? 0;
+  // Multiplayer chips are real INTEGERS — round the bet/raise here, at the mp boundary, so a
+  // fractional sizing (geometric / 0.67·pot) can never leak fractional chips and break
+  // conservation. The pure engine stays fractional so the bb-normalised trainer is unaffected.
+  let amount = Math.round(action.amount ?? 0);
   if (!legal.includes(type)) return { ok: false, err: `illegal: ${type}` };
   if (type !== "bet" && type !== "raise") {
     amount = 0;

@@ -24,3 +24,4 @@ firebase-debug.*.log
 dev-grant.mjs
 repro-*.mjs
 stress.ts
+full-audit.js
