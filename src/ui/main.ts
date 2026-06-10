@@ -3854,8 +3854,13 @@ function renderNetTable(): void {
   const iWonAmt = (status === "hand_over" && mySeatIdx >= 0 && (((pub.lastWinners as number[] | undefined)) || []).includes(mySeatIdx))
     ? Math.round((pub.lastPot as number) || 0) : 0;
   // FREE read for EVERYONE in-hand: your win% + the nuts (the hook). Strategy stays paid.
+  // If I hold Edge Pass, the MCE engine already computed my SITUATIONAL equity (vs villain's
+  // actual betting range) — use THAT so the strip and the MCE card never disagree. Free
+  // players get the client estimate (vs a generic range) as the hook.
   const _r = (status === "in_hand" && S.net.myHand) ? netHandRead() : null;
-  const freeRead = _r ? `<div class="net-read"><span class="nr-hand">${esc(_r.label)}</span><span class="nr-eq"><b>${_r.eqPct}%</b> win</span>${_r.nuts ? `<span class="nr-nuts">🥜 ${esc(_r.nuts)}</span>` : ""}</div>` : "";
+  const _recEq = (S.net.myRec && typeof (S.net.myRec as { equity?: number }).equity === "number") ? Math.round((S.net.myRec as { equity: number }).equity * 100) : null;
+  const eqShown = _recEq ?? (_r ? _r.eqPct : 0);
+  const freeRead = _r ? `<div class="net-read"><span class="nr-hand">${esc(_r.label)}</span><span class="nr-eq"><b>${eqShown}%</b> win</span>${_r.nuts ? `<span class="nr-nuts">🥜 ${esc(_r.nuts)}</span>` : ""}</div>` : "";
   let controls = "";
   if (lobby) {
     const canAddAi = isOwner && currency === "play" && occupied.length < seats.length;
