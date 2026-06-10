@@ -3743,27 +3743,32 @@ function renderNetTable(): void {
     const rev = revealed[String(ti)];
     const cards = !lobby && !me && rev ? rev : null;
     const cls = ["table-seat", me ? "hero-seat" : "", s.folded ? "folded" : "", active ? "active" : ""].filter(Boolean).join(" ");
-    const tag = s.ai ? "🤖" : me ? "🧠" : "🙂";
     // Turn timer: the server already sends deadlineMs (40s/turn) — drain a bar on the
     // active seat so you can FOLLOW whose turn it is + how long they have (WSOP feel).
     const secsLeft = active ? Math.max(0, Math.min(45, ((pub.deadlineMs as number) || 0) - Date.now()) / 1000) : 0;
+    const betChip = s.bet > 0 && !s.folded ? `<div class="seat-bet ${top < 50 ? "below" : "above"}"><span class="chip-dot"></span>${mpc(s.bet)}</div>` : "";
+    const holeCards = cards ? `<div class="seat-cards ${top < 50 ? "below" : "above"}">${cards.map((c) => `<span class="seat-hole reveal ${isRed(c) ? "red" : ""}">${cardDisplay(c)}</span>`).join("")}</div>` : "";
+    // Mirror the training table seat: avatar silhouette + name/role + stack.
     return `<div class="${cls}" data-seat="${ti}" style="left:${left.toFixed(1)}%;top:${top.toFixed(1)}%">
-      ${ti === pub.dealerSeat && !lobby ? '<div class="dealer-btn">D</div>' : ""}
+      ${ti === pub.dealerSeat ? '<div class="dealer-btn">D</div>' : ""}
+      ${avatarHtml(ti, me)}
       <div class="seat-chip">
-        <div class="seat-pos">${tag} ${esc(s.name)}${me ? " (you)" : ""}</div>
+        <div class="seat-pos">${me ? "YOU" : esc(s.name)}${s.ai ? ` <span class="seat-subpos">BOT</span>` : ""}</div>
         <div class="seat-stack">${sym} ${mpc(s.chips)}</div>
         ${s.folded ? `<div class="seat-act">folded</div>` : ""}
         ${active && secsLeft > 0 ? `<div class="turn-bar"><div class="tb-fill" style="animation-duration:${secsLeft.toFixed(1)}s"></div></div>` : ""}
       </div>
-      ${s.bet > 0 && !s.folded ? `<div class="seat-bet ${top < 50 ? "below" : "above"}"><span class="chip-dot"></span>${mpc(s.bet)}</div>` : ""}
-      ${cards ? `<div class="seat-cards ${top < 50 ? "below" : "above"}">${cards.map((c) => `<span class="seat-hole reveal ${isRed(c) ? "red" : ""}">${cardDisplay(c)}</span>`).join("")}</div>` : ""}
+      ${betChip}
+      ${holeCards}
     </div>`;
   }).join("");
   const board = (pub.board as number[]) || [];
-  const center = lobby
-    ? `<div class="lobby-center">🌐 Lobby<span>${humans} player${humans === 1 ? "" : "s"}${occupied.length - humans > 0 ? ` · ${occupied.length - humans} bot${occupied.length - humans === 1 ? "" : "s"}` : ""}</span></div>`
-    : `<div class="net-board">${[0, 1, 2, 3, 4].map((i) => board[i] != null ? `<div class="board-card dealt deal-in ${isRed(board[i]!) ? "red" : ""}">${flipFaces(cardDisplay(board[i]!))}</div>` : `<div class="board-card empty"></div>`).join("")}</div>
-       <div class="pot-line"><span class="table-pot">${sym} ${mpc((pub.pot as number) || 0)}</span><span class="pot-street">${capWord(pub.street || "preflop")}</span></div>`;
+  // Board: 5 cards laid DIRECTLY in .board-center (a centered horizontal row) — exactly like
+  // the training table, not the old wrapping .net-board grid.
+  const center = [0, 1, 2, 3, 4].map((i) => board[i] != null
+    ? `<div class="board-card dealt deal-in ${isRed(board[i]!) ? "red" : ""}">${flipFaces(cardDisplay(board[i]!))}</div>`
+    : `<div class="board-card empty"></div>`).join("");
+  const potHtml = `<div class="net-pot"><span class="np-amt">${sym} ${mpc((pub.pot as number) || 0)}</span><span class="np-street">${capWord(pub.street || "preflop")}</span></div>`;
 
   const myTurn = status === "in_hand" && pub.toAct >= 0 && seats[pub.toAct]?.uid === uid;
   let controls = "";
@@ -3826,7 +3831,7 @@ function renderNetTable(): void {
   app.innerHTML = `
     <div class="game net-game">
       <div class="game-topbar"><span>Room <strong>${code}</strong> · ${sym} ${currency === "premium" ? "premium" : "play"}</span><button class="hdr-btn" id="net-leave">Leave</button></div>
-      <div class="net-table-wrap"><div class="poker-table"><div class="felt"></div>${seatHtml}<div class="board-center">${center}</div></div></div>
+      <div class="net-table-wrap"><div class="poker-table"><div class="felt"></div>${seatHtml}<div class="board-center">${center}</div>${potHtml}</div></div>
       <div class="controls"><div class="controls-body">${controls}${S.net.err ? `<div class="room-broke" style="margin-top:8px">${esc(S.net.err)}</div>` : ""}</div></div>
     </div>`;
   onId("net-leave", "click", () => void netLeave());
@@ -3873,8 +3878,29 @@ let _signinMode: "signin" | "register" = "signin";
 let _walletUnsub: (() => void) | null = null, _inboxUnsub: (() => void) | null = null;
 // NOTE: "mp-setup" is deliberately EXCLUDED — presence/online heartbeats fire every
 // few seconds, and re-rendering Play Online mid-typing wiped the join-code input.
+// Wallet changes still must show live there (the balance, buy-in slider max, and
+// affordability gating all derive from it), so the wallet sub additionally calls
+// renderMpSetupLive(): a full re-render that carries the join-code input's value,
+// focus, and caret across the rebuild. Wallet snapshots only fire on real wallet
+// changes (claims, purchases, settlements), never on heartbeats, so this can't
+// reintroduce the mid-typing wipe.
 const ECON_SCREENS = new Set(["home", "inbox", "compose", "admin", "store", "profile", "settings"]);
 function renderIfEcon(): void { if (ECON_SCREENS.has(S.screen)) render(); }
+function renderMpSetupLive(): void {
+  if (S.screen !== "mp-setup") return;
+  const inp = document.getElementById("net-code") as HTMLInputElement | null;
+  const hadFocus = !!inp && document.activeElement === inp;
+  const val = inp ? inp.value : null;
+  const selStart = inp?.selectionStart ?? null, selEnd = inp?.selectionEnd ?? null;
+  render();
+  const next = document.getElementById("net-code") as HTMLInputElement | null;
+  if (!next) return;
+  if (val !== null) next.value = val;
+  if (hadFocus) {
+    next.focus();
+    if (selStart !== null && selEnd !== null) { try { next.setSelectionRange(selStart, selEnd); } catch { /* */ } }
+  }
+}
 function stopEconomySubs(): void {
   if (_walletUnsub) { _walletUnsub(); _walletUnsub = null; }
   if (_inboxUnsub) { _inboxUnsub(); _inboxUnsub = null; }
@@ -3885,7 +3911,7 @@ function stopEconomySubs(): void {
 async function startEconomySubs(uid: string): Promise<void> {
   stopEconomySubs();
   try {
-    _walletUnsub = await FB.subscribeWallet(uid, (w) => { S.wallet = { play: w.play, premium: w.premium }; S.edgePass = w.edgePass; S.lastWeekly = w.lastWeekly; S.weeklyStreak = w.weeklyStreak; S.collectibles = w.collectibles; _walletLoaded = true; renderIfEcon(); maybeShowWeekly(); });
+    _walletUnsub = await FB.subscribeWallet(uid, (w) => { S.wallet = { play: w.play, premium: w.premium }; S.edgePass = w.edgePass; S.lastWeekly = w.lastWeekly; S.weeklyStreak = w.weeklyStreak; S.collectibles = w.collectibles; _walletLoaded = true; renderIfEcon(); renderMpSetupLive(); maybeShowWeekly(); });
     _inboxUnsub = await FB.subscribeInbox(uid, (msgs) => { S.inbox = msgs; renderIfEcon(); });
     _onlineUnsub = await FB.subscribeOnline((list) => { S.mp.online = list.filter((p) => p.uid !== uid); renderIfEcon(); });
     FB.isAdminClaim().then((a) => {
@@ -4768,6 +4794,7 @@ if (FB.DEV_EMU) {
       return u.uid;
     },
     go(screen: string) { S.screen = screen; render(); },
+    claimWeekly: () => FB.claimWeekly(),
   };
   // eslint-disable-next-line no-console
   console.log("%c🔧 __MCE_DEV ready — call __MCE_DEV.signIn('caspar')", "color:#1f9d6b;font-weight:bold");

@@ -21,3 +21,4 @@ emu-economy.mjs
 
 firebase-debug.log
 firebase-debug.*.log
+dev-grant.mjs
