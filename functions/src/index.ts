@@ -170,7 +170,9 @@ export const createTable = onCall(async (req) => {
   }
   const T = TIERS[tier] ?? TIERS["5/10"]!;
   const stack = Math.max(20 * T.bb, Math.min(T.max, Math.round(buyIn ?? T.max)));
-  const seats = 2 + Math.min(7, cur === "premium" ? 0 : bots.length); // owner + bots (+ room to join)
+  // Always a full 6-max table: owner + up to 5 others (humans or bots). Grows toward 9 if
+  // the caller pre-seats more bots. This is why the lobby can add more than one bot.
+  const seats = Math.max(6, 2 + Math.min(7, cur === "premium" ? 0 : bots.length)); // 6..9
 
   return db.runTransaction(async (tx) => {
     const u = await tx.get(userRef(uid));
