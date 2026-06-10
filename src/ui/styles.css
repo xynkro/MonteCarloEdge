@@ -1551,3 +1551,7 @@ body::before {
 .nr-eq { color: var(--emerald); font-weight: 700; }
 .nr-eq b { font-size: 1.08rem; }
 .nr-nuts { color: rgba(255,255,255,.58); font-weight: 600; }
+
+/* SB/BB position markers (reuse the dealer-btn chip, recoloured) — for newbies */
+.dealer-btn.sb { background: linear-gradient(135deg, #5b8def, #3b5bd6); color: #fff; }
+.dealer-btn.bb { background: linear-gradient(135deg, #e0834a, #b3411f); color: #fff; }

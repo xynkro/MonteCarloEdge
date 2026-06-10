@@ -3661,6 +3661,13 @@ function netPostAnims(prev: Record<string, any>, pub: Record<string, any>): void
     const winners = (pub.lastWinners || []) as number[];
     if (winners.length) requestAnimationFrame(() => { animatePotToWinner(winners); winners.forEach((w) => animateCoinShower(w)); });
   }
+  // Per-action bet: a seat's wager grew on the SAME street → fly chips from that seat
+  // toward the pot (the "chips flowing in" you wanted on a bet/raise).
+  if (prev.status === "in_hand" && pub.status === "in_hand" && prev.street === pub.street) {
+    const oldS = (prev.seats || []) as Array<{ bet?: number }>;
+    const newS = (pub.seats || []) as Array<{ bet?: number }>;
+    newS.forEach((s, i) => { if ((s.bet || 0) > (oldS[i]?.bet || 0)) requestAnimationFrame(() => animateChipBet(i)); });
+  }
 }
 // Live decision clock — ticks the countdown number on the active seat every 500ms
 // (snapshots only fire on actions, so the number needs its own heartbeat). Self-stops
@@ -3798,6 +3805,11 @@ function renderNetTable(): void {
   const N = Math.max(2, occupied.length);
   const myOrder = Math.max(0, occupied.findIndex((x) => x.s.uid === uid));
   const coord = (orderIdx: number) => { const vis = (orderIdx - myOrder + N) % N; const a = (vis * 2 * Math.PI) / N; return { left: 50 - 41 * Math.sin(a), top: 50 + 38 * Math.cos(a) }; };
+  // Blind positions (table-seat indices) so newbies see SB/BB, not just the dealer button.
+  // Heads-up: the button IS the small blind (shown as D); 3+: SB is left of the button, BB next.
+  const _no = occupied.length, _btnO = occupied.findIndex((x) => x.ti === pub.dealerSeat);
+  const sbSeat = _btnO < 0 ? -1 : _no === 2 ? pub.dealerSeat : occupied[(_btnO + 1) % _no]!.ti;
+  const bbSeat = _btnO < 0 ? -1 : _no === 2 ? occupied[(_btnO + 1) % 2]!.ti : occupied[(_btnO + 2) % _no]!.ti;
   const seatHtml = occupied.map((x, orderIdx) => {
     const { s, ti } = x; const { left, top } = coord(orderIdx);
     const me = !!s.uid && s.uid === uid;
@@ -3814,7 +3826,7 @@ function renderNetTable(): void {
     // FOMO: every player sees who is running MCE Strategy — the asymmetry IS the sales pitch.
     const mceBadge = (s as { assisted?: boolean }).assisted ? `<div class="mce-badge" title="Running MCE Strategy">⚡ MCE</div>` : "";
     return `<div class="${cls}" data-seat="${ti}" style="left:${left.toFixed(1)}%;top:${top.toFixed(1)}%">
-      ${ti === pub.dealerSeat ? '<div class="dealer-btn">D</div>' : ""}
+      ${ti === pub.dealerSeat ? '<div class="dealer-btn">D</div>' : ti === sbSeat ? '<div class="dealer-btn sb">SB</div>' : ti === bbSeat ? '<div class="dealer-btn bb">BB</div>' : ""}
       ${mceBadge}
       ${avatarHtml(ti, me)}
       <div class="seat-chip">
