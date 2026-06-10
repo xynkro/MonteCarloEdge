@@ -25,3 +25,4 @@ dev-grant.mjs
 repro-*.mjs
 stress.ts
 full-audit.js
+test-anyone-deals.mjs

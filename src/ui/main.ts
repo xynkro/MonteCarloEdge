@@ -3654,7 +3654,31 @@ async function netAct(action: { type: string; amount?: number }): Promise<void> 
   catch (e) { _netActing = false; S.net.err = friendlyErr(e); if (S.screen === "mp-net") render(); /* stale/illegal — next snapshot corrects */ }
   finally { clearTimeout(_actSafety); }
 }
-async function netDeal(): Promise<void> { const code = S.net.code; if (!code) return; try { await FB.dealHand(code); } catch (e) { S.net.err = friendlyErr(e); render(); } }
+async function netDeal(silent = false): Promise<void> {
+  const code = S.net.code; if (!code) return;
+  stopAutoDeal();
+  try { await FB.dealHand(code); }
+  catch (e) {
+    // Auto-deal races are expected (another client dealt first) — stay quiet about them.
+    if (!silent) { S.net.err = friendlyErr(e); render(); }
+  }
+}
+
+// ── AUTO-DEAL: nobody waits for the host. 5s after hand_over every seated human's client
+// counts down and triggers the next hand; the server's in_hand guard makes the race harmless.
+let _autoDealT: ReturnType<typeof setInterval> | null = null;
+let _autoDealAt = 0; // epoch ms when the auto-deal fires (drives the countdown label)
+function stopAutoDeal(): void { if (_autoDealT) { clearInterval(_autoDealT); _autoDealT = null; } _autoDealAt = 0; }
+function startAutoDeal(code: string): void {
+  if (_autoDealT) return;
+  _autoDealAt = Date.now() + 5000;
+  _autoDealT = setInterval(() => {
+    const pub = S.net.pub;
+    if (S.screen !== "mp-net" || S.net.code !== code || !pub || pub.status !== "hand_over") { stopAutoDeal(); return; }
+    if (Date.now() >= _autoDealAt) { void netDeal(true); return; } // netDeal stops the timer
+    render(); // tick the countdown
+  }, 500);
+}
 
 // ── Networked-table chip physics — reuse the trainer's animations on snapshot transitions.
 // Bets sit in front of each seat during a street, sweep into the pot when the street turns,
@@ -3706,7 +3730,7 @@ function startNetClock(): void {
 function stopNetClock(): void { if (_netClock != null) { clearInterval(_netClock); _netClock = null; } }
 
 async function netLeave(): Promise<void> {
-  const code = S.net.code; clearNetSubs(); stopNetClock();
+  const code = S.net.code; clearNetSubs(); stopNetClock(); stopAutoDeal();
   if (code) { try { await FB.leaveRoom(code); } catch { /* */ } }
   S.net.code = null; S.net.pub = null; S.net.myHand = null; S.net.myRec = null; S.net.err = "";
   S.screen = "mp-setup"; render();
@@ -3799,10 +3823,8 @@ function renderNetTable(): void {
           ${canAddAi ? `<div class="lobby-addai"><div class="la-label">Add a practice bot</div><div class="la-btns">${[["Station", "🐟 Fish"], ["TAG", "🎯 Reg"], ["LAG", "🔥 LAG"], ["rand", "🎲 Random"]].map(([a, l]) => `<button class="hdr-btn add-ai" data-arch="${a}"${S.net.busy ? " disabled" : ""}>${l}</button>`).join("")}</div></div>`
         : currency === "premium" ? `<div class="lobby-note">💎 Premium room — humans only. Share the code to fill seats.</div>` : ""}
           ${assistedOn ? `<div class="lobby-mce">💡 <strong>MCE Strategy is ON</strong> — you'll get live GTO advice on your turn.</div>` : ""}
-          ${isOwner
-        ? `<button class="start-btn lobby-start" id="net-deal"${occupied.length < 2 ? " disabled" : ""}>${S.net.busy ? "…" : occupied.length < 2 ? "Waiting for players…" : "▶ START GAME"}</button>
-             <p class="lobby-foot">${occupied.length < 2 ? "Add a bot or wait for a friend to join." : "Everyone in? Deal the first hand."}</p>`
-        : `<div class="lobby-waiting">Waiting for the host to start<span>.</span><span>.</span><span>.</span></div>`}
+          <button class="start-btn lobby-start" id="net-deal"${occupied.length < 2 ? " disabled" : ""}>${S.net.busy ? "…" : occupied.length < 2 ? "Waiting for players…" : "▶ START GAME"}</button>
+          <p class="lobby-foot">${occupied.length < 2 ? (isOwner ? "Add a bot or wait for a friend to join." : "Waiting for more players…") : "Anyone can start — everyone in?"}</p>
           ${S.net.err ? `<div class="room-broke">${esc(S.net.err)}</div>` : ""}
         </div>
       </div>`;
@@ -3882,7 +3904,11 @@ function renderNetTable(): void {
       ${isOwner ? `<button class="start-btn" id="net-deal" ${occupied.length < 2 ? "disabled style=opacity:.5" : ""}>${S.net.busy ? "…" : occupied.length < 2 ? "Waiting for players…" : "DEAL"}</button>` : `<div class="hint" style="text-align:center">Waiting for the host to deal…</div>`}`;
   } else if (status === "hand_over") {
     const shareBtn = iWonAmt > 0 ? `<button class="share-win-btn" id="net-share-win">📸 Share this win · +${mpc(iWonAmt)}</button>` : "";
-    controls = `<div class="mp-result">${esc(pub.lastResult || "Hand over")}</div>${shareBtn}${isOwner ? `<button class="start-btn" id="net-deal">${S.net.busy ? "…" : "NEXT HAND"}</button>` : `<div class="hint" style="text-align:center">Waiting for the next deal…</div>`}`;
+    // AUTO-DEAL: any seated human can deal, and the table deals itself in 5s anyway.
+    const mySeated = occupied.some((x) => x.s.uid === uid && x.s.chips > 0);
+    if (mySeated) startAutoDeal(code);
+    const secs = _autoDealAt ? Math.max(0, Math.ceil((_autoDealAt - Date.now()) / 1000)) : 5;
+    controls = `<div class="mp-result">${esc(pub.lastResult || "Hand over")}</div>${shareBtn}${mySeated ? `<button class="start-btn" id="net-deal">${S.net.busy ? "…" : `▶ NEXT HAND · ${secs}s`}</button>` : `<div class="hint" style="text-align:center">Next hand starting…</div>`}`;
   } else if (myTurn) {
     const seat = seats[pub.toAct]!; const cur = (pub.currentBet as number) || 0;
     const toCall = cur - seat.bet; const bb = ((pub.blinds as { bb?: number })?.bb) || 2;

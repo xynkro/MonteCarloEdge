@@ -246,14 +246,15 @@ export const addBot = onCall(async (req) => {
   });
 });
 
-/** Owner deals the next hand. */
+/** Any seated human deals the next hand (clients also auto-deal after hand_over; the
+ *  transaction's in_hand guard makes duplicate triggers harmless). */
 export const startHand = onCall(async (req) => {
   const uid = uidOf(req);
   const { code } = (req.data ?? {}) as { code?: string };
   if (!code) throw new HttpsError("invalid-argument", "Room code required.");
   return db.runTransaction(async (tx) => {
     const { t, version, currency } = await loadState(tx, code);
-    if (uid !== t.ownerUid) throw new HttpsError("permission-denied", "Only the host can deal.");
+    if (!t.seats.some((s) => s.uid === uid)) throw new HttpsError("permission-denied", "Take a seat to deal.");
     if (t.status === "in_hand") throw new HttpsError("failed-precondition", "Hand already in progress.");
     // Require at least one seated HUMAN with chips — never deal a bot-only hand
     // (blocks an owner-left startHand-spam grind).
