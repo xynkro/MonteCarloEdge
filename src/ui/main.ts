@@ -3702,6 +3702,38 @@ async function netAddBot(archetype: string): Promise<void> {
   catch (e) { S.net.busy = false; S.net.err = friendlyErr(e); render(); }
 }
 
+// FREE value layer (everyone, no Edge Pass): your win% + the nuts. The PAID MCE overlay
+// (rep read + recommended line) stays gated. Memoized per (hand, board) so the Monte-Carlo
+// only runs once per street, not every render.
+let _netRead: { key: string; eqPct: number; label: string; nuts: string } | null = null;
+function computeNuts(board: Card[]): string {
+  if (board.length < 3) return "Aces";
+  const used = new Set<number>(board);
+  let bestR = -1; let bestHold: [Card, Card] = [0, 1];
+  for (let a = 0; a < NUM_CARDS; a++) { if (used.has(a)) continue;
+    for (let b = a + 1; b < NUM_CARDS; b++) { if (used.has(b)) continue;
+      const r = evaluate([a, b, ...board]); if (r > bestR) { bestR = r; bestHold = [a, b]; } } }
+  return nutLabel(bestHold, board);
+}
+function netHandRead(): { eqPct: number; label: string; nuts: string } | null {
+  const myHand = S.net.myHand, pub = S.net.pub;
+  if (!myHand || !pub || pub.status !== "in_hand") return null;
+  const board = ((pub.board as Card[]) || []);
+  const live = ((pub.seats as Array<{ uid: string | null; ai: string | null; folded: boolean }>) || []).filter((s) => (s.uid || s.ai) && !s.folded);
+  const nOpp = Math.max(1, live.length - 1);
+  const key = `${myHand[0]},${myHand[1]}|${board.join("-")}|${nOpp}`;
+  if (_netRead && _netRead.key === key) return _netRead;
+  let eqPct = 0;
+  try {
+    const villain = topSlice(allCombos(), 1).filter([...board, myHand[0], myHand[1]]);
+    const res = monteCarloEquityMultiway({ hero: [myHand[0], myHand[1]], villainRanges: Array.from({ length: nOpp }, () => villain), board, iterations: 2000, rng: mulberry32(0x5eed ^ (board.length << 8)) });
+    eqPct = Math.round(res.equity * 100);
+  } catch { eqPct = 0; }
+  const label = describeHand([myHand[0], myHand[1]], board).label;
+  _netRead = { key, eqPct, label, nuts: computeNuts(board) };
+  return _netRead;
+}
+
 function renderNetTable(): void {
   cancelVillainTimer();
   const code = S.net.code, uid = S.mp.auth?.uid;
@@ -3809,6 +3841,9 @@ function renderNetTable(): void {
   const mySeatIdx = seats.findIndex((s) => s.uid === uid);
   const iWonAmt = (status === "hand_over" && mySeatIdx >= 0 && (((pub.lastWinners as number[] | undefined)) || []).includes(mySeatIdx))
     ? Math.round((pub.lastPot as number) || 0) : 0;
+  // FREE read for EVERYONE in-hand: your win% + the nuts (the hook). Strategy stays paid.
+  const _r = (status === "in_hand" && S.net.myHand) ? netHandRead() : null;
+  const freeRead = _r ? `<div class="net-read"><span class="nr-hand">${esc(_r.label)}</span><span class="nr-eq"><b>${_r.eqPct}%</b> win</span>${_r.nuts ? `<span class="nr-nuts">🥜 ${esc(_r.nuts)}</span>` : ""}</div>` : "";
   let controls = "";
   if (lobby) {
     const canAddAi = isOwner && currency === "play" && occupied.length < seats.length;
@@ -3826,7 +3861,7 @@ function renderNetTable(): void {
     const myMax = seat.chips + seat.bet; // all-in total (stack behind + already-in bet)
     const minTo = cur > 0 ? Math.min(myMax, cur * 2) : Math.min(myMax, bb);
     const canSlide = myMax > minTo; // false = short stack, only legal aggression is all-in
-    const hero = S.net.myHand ? `<div class="net-hero">${S.net.myHand.map((c) => `<span class="hero-card ${isRed(c) ? "red" : ""}">${cardDisplay(c)}</span>`).join("")}</div>` : "";
+    const hero = (S.net.myHand ? `<div class="net-hero">${S.net.myHand.map((c) => `<span class="hero-card ${isRed(c) ? "red" : ""}">${cardDisplay(c)}</span>`).join("")}</div>` : "") + freeRead;
     // MCE Strategy overlay — live GTO advice for assisted (Edge Pass) seats.
     const rec = S.net.myRec;
     const mceCard = rec ? `<div class="net-mce">
@@ -3864,7 +3899,7 @@ function renderNetTable(): void {
       </div>`;
     }
   } else {
-    controls = `${S.net.myHand ? `<div class="net-hero">${S.net.myHand.map((c) => `<span class="hero-card ${isRed(c) ? "red" : ""}">${cardDisplay(c)}</span>`).join("")}</div>` : ""}<div class="mp-turn">${esc(seats[pub.toAct]?.name || "…")}'s turn</div><div class="mp-thinking">waiting<span>.</span><span>.</span><span>.</span></div>`;
+    controls = `${S.net.myHand ? `<div class="net-hero">${S.net.myHand.map((c) => `<span class="hero-card ${isRed(c) ? "red" : ""}">${cardDisplay(c)}</span>`).join("")}</div>` : ""}${freeRead}<div class="mp-turn">${esc(seats[pub.toAct]?.name || "…")}'s turn</div><div class="mp-thinking">waiting<span>.</span><span>.</span><span>.</span></div>`;
   }
 
   // FOMO upsell: a non-entitled player at a table where others run MCE Strategy. The
