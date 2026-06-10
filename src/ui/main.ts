@@ -3694,7 +3694,7 @@ function renderNetTable(): void {
   const board = (pub.board as number[]) || [];
   const center = lobby
     ? `<div class="lobby-center">🌐 Lobby<span>${humans} player${humans === 1 ? "" : "s"}${occupied.length - humans > 0 ? ` · ${occupied.length - humans} bot${occupied.length - humans === 1 ? "" : "s"}` : ""}</span></div>`
-    : `<div class="net-board">${[0, 1, 2, 3, 4].map((i) => board[i] != null ? `<div class="board-card dealt ${isRed(board[i]!) ? "red" : ""}">${cardDisplay(board[i]!)}</div>` : `<div class="board-card empty"></div>`).join("")}</div>
+    : `<div class="net-board">${[0, 1, 2, 3, 4].map((i) => board[i] != null ? `<div class="board-card dealt deal-in ${isRed(board[i]!) ? "red" : ""}">${flipFaces(cardDisplay(board[i]!))}</div>` : `<div class="board-card empty"></div>`).join("")}</div>
        <div class="pot-line"><span class="table-pot">${sym} ${mpc((pub.pot as number) || 0)}</span><span class="pot-street">${capWord(pub.street || "preflop")}</span></div>`;
 
   const myTurn = status === "in_hand" && pub.toAct >= 0 && seats[pub.toAct]?.uid === uid;
