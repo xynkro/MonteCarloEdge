@@ -212,6 +212,11 @@ export const joinTable = onCall(async (req) => {
     const bal = currency === "premium" ? w.premium : w.play;
     if (bal < t.startingStack) throw new HttpsError("failed-precondition", `Not enough ${currency === "premium" ? "premium" : "play"} chips to buy in.`);
     sit(t, uid, name, seatIdx);
+    // PER-PLAYER MCE entitlement: a joiner gets the strategy overlay iff THEY personally
+    // hold Edge Pass — independent of the room owner. (The rec is written only to this
+    // uid's private hand doc, which firestore.rules gates to request.auth.uid == uid, so
+    // a non-payer at the same table can neither see the UI nor read the payload.)
+    if (t.seats[seatIdx]) t.seats[seatIdx]!.assisted = (u.exists ? u.data()?.edgePass : undefined) === true;
     tx.set(userRef(uid), { name, [balField(currency)]: bal - t.startingStack }, { merge: true });
     persist(tx, code, t, version + 1, 0, false, currency);
     return { code, seatIdx, currency };

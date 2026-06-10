@@ -3658,8 +3658,23 @@ function netPostAnims(prev: Record<string, any>, pub: Record<string, any>): void
     if (winner >= 0) requestAnimationFrame(() => { animatePotToWinner([winner]); animateCoinShower(winner); });
   }
 }
+// Live decision clock — ticks the countdown number on the active seat every 500ms
+// (snapshots only fire on actions, so the number needs its own heartbeat). Self-stops
+// when we leave the table or the hand ends.
+let _netClock: ReturnType<typeof setInterval> | null = null;
+function startNetClock(): void {
+  if (_netClock != null) return;
+  _netClock = setInterval(() => {
+    const pub = S.net.pub;
+    if (S.screen !== "mp-net" || !pub || pub.status !== "in_hand") { stopNetClock(); return; }
+    const secs = Math.max(0, Math.ceil((((pub.deadlineMs as number) || 0) - Date.now()) / 1000));
+    document.querySelectorAll(".turn-clock").forEach((el) => { (el as HTMLElement).textContent = String(secs); el.classList.toggle("urgent", secs <= 5); });
+  }, 500);
+}
+function stopNetClock(): void { if (_netClock != null) { clearInterval(_netClock); _netClock = null; } }
+
 async function netLeave(): Promise<void> {
-  const code = S.net.code; clearNetSubs();
+  const code = S.net.code; clearNetSubs(); stopNetClock();
   if (code) { try { await FB.leaveRoom(code); } catch { /* */ } }
   S.net.code = null; S.net.pub = null; S.net.myHand = null; S.net.myRec = null; S.net.err = "";
   S.screen = "mp-setup"; render();
@@ -3756,7 +3771,7 @@ function renderNetTable(): void {
         <div class="seat-pos">${me ? "YOU" : esc(s.name)}${s.ai ? ` <span class="seat-subpos">BOT</span>` : ""}</div>
         <div class="seat-stack">${sym} ${mpc(s.chips)}</div>
         ${s.folded ? `<div class="seat-act">folded</div>` : ""}
-        ${active && secsLeft > 0 ? `<div class="turn-bar"><div class="tb-fill" style="animation-duration:${secsLeft.toFixed(1)}s"></div></div>` : ""}
+        ${active && secsLeft > 0 ? `<div class="turn-bar"><div class="tb-fill" style="animation-duration:${secsLeft.toFixed(1)}s"></div></div><div class="turn-clock${secsLeft <= 5 ? " urgent" : ""}">${Math.ceil(secsLeft)}</div>` : ""}
       </div>
       ${betChip}
       ${holeCards}
@@ -3868,6 +3883,7 @@ function renderNetTable(): void {
     _netBetAmt = k === "min" ? minTo : k === "half" ? cl(cur + (potNow + Math.max(0, toCall)) / 2) : k === "pot" ? cl(cur + potNow + Math.max(0, toCall)) : myMax;
     render();
   }));
+  if (status === "in_hand") startNetClock(); else stopNetClock();
 }
 
 /* ═══════════════════ SIGN IN / REGISTER ═══════════════════ */
