@@ -3625,6 +3625,9 @@ async function netAct(action: { type: string; amount?: number }): Promise<void> 
   const code = S.net.code, pub = S.net.pub;
   if (!code || !pub || _netActing) return;
   _netActing = true;
+  // Safety: a dropped/slow snapshot or a hung call must NEVER freeze the table. Release the
+  // lock after 6s so the player can retry instead of being stuck on "sending…" forever.
+  const _actSafety = setTimeout(() => { if (_netActing) { _netActing = false; if (S.screen === "mp-net") render(); } }, 6000);
   // OPTIMISTIC LOCAL APPLY — reflect MY action instantly (chips + bet slide, pot grows)
   // before the server round-trips. The authoritative snapshot replaces this ~300ms later.
   const uid = S.mp.auth?.uid;
@@ -3638,7 +3641,8 @@ async function netAct(action: { type: string; amount?: number }): Promise<void> 
   }
   if (S.screen === "mp-net") render();
   try { await FB.actRoom(code, action, pub.version as number); }
-  catch { _netActing = false; if (S.screen === "mp-net") render(); /* stale/illegal — next snapshot corrects */ }
+  catch (e) { _netActing = false; S.net.err = friendlyErr(e); if (S.screen === "mp-net") render(); /* stale/illegal — next snapshot corrects */ }
+  finally { clearTimeout(_actSafety); }
 }
 async function netDeal(): Promise<void> { const code = S.net.code; if (!code) return; try { await FB.dealHand(code); } catch (e) { S.net.err = friendlyErr(e); render(); } }
 
@@ -3669,6 +3673,17 @@ function startNetClock(): void {
     if (S.screen !== "mp-net" || !pub || pub.status !== "in_hand") { stopNetClock(); return; }
     const secs = Math.max(0, Math.ceil((((pub.deadlineMs as number) || 0) - Date.now()) / 1000));
     document.querySelectorAll(".turn-clock").forEach((el) => { (el as HTMLElement).textContent = String(secs); el.classList.toggle("urgent", secs <= 5); });
+    // Self-timeout: when MY clock hits zero, auto-act so the hand can never hang on me
+    // (check if it's free, otherwise fold — standard time-bank-expiry behaviour). Each
+    // client enforces its own turn, so a stalled/AFK player never freezes the table.
+    if (secs <= 0 && !_netActing) {
+      const uid = S.mp.auth?.uid;
+      const seat = (pub.seats as Array<{ uid: string | null; bet: number }> | undefined)?.[pub.toAct as number];
+      if (seat && seat.uid === uid) {
+        const toCall = ((pub.currentBet as number) || 0) - (seat.bet || 0);
+        void netAct(toCall > 0 ? { type: "fold" } : { type: "check" });
+      }
+    }
   }, 500);
 }
 function stopNetClock(): void { if (_netClock != null) { clearInterval(_netClock); _netClock = null; } }
