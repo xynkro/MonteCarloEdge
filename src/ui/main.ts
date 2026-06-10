@@ -4606,6 +4606,7 @@ function renderHome(): void {
 
       <button class="mc-stats" id="home-stats" style="--d:.33s">📊 Stats &amp; Leak Report</button>
       <div class="mc-foot">
+        <button class="mc-foot-link" id="home-proof">The Proof</button><span>·</span>
         <button class="mc-foot-link" id="home-explainer">How it works</button><span>·</span>
         <button class="mc-foot-link" id="home-legal">Terms</button><span>·</span>
         <button class="mc-foot-link" id="home-settings2">Settings</button>
@@ -4617,6 +4618,7 @@ function renderHome(): void {
   onId("home-admin", "click", () => { S.compose = { toUid: "", toName: "", text: "", giftAmt: 0, busy: false, err: "", sent: "" }; S.screen = "admin"; render(); });
   onId("home-settings", "click", () => { S.screen = "settings"; render(); });
   onId("home-settings2", "click", () => { S.screen = "settings"; render(); });
+  onId("home-proof", "click", () => { try { window.open("/proof.html", "_blank", "noopener"); } catch { location.assign("/proof.html"); } });
   onId("home-explainer", "click", () => { _docReturn = "home"; S.screen = "explainer"; render(); });
   onId("home-legal", "click", () => { _docReturn = "home"; S.screen = "legal"; render(); });
   onId("home-profile", "click", () => { S.screen = loggedIn ? "profile" : "signin"; render(); });
