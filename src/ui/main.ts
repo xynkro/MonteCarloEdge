@@ -38,6 +38,7 @@ import type { MPAction, MPUser } from "../mp/types.js";
 import * as FB from "../mp/firebase-adapter.js";
 import { LEGAL_INTRO, LEGAL_SECTIONS, EXPLAINER_INTRO, EXPLAINER_SECTIONS, type Section } from "./content.js";
 import { playSound, setSoundEnabled, isSoundEnabled } from "./sound.js";
+import * as Hist from "./history.js";
 
 const RANKS = "23456789TJQKA";
 const SUITS = ["♣", "♦", "♥", "♠"];
@@ -61,7 +62,7 @@ interface UndoSnapshot {
 }
 
 interface AppState {
-  screen: "home" | "setup" | "game" | "stats" | "leaks" | "mp-setup" | "mp-table" | "mp-lobby" | "mp-net" | "profile" | "settings" | "legal" | "explainer" | "store" | "signin" | "inbox" | "compose" | "admin" | "onboard";
+  screen: "home" | "setup" | "game" | "stats" | "leaks" | "mp-setup" | "mp-table" | "mp-lobby" | "mp-net" | "profile" | "settings" | "legal" | "explainer" | "store" | "signin" | "inbox" | "compose" | "admin" | "onboard" | "history";
   // Player profile (local-first; syncs name/avatar to Firestore when signed in).
   profile: { nickname: string; avatar: string; chips: number };
   // Multiplayer / benchmark (Phase 0 hot-seat + Phase 1 online lobby).
@@ -435,6 +436,7 @@ function render(): void {
   else if (S.screen === "mp-lobby") renderMpLobby();
   else if (S.screen === "mp-table") renderMpTable();
   else if (S.screen === "mp-net") renderNetTable();
+  else if (S.screen === "history") renderHistory();
   else renderGame();
   if (S.pickerOpen) renderPicker();
   if (S.betPadOpen) renderBetPad();
@@ -3508,8 +3510,27 @@ function renderMpTable(): void {
 
   let panel = "";
   if (ps.status === "hand_over") {
-    panel = `<div class="mp-result">${ps.lastResult || "Hand complete"}</div>
-      <button class="start-btn" id="mp-next">NEXT HAND</button>`;
+    // Last-man detection (training mode): hero seat is the only seated player with chips.
+    const seated = ps.seats.filter((s) => !!s.uid);
+    const heroSeated = seated.find((s) => s.assisted) ?? seated[0]; // training "you" = first assisted
+    const wonRoom = !!heroSeated && heroSeated.chips > 0 && seated.length >= 2 && seated.every((s) => s === heroSeated || s.chips === 0);
+    if (wonRoom) {
+      const final = heroSeated.chips;
+      panel = `
+        <div class="win-room">
+          <div class="wr-trophy">🏆</div>
+          <div class="wr-title">YOU WIN THE TABLE</div>
+          <div class="wr-sub">Last player standing</div>
+          <div class="wr-stack"><span class="wr-final">🪙 ${mpc(final)}</span></div>
+          <div class="wr-actions">
+            <button class="hdr-btn" id="mp-rematch">↻ Rematch (reset stacks)</button>
+            <button class="hdr-btn" id="mp-home">🏠 Home</button>
+          </div>
+        </div>`;
+    } else {
+      panel = `<div class="mp-result">${ps.lastResult || "Hand complete"}</div>
+        <button class="start-btn" id="mp-next">NEXT HAND</button>`;
+    }
   } else if (ps.toAct >= 0) {
     const seat = ps.seats[ps.toAct]!;
     const toCall = ps.currentBet - seat.bet;
@@ -3560,6 +3581,14 @@ function renderMpTable(): void {
     if (aiArch) scheduleAi(t, ps.toAct, aiArch);
   }
   onId("mp-next", "click", () => { MP.startHand(t, () => Math.random()); S.mp.reveal = false; S.mp.rec = null; render(); });
+  onId("mp-rematch", "click", () => {
+    // Reset every seated player back to the original buy-in, then deal. AuthSeat fields
+    // only — bet/folded live on the GameState which is null at hand_over.
+    const buy = t.startingStack;
+    t.seats.forEach((s) => { if (s.uid) { s.chips = buy; s.sittingOut = false; } });
+    MP.startHand(t, () => Math.random()); S.mp.reveal = false; S.mp.rec = null; render();
+  });
+  onId("mp-home", "click", () => { S.screen = "home"; render(); });
   onId("mp-reveal", "click", () => {
     S.mp.reveal = true;
     const seat = ps.seats[ps.toAct]!;
@@ -3699,6 +3728,8 @@ async function netAct(action: { type: string; amount?: number }): Promise<void> 
   const code = S.net.code, pub = S.net.pub;
   if (!code || !pub || _netActing) return;
   _netActing = true;
+  // Local action SFX (server replay also plays bot SFX via the snapshot-diff hook).
+  playSound(action.type === "fold" ? "fold" : action.type === "check" ? "check" : action.type === "call" ? "chip" : "bet");
   // Safety: a dropped/slow snapshot or a hung call must NEVER freeze the table. Release the
   // lock after 6s so the player can retry instead of being stuck on "sending…" forever.
   const _actSafety = setTimeout(() => { if (_netActing) { _netActing = false; if (S.screen === "mp-net") render(); } }, 6000);
@@ -3751,20 +3782,92 @@ function netPreAnims(prev: Record<string, any>, pub: Record<string, any>): void 
   // DOM (the .seat-bet chips are still rendered) so the chips fly from the right spots.
   if (prev.status === "in_hand" && pub.status === "in_hand" && prev.street !== pub.street) animateChipsToPot();
 }
+// History capture state for the LIVE online hand. Module-level so transitions across
+// multiple netPostAnims calls within a hand share continuity.
+let _histStartChips: number | null = null;
+function blindPosition(pub: Record<string, any>, seatIdx: number): string {
+  const seats = (pub.seats as Array<{ uid: string | null; ai: string | null }> | undefined) ?? [];
+  const occupied = seats.map((s, ti) => ({ s, ti })).filter((x) => x.s.uid || x.s.ai);
+  if (occupied.length === 0) return "?";
+  const dealer = Number(pub.dealerSeat ?? 0);
+  const btnOrder = occupied.findIndex((x) => x.ti === dealer);
+  if (btnOrder < 0) return "?";
+  const myOrder = occupied.findIndex((x) => x.ti === seatIdx);
+  if (myOrder < 0) return "?";
+  const rel = (myOrder - btnOrder + occupied.length) % occupied.length;
+  if (occupied.length === 2) return rel === 0 ? "BTN/SB" : "BB";
+  const positions = ["BTN", "SB", "BB", "UTG", "UTG+1", "MP", "MP+1", "HJ", "CO", "CO+1"];
+  return positions[rel] ?? `+${rel}`;
+}
 function netPostAnims(prev: Record<string, any>, pub: Record<string, any>): void {
+  const uid = S.mp.auth?.uid;
+  // Hand just started (waiting/hand_over → in_hand) → deal sweep SFX + history reset.
+  if (prev.status !== "in_hand" && pub.status === "in_hand") {
+    playSound("deal");
+    if (pub.handId) Hist.startHandTracking(String(pub.handId));
+    const mi = (pub.seats as Array<{ uid: string | null; chips?: number }> | undefined)?.findIndex((s) => s?.uid === uid) ?? -1;
+    _histStartChips = mi >= 0 ? Number((pub.seats as Array<{ chips?: number }>)[mi]?.chips ?? 0) : null;
+  }
   // Just entered hand_over → fly the pot to the server-reported winner(s) + coin shower.
   // Uses pub.lastWinners (robust — works even for instant fold-outs that skip an in_hand frame).
   if (prev.status !== "hand_over" && pub.status === "hand_over") {
     const winners = (pub.lastWinners || []) as number[];
     if (winners.length) requestAnimationFrame(() => { animatePotToWinner(winners); winners.forEach((w) => animateCoinShower(w)); });
+    // SFX: did I win? Big win sound for me, generic chip-rake for spectators / when I lost.
+    const mySeat = (pub.seats as Array<{ uid: string | null }> | undefined)?.findIndex((s) => s?.uid === uid) ?? -1;
+    const iWon = mySeat >= 0 && winners.includes(mySeat);
+    playSound(iWon ? "win" : "chip");
+    // History capture: snapshot what just happened from MY view, drop into localStorage.
+    if (mySeat >= 0 && pub.handId && Hist.currentHandId() === String(pub.handId)) {
+      const mySeatData = (pub.seats as Array<{ chips: number; uid: string | null }>)[mySeat];
+      const final = Number(mySeatData?.chips ?? 0);
+      const start = _histStartChips ?? final;
+      Hist.recordHand({
+        id: String(pub.handId),
+        ts: Date.now(),
+        mode: "online",
+        roomCode: S.net.code ?? undefined,
+        blinds: (pub.blinds as { sb: number; bb: number }) ?? { sb: 0, bb: 0 },
+        currency: (pub.currency as "play" | "premium") ?? "play",
+        mySeat,
+        position: blindPosition(pub, mySeat),
+        myCards: S.net.myHand ? [S.net.myHand[0]!, S.net.myHand[1]!] : null,
+        board: ((pub.board as number[]) ?? []).slice(),
+        villainShown: Object.entries((pub.revealedHoles as Record<string, [number, number]>) || {})
+          .filter(([k]) => Number(k) !== mySeat)
+          .map(([k, v]) => ({ seat: Number(k), cards: v })),
+        myNet: final - start,
+        finalStack: final,
+        result: String(pub.lastResult ?? ""),
+      });
+      Hist.clearTracking();
+      _histStartChips = null;
+    }
   }
   // Per-action bet: a seat's wager grew on the SAME street → fly chips from that seat
   // toward the pot (the "chips flowing in" you wanted on a bet/raise).
   if (prev.status === "in_hand" && pub.status === "in_hand" && prev.street === pub.street) {
-    const oldS = (prev.seats || []) as Array<{ bet?: number }>;
-    const newS = (pub.seats || []) as Array<{ bet?: number }>;
-    newS.forEach((s, i) => { if ((s.bet || 0) > (oldS[i]?.bet || 0)) requestAnimationFrame(() => animateChipBet(i)); });
+    const oldS = (prev.seats || []) as Array<{ bet?: number; folded?: boolean; uid?: string | null }>;
+    const newS = (pub.seats || []) as Array<{ bet?: number; folded?: boolean; uid?: string | null }>;
+    newS.forEach((s, i) => {
+      const wasFolded = !!oldS[i]?.folded, nowFolded = !!s.folded;
+      const wasMe = oldS[i]?.uid === uid && uid;
+      const oldBet = oldS[i]?.bet || 0;
+      const newBet = s.bet || 0;
+      if (newBet > oldBet) {
+        requestAnimationFrame(() => animateChipBet(i));
+        if (!wasMe) playSound(newBet > oldBet * 1.5 ? "bet" : "chip");
+        Hist.pushAction({ street: String(pub.street ?? "preflop"), type: newBet === oldBet ? "call" : "bet", amount: newBet - oldBet, bySeat: i });
+      } else if (nowFolded && !wasFolded) {
+        if (!wasMe) playSound("fold");
+        Hist.pushAction({ street: String(pub.street ?? "preflop"), type: "fold", amount: 0, bySeat: i });
+      }
+    });
   }
+  // New community card dealt → flutter.
+  const oldBoard = (prev.board || []) as number[];
+  const newBoard = (pub.board || []) as number[];
+  if (newBoard.length > oldBoard.length) playSound("card");
 }
 // Live decision clock — ticks the countdown number on the active seat every 500ms
 // (snapshots only fire on actions, so the number needs its own heartbeat). Self-stops
@@ -4049,6 +4152,11 @@ function renderNetTable(): void {
           <div class="cog-row"><span>Top up your stack</span><button class="hdr-btn" id="cog-rebuy">Rebuy →</button></div>
           <span class="hint">Available when you bust or while the room is waiting.</span>
         </div>
+        <div class="cog-section"><div class="cog-label">Audio</div>
+          <div class="cog-row"><span>Sound effects</span>
+            <button class="mce-toggle ${isSoundEnabled() ? "on" : ""}" id="cog-sound">${isSoundEnabled() ? "🔊 ON" : "🔇 OFF"}</button>
+          </div>
+        </div>
       </div>` : "";
     app.innerHTML = `
       <div class="net-game lobby-screen">
@@ -4092,6 +4200,7 @@ function renderNetTable(): void {
     });
     onId("cog-priv", "click", () => { void netSetRoomPrefs({ isPublic: !isPublic }); });
     onId("cog-rebuy", "click", () => { S.net.cog = false; openRebuySheet(); });
+    onId("cog-sound", "click", () => { setSoundEnabled(!isSoundEnabled()); render(); });
     app.querySelectorAll("[data-style]").forEach((b) => onEl(b, "click", () => { void netSetSeatPrefs({ recStyle: (b as HTMLElement).dataset.style as "balanced" | "tag" | "lag" }); }));
     app.querySelectorAll(".cog-kick").forEach((b) => onEl(b, "click", () => { void netKickBot(+(b as HTMLElement).dataset.seat!); }));
     app.querySelectorAll(".add-ai").forEach((b) => onEl(b, "click", () => void netAddBot((b as HTMLElement).dataset.arch!)));
@@ -4176,11 +4285,35 @@ function renderNetTable(): void {
       ${isOwner ? `<button class="start-btn" id="net-deal" ${occupied.length < 2 ? "disabled style=opacity:.5" : ""}>${S.net.busy ? "…" : occupied.length < 2 ? "Waiting for players…" : "DEAL"}</button>` : `<div class="hint" style="text-align:center">Waiting for the host to deal…</div>`}`;
   } else if (status === "hand_over") {
     const shareBtn = iWonAmt > 0 ? `<button class="share-win-btn" id="net-share-win">📸 Share this win · +${mpc(iWonAmt)}</button>` : "";
-    // AUTO-DEAL: any seated human can deal, and the table deals itself in 5s anyway.
     const mySeated = occupied.some((x) => x.s.uid === uid && x.s.chips > 0);
-    if (mySeated) startAutoDeal(code);
-    const secs = _autoDealAt ? Math.max(0, Math.ceil((_autoDealAt - Date.now()) / 1000)) : 5;
-    controls = `<div class="mp-result">${esc(pub.lastResult || "Hand over")}</div>${shareBtn}${mySeated ? `<button class="start-btn" id="net-deal">${S.net.busy ? "…" : `▶ NEXT HAND · ${secs}s`}</button>` : `<div class="hint" style="text-align:center">Next hand starting…</div>`}`;
+    // Last-man-standing detection: I'm seated with chips AND every other occupied seat
+    // is busted (chips=0). Without this we'd auto-deal into a server-side "need 2+ players
+    // with chips" error and the table would silently stall instead of celebrating the win.
+    const liveOpponents = occupied.filter((x) => !(x.s.uid === uid) && x.s.chips > 0).length;
+    const wonTheRoom = mySeated && occupied.length >= 2 && liveOpponents === 0;
+    if (wonTheRoom) {
+      stopAutoDeal();
+      const myFinal = (seats.find((s) => s.uid === uid)?.chips ?? 0);
+      const profit = myFinal - (pub.startingStack as number || 0);
+      const canRefill = isOwner && currency === "play" && occupied.length < seats.length;
+      controls = `
+        <div class="win-room">
+          <div class="wr-trophy">🏆</div>
+          <div class="wr-title">YOU WIN THE ROOM</div>
+          <div class="wr-sub">Last player standing${liveOpponents === 0 && occupied.length === 2 ? " · heads-up" : ""}</div>
+          <div class="wr-stack"><span class="wr-final">${sym} ${mpc(myFinal)}</span>${profit > 0 ? `<span class="wr-profit">+${mpc(profit)}</span>` : ""}</div>
+          ${shareBtn}
+          <div class="wr-actions">
+            ${canRefill ? `<button class="hdr-btn add-ai" data-arch="TAG">＋ Add a bot</button>` : ""}
+            <button class="hdr-btn" id="net-leave-win">Bank ${sym} ${mpc(myFinal)} + leave</button>
+          </div>
+        </div>`;
+    } else {
+      // AUTO-DEAL: any seated human can deal, and the table deals itself in 5s anyway.
+      if (mySeated) startAutoDeal(code);
+      const secs = _autoDealAt ? Math.max(0, Math.ceil((_autoDealAt - Date.now()) / 1000)) : 5;
+      controls = `<div class="mp-result">${esc(pub.lastResult || "Hand over")}</div>${shareBtn}${mySeated ? `<button class="start-btn" id="net-deal">${S.net.busy ? "…" : `▶ NEXT HAND · ${secs}s`}</button>` : `<div class="hint" style="text-align:center">Next hand starting…</div>`}`;
+    }
   } else if (myTurn) {
     const seat = seats[pub.toAct]!; const cur = (pub.currentBet as number) || 0;
     const toCall = cur - seat.bet; const bb = ((pub.blinds as { bb?: number })?.bb) || 2;
@@ -4246,6 +4379,7 @@ function renderNetTable(): void {
   onId("fomo-upsell", "click", () => { S.screen = "store"; render(); });
   onId("fomo-x", "click", (e) => { (e as Event).stopPropagation(); _fomoDismissed = true; render(); });
   onId("net-leave", "click", () => void netLeave());
+  onId("net-leave-win", "click", () => void netLeave());
   onId("net-deal", "click", () => void netDeal());
   onId("net-share-win", "click", () => {
     const cards = S.net.myHand ? S.net.myHand.map((c) => ({ t: cardDisplay(c), red: isRed(c) })) : undefined;
@@ -4950,6 +5084,61 @@ function renderHome(): void {
   maybeShowWeekly(); // Monday dopamine pop, if a free claim is waiting
 }
 
+let _histExpanded: string | null = null;
+function renderHistory(): void {
+  cancelVillainTimer();
+  const hands = Hist.loadHistory();
+  const totalNet = hands.reduce((a, h) => a + h.myNet, 0);
+  const wins = hands.filter((h) => h.myNet > 0).length;
+  const showdowns = hands.filter((h) => h.board.length >= 5).length;
+  const cardHTML = (c: number) => `<span class="hh-card ${isRed(c) ? "red" : ""}">${cardDisplay(c)}</span>`;
+  app.innerHTML = `
+    <div class="setup">
+      <div class="doc-top"><button class="hdr-btn" id="hh-back">← Back</button><h1>📜 Hand history</h1><span style="width:54px"></span></div>
+      ${hands.length === 0
+        ? `<div class="hint" style="text-align:center;margin:36px 0">No hands recorded yet. Play a few and they'll show up here automatically.</div>`
+        : `<div class="hh-summary">
+            <div class="hh-stat"><span class="hh-stat-num ${totalNet >= 0 ? "g-ok" : "g-bad"}">${totalNet >= 0 ? "+" : ""}${mpc(totalNet)}</span><span class="hh-stat-lbl">net chips</span></div>
+            <div class="hh-stat"><span class="hh-stat-num">${wins}/${hands.length}</span><span class="hh-stat-lbl">won</span></div>
+            <div class="hh-stat"><span class="hh-stat-num">${showdowns}</span><span class="hh-stat-lbl">showdowns</span></div>
+          </div>
+          <div class="hh-list">${hands.map((h) => {
+            const isOpen = _histExpanded === h.id;
+            const myCards = h.myCards ? `${cardHTML(h.myCards[0])}${cardHTML(h.myCards[1])}` : `<span class="hint">— folded preflop —</span>`;
+            const boardHtml = h.board.length ? h.board.map(cardHTML).join("") : `<span class="hint">preflop only</span>`;
+            const ago = relTime(Date.now() - h.ts);
+            return `<div class="hh-row${isOpen ? " open" : ""}" data-id="${esc(h.id)}">
+              <button class="hh-head" data-toggle="${esc(h.id)}">
+                <span class="hh-cards-line">${myCards}</span>
+                <span class="hh-pos">${esc(h.position)}</span>
+                <span class="hh-stakes">${h.currency === "premium" ? "💎" : "🪙"} ${h.blinds.sb}/${h.blinds.bb}</span>
+                <span class="hh-net ${h.myNet > 0 ? "g-ok" : h.myNet < 0 ? "g-bad" : ""}">${h.myNet > 0 ? "+" : ""}${mpc(h.myNet)}</span>
+                <span class="hh-ago">${ago}</span>
+              </button>
+              ${isOpen ? `<div class="hh-detail">
+                <div class="hh-board"><span class="hh-lbl">Board</span><span class="hh-cards">${boardHtml}</span></div>
+                <div class="hh-result">${esc(h.result || "—")}</div>
+                <div class="hh-actions-log">
+                  ${h.actions.length === 0 ? `<span class="hint">no per-action log captured</span>` : h.actions.map((a) => `<span class="hh-act ${a.type}">${esc(a.street)}: seat ${a.bySeat} ${esc(a.type)}${a.amount > 0 ? ` ${mpc(a.amount)}` : ""}</span>`).join("")}
+                </div>
+              </div>` : ""}
+            </div>`;
+          }).join("")}</div>
+          <button class="hdr-btn" id="hh-clear" style="width:100%;margin-top:14px;color:var(--red)">Clear history</button>`}
+    </div>`;
+  onId("hh-back", "click", () => { S.screen = "profile"; render(); });
+  onId("hh-clear", "click", () => { if (confirm("Delete all locally-saved hand history?")) { Hist.clearHistory(); _histExpanded = null; render(); } });
+  app.querySelectorAll("[data-toggle]").forEach((b) => onEl(b, "click", () => { const id = (b as HTMLElement).dataset.toggle!; _histExpanded = _histExpanded === id ? null : id; render(); }));
+}
+
+function relTime(ms: number): string {
+  const s = Math.floor(ms / 1000);
+  if (s < 60) return "just now";
+  const m = Math.floor(s / 60); if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60); if (h < 24) return `${h}h ago`;
+  const d = Math.floor(h / 24); return `${d}d ago`;
+}
+
 function renderProfile(): void {
   cancelVillainTimer();
   const p = S.profile;
@@ -4971,6 +5160,7 @@ function renderProfile(): void {
         <span class="hint" style="display:block;margin-top:6px">${loggedIn ? "Free play chips every week — claim on Home / in the Store. Win 💎 at premium tables." : "Sign in (Play Online) to save your chips to your account + play online."}</span>
       </div>
       ${loggedIn ? `<button class="hdr-btn" id="pf-store" style="width:100%;padding:12px;margin-top:10px">🛍 Store · buy chips</button>` : ""}
+      <button class="hdr-btn" id="pf-history" style="width:100%;padding:12px;margin-top:6px">📜 Hand history</button>
       <div class="hint" style="text-align:center;margin-top:10px">${loggedIn ? `✓ Signed in as ${esc(S.mp.auth!.name)}` : "Not signed in"}</div>
       ${loggedIn
         ? `<button class="hdr-btn" id="pf-signout" style="width:100%;padding:12px;margin-top:6px;color:var(--red)">Sign out</button>`
@@ -4981,6 +5171,7 @@ function renderProfile(): void {
   onId("pf-av-auto", "click", () => { S.profile.avatar = ""; saveProfile(); render(); });
   app.querySelectorAll("[data-av]").forEach((b) => onEl(b, "click", () => { S.profile.avatar = (b as HTMLElement).dataset.av!; saveProfile(); render(); }));
   onId("pf-store", "click", () => { S.screen = "store"; render(); });
+  onId("pf-history", "click", () => { S.screen = "history"; render(); });
   onId("pf-signin", "click", () => { S.screen = "signin"; render(); });
   onId("pf-signout", "click", () => { if (confirm("Sign out of your account?")) void goOffline().then(() => { S.screen = "home"; render(); }); });
   onId("pf-back", "click", () => { S.screen = "home"; render(); });

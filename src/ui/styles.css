@@ -1608,6 +1608,60 @@ body::before {
   100% { opacity: 0; transform: translate(-50%, -8px) scale(.95); }
 }
 
+/* ── Hand history viewer ── */
+.hh-summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 8px 0 12px; }
+.hh-stat { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 12px 6px; background: var(--glass); border: 1px solid var(--glass-edge); border-radius: 14px; }
+.hh-stat-num { font: 800 1.15rem/1 var(--display, inherit); color: #fff; }
+.hh-stat-lbl { font-size: .68rem; font-weight: 700; letter-spacing: 1.1px; text-transform: uppercase; color: rgba(255,255,255,.5); }
+.hh-list { display: flex; flex-direction: column; gap: 6px; }
+.hh-row { background: var(--glass); border: 1px solid var(--glass-edge); border-radius: 12px; overflow: hidden; }
+.hh-row.open { border-color: rgba(245,196,81,.35); }
+.hh-head { display: grid; grid-template-columns: auto auto 1fr auto auto; gap: 10px; align-items: center; padding: 10px 12px; width: 100%; background: transparent; border: 0; color: var(--text); cursor: pointer; text-align: left; }
+.hh-head:active { background: var(--elevate); }
+.hh-cards-line { display: inline-flex; gap: 2px; }
+.hh-card { font: 800 .82rem/1 var(--display, inherit); padding: 3px 5px; background: #fff; color: #111; border-radius: 4px; min-width: 22px; text-align: center; }
+.hh-card.red { color: #e53935; }
+.hh-pos { font-size: .72rem; font-weight: 700; letter-spacing: .5px; color: rgba(255,255,255,.6); }
+.hh-stakes { font-size: .76rem; color: rgba(255,255,255,.6); font-weight: 600; }
+.hh-net { font-weight: 800; font-size: .9rem; }
+.hh-net.g-ok { color: #3ecf8e; }
+.hh-net.g-bad { color: #ef476f; }
+.hh-ago { font-size: .68rem; color: rgba(255,255,255,.4); font-weight: 600; }
+.hh-detail { padding: 10px 14px 14px; border-top: 1px dashed rgba(255,255,255,.08); display: flex; flex-direction: column; gap: 6px; }
+.hh-board { display: flex; align-items: center; gap: 8px; }
+.hh-cards { display: inline-flex; gap: 3px; }
+.hh-lbl { font-size: .68rem; font-weight: 800; letter-spacing: 1.1px; text-transform: uppercase; color: rgba(255,255,255,.5); }
+.hh-result { font-size: .82rem; color: rgba(255,255,255,.78); padding: 6px 0; }
+.hh-actions-log { display: flex; flex-wrap: wrap; gap: 4px; }
+.hh-act { font-size: .68rem; padding: 3px 7px; background: rgba(255,255,255,.05); border-radius: 6px; color: rgba(255,255,255,.7); font-weight: 600; letter-spacing: .2px; }
+.hh-act.fold { color: rgba(255,255,255,.45); }
+.hh-act.bet { color: #fbbf24; }
+
+/* ── Win-the-room celebration banner (last player standing) ── */
+.win-room {
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+  padding: 22px 18px 18px; margin: 12px auto; max-width: 420px; width: 100%;
+  background: radial-gradient(ellipse at top, rgba(245,196,81,.20) 0%, rgba(20,28,46,.95) 60%);
+  border: 1px solid rgba(245,196,81,.45); border-radius: 22px;
+  box-shadow: 0 14px 50px rgba(245,196,81,.22), 0 0 0 1px rgba(245,196,81,.08) inset;
+  animation: wrPop .55s cubic-bezier(.16,1.2,.3,1);
+}
+@keyframes wrPop {
+  0%   { opacity: 0; transform: scale(.78) translateY(20px); }
+  60%  { opacity: 1; transform: scale(1.04) translateY(-2px); }
+  100% { opacity: 1; transform: scale(1) translateY(0); }
+}
+.wr-trophy { font-size: 3.2rem; line-height: 1; filter: drop-shadow(0 4px 12px rgba(245,196,81,.6)); animation: wrTrophy 2.4s ease-in-out infinite; }
+@keyframes wrTrophy { 0%,100% { transform: rotate(-4deg); } 50% { transform: rotate(4deg); } }
+.wr-title { font: 800 1.45rem/1 var(--display, inherit); letter-spacing: 3px; color: var(--gold-2); text-shadow: 0 2px 10px rgba(245,196,81,.45); }
+.wr-sub { font-size: .78rem; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase; color: rgba(255,255,255,.55); }
+.wr-stack { display: flex; align-items: baseline; gap: 10px; margin: 8px 0 4px; }
+.wr-final { font: 800 2rem/1 var(--display, inherit); color: #fff; letter-spacing: .5px; }
+.wr-profit { font-weight: 800; color: #3ecf8e; font-size: 1rem; }
+.win-room .share-win-btn { width: 100%; max-width: 320px; }
+.wr-actions { display: flex; flex-direction: column; gap: 8px; width: 100%; max-width: 320px; margin-top: 4px; }
+.wr-actions .hdr-btn { padding: 11px 14px; font-size: .9rem; width: 100%; }
+
 /* ── Room chat drawer ── */
 .ch-toggle { position: relative; }
 .ch-badge {
