@@ -3975,12 +3975,15 @@ function rebuyKeypress(key: string): void {
   else S.net.rebuy.amount = Math.min(10_000_000, cur * 10 + Number(key));
   S.net.rebuy.err = ""; render();
 }
+let _rebuySubmittedAt = 0;
 async function netRebuy(): Promise<void> {
   const code = S.net.code, amt = S.net.rebuy.amount;
   if (!code || amt <= 0) return;
   try {
     await FB.rebuyRoom(code, amt);
+    _rebuySubmittedAt = Date.now();
     S.net.rebuy.open = false; S.net.rebuy.amount = 0; S.net.rebuy.err = "";
+    playSound("chip"); // chips into pocket — confirms the buy-in landed
     render();
   } catch (e) { S.net.rebuy.err = friendlyErr(e); render(); }
 }
@@ -4076,7 +4079,16 @@ function renderNetTable(): void {
   const isOwner = pub.ownerUid === uid;
   const lobby = status === "waiting";
   const revealed = (pub.revealedHoles || {}) as Record<string, [number, number]>;
-  const occupied = seats.map((s, ti) => ({ s, ti })).filter((x) => x.s.uid || x.s.ai);
+  // Busted seats (chips==0) between hands are hidden from the table — they're effectively
+  // sidelined until they rebuy. Server still has them seated so a rebuy puts them right
+  // back in. For the busted player themselves, the rebuy sheet auto-opens as the prompt.
+  const allOccupied = seats.map((s, ti) => ({ s, ti })).filter((x) => x.s.uid || x.s.ai);
+  const sidelined = (status === "in_hand")
+    ? []
+    : allOccupied.filter((x) => x.s.chips === 0);
+  const occupied = (status === "in_hand")
+    ? allOccupied
+    : allOccupied.filter((x) => x.s.chips > 0);
   // Lobby display order: humans above bots (does NOT affect table-seat indices ti).
   const lobbyOrder = (status === "waiting") ? [...occupied].sort((a, b) => (a.s.uid ? 0 : 1) - (b.s.uid ? 0 : 1)) : occupied;
   const humans = occupied.filter((x) => x.s.uid).length;
@@ -4107,7 +4119,11 @@ function renderNetTable(): void {
   // Rebuy sheet — shown on bust (auto) or via cog (manual). Same UI in lobby + table view.
   const mySeatLocal = seats.find((s) => s.uid === uid);
   const busted = !!mySeatLocal && mySeatLocal.chips === 0 && status === "hand_over";
-  if (busted && !S.net.rebuy.open && !S.net.cog) {
+  // Suppress auto-reopen for 4s after submit so the snapshot has time to reflect new
+  // stack; without this guard, "rebuy submitted ↔ snapshot still shows chips=0" races and
+  // the sheet pops right back open, masking the success.
+  const recentlyRebought = (Date.now() - _rebuySubmittedAt) < 4000;
+  if (busted && !S.net.rebuy.open && !S.net.cog && !recentlyRebought) {
     // Auto-open once on bust (idempotent — flag clears when user closes).
     S.net.rebuy.open = true;
     if (S.net.rebuy.amount === 0) S.net.rebuy.amount = (pub.startingStack as number) || 20 * (((pub.blinds as { bb?: number })?.bb) || 10);
@@ -4414,7 +4430,7 @@ function renderNetTable(): void {
     : "";
   app.innerHTML = `
     <div class="game net-game">
-      <div class="game-topbar"><span>Room <strong>${code}</strong> · ${sym} ${currency === "premium" ? "premium" : "play"}${spectators.length ? ` · 👁 ${spectators.length}` : ""}${isSpectator ? " · watching" : ""}</span><div class="topbar-btns"><button class="hdr-btn ch-toggle" id="net-chat" title="Chat">💬${unread > 0 ? `<span class="ch-badge">${unread}</span>` : ""}</button><button class="hdr-btn" id="net-leave">Leave</button></div></div>
+      <div class="game-topbar"><span>Room <strong>${code}</strong> · ${sym} ${currency === "premium" ? "premium" : "play"}${spectators.length ? ` · 👁 ${spectators.length}` : ""}${sidelined.length ? ` · 💤 ${sidelined.length}` : ""}${isSpectator ? " · watching" : ""}</span><div class="topbar-btns"><button class="hdr-btn ch-toggle" id="net-chat" title="Chat">💬${unread > 0 ? `<span class="ch-badge">${unread}</span>` : ""}</button><button class="hdr-btn" id="net-leave">Leave</button></div></div>
       <div class="net-table-wrap"><div class="poker-table"><div class="felt"></div>${seatHtml}<div class="board-center">${center}</div>${potHtml}</div></div>
       <div class="controls"><div class="controls-body">${upsellHtml}${controls}${S.net.err ? `<div class="room-broke" style="margin-top:8px">${esc(S.net.err)}</div>` : ""}</div></div>
       ${rebuySheet}
