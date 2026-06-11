@@ -26,6 +26,9 @@ export interface AuthTableSnapshot {
   lastWinners?: number[];
   lastPot?: number;
   lastWon?: Record<number, number>;
+  isPublic?: boolean;
+  spectators?: Array<{ uid: string; name: string }>;
+  lastAction?: { seat: number; type: string; amount: number } | null;
   gs: GameStateSnapshot | null;
   liveSeats: number[];
   holes: Record<number, [Card, Card]>; // table-seat idx → hole cards (SECRET)
@@ -49,6 +52,9 @@ export function serializeAuthTable(t: AuthTable): AuthTableSnapshot {
     lastWinners: t.lastWinners ?? [],
     lastPot: t.lastPot ?? 0,
     lastWon: t.lastWon ?? {},
+    isPublic: t.isPublic !== false,
+    spectators: (t.spectators ?? []).map((s) => ({ uid: s.uid, name: s.name })),
+    lastAction: t.lastAction ?? null,
     gs: t.gs ? t.gs.toSnapshot() : null,
     liveSeats: [...t.liveSeats],
     holes: Object.fromEntries(t.holes) as Record<number, [Card, Card]>,
@@ -73,6 +79,9 @@ export function deserializeAuthTable(s: AuthTableSnapshot): AuthTable {
     lastWinners: s.lastWinners ?? [],
     lastPot: s.lastPot ?? 0,
     lastWon: s.lastWon ?? {},
+    isPublic: s.isPublic !== false,
+    spectators: (s.spectators ?? []).map((x) => ({ uid: x.uid, name: x.name })),
+    lastAction: s.lastAction ? { seat: s.lastAction.seat, type: s.lastAction.type as NonNullable<AuthTable["lastAction"]>["type"], amount: s.lastAction.amount } : null,
     gs: s.gs ? GameState.fromSnapshot(s.gs) : null,
     liveSeats: [...s.liveSeats],
     holes: new Map(Object.entries(s.holes).map(([k, v]) => [Number(k), v] as [number, [Card, Card]])),

@@ -85,6 +85,11 @@ interface AppState {
     joinCode: string;
     busy: boolean;
     err: string;
+    cog: boolean;          // in-lobby settings sheet visible
+    publicRooms: Array<{ code: string; name: string; sb: number; bb: number; occupied: number; max: number; currency: string }> | null;
+    publicRoomsBusy: boolean;
+    rebuy: { open: boolean; amount: number; err: string };
+    chat: { open: boolean; msgs: import("../mp/firebase-adapter.js").ChatMsg[]; draft: string; lastReadTs: number };
   };
   edgePass: boolean;        // Stripe Edge Pass subscription active (server-confirmed)
   wallet: { play: number | null; premium: number | null }; // server balances (signed in)
@@ -210,7 +215,7 @@ const S: AppState = {
     authBusy: false,
     authErr: "",
   },
-  net: { code: null, pub: null, myHand: null, myRec: null, serverChips: null, joinCode: "", busy: false, err: "" },
+  net: { code: null, pub: null, myHand: null, myRec: null, serverChips: null, joinCode: "", busy: false, err: "", cog: false, publicRooms: null, publicRoomsBusy: false, rebuy: { open: false, amount: 0, err: "" }, chat: { open: false, msgs: [], draft: "", lastReadTs: 0 } },
   edgePass: false,
   wallet: { play: null, premium: null },
   lastWeekly: 0,
@@ -3389,10 +3394,19 @@ function renderMpSetup(): void {
 
       <div class="join-card">
         <label>Join a room</label>
-        <div class="net-join"><input class="mp-num join-code" id="net-code" placeholder="CODE" maxlength="8" autocapitalize="characters" autocomplete="off" value="${S.net.joinCode.replace(/"/g, "")}"/><button class="join-btn" id="net-join">Join</button></div>
-        <span class="hint">Ask the host for their 4-letter code — no dashes needed.</span>
+        <div class="net-join"><input class="mp-num join-code" id="net-code" placeholder="CODE" maxlength="8" autocapitalize="characters" autocomplete="off" value="${S.net.joinCode.replace(/"/g, "")}"/><button class="join-btn" id="net-join">Join</button><button class="join-btn spectate" id="net-spectate">👁 Watch</button></div>
+        <span class="hint">Ask the host for their 4-letter code — Watch to spectate without paying a buy-in.</span>
       </div>
       ${S.net.err ? `<div class="room-broke" style="margin:8px 0">${esc(S.net.err)}</div>` : ""}
+
+      <div class="public-rooms">
+        <div class="pr-head"><label>Online games${S.net.publicRooms ? ` · ${S.net.publicRooms.length}` : ""}</label><button class="hdr-btn pr-refresh" id="pr-refresh" title="Refresh">${S.net.publicRoomsBusy ? "…" : "↻"}</button></div>
+        ${S.net.publicRooms === null
+          ? `<span class="hint">${S.net.publicRoomsBusy ? "Loading open rooms…" : "Tap ↻ to find open public rooms."}</span>`
+          : (S.net.publicRooms.length === 0
+            ? `<span class="hint">No open public rooms right now — be the first to create one.</span>`
+            : `<div class="pr-list">${S.net.publicRooms.map((r) => `<button class="pr-row" data-code="${r.code}"><span class="pr-code">${r.code}</span><span class="pr-meta">${r.currency === "premium" ? "💎" : "🪙"} ${r.sb}/${r.bb}</span><span class="pr-seats">${r.occupied}/${r.max} seats</span></button>`).join("")}</div>`)}
+      </div>
 
       <div class="join-divider"><span>or create your own</span></div>
 
@@ -3420,6 +3434,14 @@ function renderMpSetup(): void {
           <span class="hint" style="display:block;margin-top:4px">${!hasEdge() ? "Live in-game GTO recommendations — unlock with Edge Pass in the Store." : "Show the live MCE recommendation at your seat this room."}</span>
         </div>
 
+        <div class="field"><label>Room visibility</label>
+          <div class="cur-seg" id="room-priv">
+            <button class="${_roomPublic ? "sel" : ""}" data-priv="public">🌐 Public</button>
+            <button class="${!_roomPublic ? "sel" : ""}" data-priv="private">🔒 Private</button>
+          </div>
+          <span class="hint" style="display:block;margin-top:4px">${_roomPublic ? "Anyone can find this room in the Online games list." : "Only friends with the code can join."}</span>
+        </div>
+
         ${canAfford && !noPrem ? `<button class="start-btn" id="net-create" style="background:linear-gradient(135deg,#4285F4,#1a73e8);color:#fff">${S.net.busy ? "…" : `🌐 Create ${premium ? "💎 Premium" : "🪙 Play"} Room`}</button>` : ""}
       </div>
 
@@ -3437,6 +3459,12 @@ function renderMpSetup(): void {
   onId("net-create", "click", () => { void createNetRoom(); });
   onId("net-code", "input", (e) => { S.net.joinCode = (e.target as HTMLInputElement).value.trim().toUpperCase(); });
   onId("net-join", "click", () => { const v = (document.getElementById("net-code") as HTMLInputElement | null)?.value.trim().toUpperCase() || S.net.joinCode; void joinNetRoom(v); });
+  onId("net-spectate", "click", () => { const v = (document.getElementById("net-code") as HTMLInputElement | null)?.value.trim().toUpperCase() || S.net.joinCode; void spectateNetRoom(v); });
+  app.querySelectorAll("#room-priv [data-priv]").forEach((b) => onEl(b, "click", () => { _roomPublic = (b as HTMLElement).dataset.priv !== "private"; render(); }));
+  onId("pr-refresh", "click", () => { void netRefreshPublic(); });
+  app.querySelectorAll("[data-code]").forEach((b) => onEl(b, "click", () => { const c = (b as HTMLElement).dataset.code!; S.net.joinCode = c; void joinNetRoom(c); }));
+  // Auto-fetch on first open (avoids requiring a tap to discover the list exists).
+  if (S.net.publicRooms === null && !S.net.publicRoomsBusy) void netRefreshPublic();
 }
 
 // AI seats auto-act (local rooms only) via the trainer's archetype-flavored villain AI.
@@ -3559,9 +3587,15 @@ function renderMpTable(): void {
 /* ═══════════════════ NETWORKED ROOMS (Phase 2 — live backend) ═══════════════════ */
 
 let _netTableUnsub: (() => void) | null = null, _netHandUnsub: (() => void) | null = null;
+let _netChatUnsub: (() => void) | null = null;
 let _roomCurrency: "play" | "premium" = "play";
 let _roomAssisted = false; // MCE Strategy overlay toggle (Edge Pass only)
-function clearNetSubs(): void { if (_netTableUnsub) { _netTableUnsub(); _netTableUnsub = null; } if (_netHandUnsub) { _netHandUnsub(); _netHandUnsub = null; } }
+let _roomPublic = true;    // public-by-default — listed in Online Games when waiting
+function clearNetSubs(): void {
+  if (_netTableUnsub) { _netTableUnsub(); _netTableUnsub = null; }
+  if (_netHandUnsub) { _netHandUnsub(); _netHandUnsub = null; }
+  if (_netChatUnsub) { _netChatUnsub(); _netChatUnsub = null; }
+}
 
 function friendlyErr(e: unknown): string {
   const code = (e as { code?: string })?.code ?? "";
@@ -3597,7 +3631,20 @@ async function enterRoom(code: string): Promise<void> {
     });
     const uid = S.mp.auth?.uid;
     if (uid) _netHandUnsub = await FB.subscribeMyHand(code, uid, (h) => { S.net.myHand = h?.holeCards ?? null; S.net.myRec = (h as { rec?: typeof S.net.myRec })?.rec ?? null; if (S.screen === "mp-net") render(); });
+    // Chat is its own subcollection (separate listener so room snapshots stay tight).
+    S.net.chat = { open: false, msgs: [], draft: "", lastReadTs: 0 };
+    _netChatUnsub = FB.subscribeChat(code, (msgs) => { S.net.chat.msgs = msgs; if (S.screen === "mp-net") render(); });
   } catch (e) { S.net.err = friendlyErr(e); render(); }
+}
+
+async function netRefreshPublic(): Promise<void> {
+  if (S.net.publicRoomsBusy) return;
+  S.net.publicRoomsBusy = true; render();
+  try {
+    const { rooms } = await FB.listPublicRooms();
+    S.net.publicRooms = rooms;
+  } catch { S.net.publicRooms = []; }
+  finally { S.net.publicRoomsBusy = false; if (S.screen === "mp-setup") render(); }
 }
 
 async function createNetRoom(): Promise<void> {
@@ -3608,9 +3655,26 @@ async function createNetRoom(): Promise<void> {
   S.net.busy = true; render();
   try {
     // Create EMPTY (no AI) — bots are added in the lobby. MCE overlay only if entitled.
-    const { code } = await FB.createRoom({ tier: tier.name, buyIn: su.buyIn, name: S.profile.nickname, bots: [], currency: _roomCurrency, assisted: hasEdge() && _roomAssisted });
+    const { code } = await FB.createRoom({ tier: tier.name, buyIn: su.buyIn, name: S.profile.nickname, bots: [], currency: _roomCurrency, assisted: hasEdge() && _roomAssisted, isPublic: _roomPublic });
     S.net.busy = false; await enterRoom(code);
   } catch (e) { S.net.busy = false; S.net.err = friendlyErr(e); render(); }
+}
+
+function normalizeCode(code: string): string {
+  let c = (code || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+  if (c.startsWith("MCE") && c.length > 4) c = c.slice(3);
+  return c.length === 4 ? `MCE-${c}` : "";
+}
+
+async function spectateNetRoom(code: string): Promise<void> {
+  if (S.net.busy) return;
+  S.net.err = "";
+  const norm = normalizeCode(code);
+  if (!norm) { S.net.err = "Enter the 4-letter room code (e.g. XK4P)."; render(); return; }
+  if (!(await ensureSignedIn())) return;
+  S.net.busy = true; render();
+  try { await FB.spectateRoom(norm, S.profile.nickname); S.net.busy = false; await enterRoom(norm); }
+  catch (e) { S.net.busy = false; S.net.err = friendlyErr(e); render(); }
 }
 
 async function joinNetRoom(code: string): Promise<void> {
@@ -3742,6 +3806,90 @@ async function netAddBot(archetype: string): Promise<void> {
   catch (e) { S.net.busy = false; S.net.err = friendlyErr(e); render(); }
 }
 
+async function netSetSeatPrefs(prefs: { assisted?: boolean; recStyle?: "balanced" | "tag" | "lag" }): Promise<void> {
+  const code = S.net.code; if (!code) return;
+  try { await FB.setSeatPrefs(code, prefs); }
+  catch (e) { S.net.err = friendlyErr(e); render(); }
+}
+
+async function netSetRoomPrefs(prefs: { isPublic?: boolean }): Promise<void> {
+  const code = S.net.code; if (!code) return;
+  try { await FB.setRoomPrefs(code, prefs); }
+  catch (e) { S.net.err = friendlyErr(e); render(); }
+}
+
+async function netKickBot(seatIdx: number): Promise<void> {
+  const code = S.net.code; if (!code) return;
+  try { await FB.kickBot(code, seatIdx); }
+  catch (e) { S.net.err = friendlyErr(e); render(); }
+}
+
+function openRebuySheet(): void {
+  const pub = S.net.pub; if (!pub) return;
+  S.net.rebuy.open = true; S.net.rebuy.err = "";
+  if (S.net.rebuy.amount === 0) S.net.rebuy.amount = (pub.startingStack as number) || 20 * (((pub.blinds as { bb?: number })?.bb) || 10);
+  render();
+}
+function closeRebuySheet(): void { S.net.rebuy.open = false; S.net.rebuy.err = ""; render(); }
+function rebuyKeypress(key: string): void {
+  const cur = S.net.rebuy.amount;
+  if (key === "back") S.net.rebuy.amount = Math.floor(cur / 10);
+  else if (key === "00") S.net.rebuy.amount = Math.min(10_000_000, cur * 100);
+  else S.net.rebuy.amount = Math.min(10_000_000, cur * 10 + Number(key));
+  S.net.rebuy.err = ""; render();
+}
+async function netRebuy(): Promise<void> {
+  const code = S.net.code, amt = S.net.rebuy.amount;
+  if (!code || amt <= 0) return;
+  try {
+    await FB.rebuyRoom(code, amt);
+    S.net.rebuy.open = false; S.net.rebuy.amount = 0; S.net.rebuy.err = "";
+    render();
+  } catch (e) { S.net.rebuy.err = friendlyErr(e); render(); }
+}
+function wireRebuyHandlers(): void {
+  onId("rb-close", "click", closeRebuySheet);
+  onId("rb-x", "click", closeRebuySheet);
+  onId("rb-confirm", "click", () => void netRebuy());
+  onId("rb-store", "click", () => { closeRebuySheet(); S.screen = "store"; render(); });
+  onId("rb-leave", "click", () => { closeRebuySheet(); void netLeave(); });
+  app.querySelectorAll("[data-rb]").forEach((b) => onEl(b, "click", () => { S.net.rebuy.amount = Math.max(0, +(b as HTMLElement).dataset.rb!); S.net.rebuy.err = ""; render(); }));
+  app.querySelectorAll("[data-key]").forEach((b) => onEl(b, "click", () => rebuyKeypress((b as HTMLElement).dataset.key!)));
+}
+
+function openChatDrawer(): void {
+  S.net.chat.open = true;
+  // Mark everything currently visible as read so the unread badge resets.
+  const latest = S.net.chat.msgs.reduce((a, m) => Math.max(a, m.ts ?? 0), 0);
+  S.net.chat.lastReadTs = Math.max(S.net.chat.lastReadTs, latest);
+  render();
+  // Scroll to newest right after the DOM mounts.
+  setTimeout(() => { const s = document.getElementById("ch-stream"); if (s) s.scrollTop = s.scrollHeight; }, 0);
+}
+function closeChatDrawer(): void { S.net.chat.open = false; render(); }
+async function netSendChat(text: string): Promise<void> {
+  const code = S.net.code; if (!code) return;
+  const clean = text.trim(); if (!clean) return;
+  // Optimistic local clear so typing feels snappy; server is the rate-limit authority.
+  S.net.chat.draft = "";
+  const input = document.getElementById("ch-input") as HTMLInputElement | null;
+  if (input) input.value = "";
+  try { await FB.sendChat(code, clean); }
+  catch (e) { S.net.err = friendlyErr(e); render(); }
+}
+function wireChatHandlers(): void {
+  onId("net-chat", "click", openChatDrawer);
+  onId("ch-close", "click", closeChatDrawer);
+  onId("ch-x", "click", closeChatDrawer);
+  onId("ch-send", "click", () => { const v = (document.getElementById("ch-input") as HTMLInputElement | null)?.value ?? S.net.chat.draft; void netSendChat(v); });
+  const input = document.getElementById("ch-input") as HTMLInputElement | null;
+  if (input) {
+    onEl(input, "input", (e) => { S.net.chat.draft = (e.target as HTMLInputElement).value; const btn = document.getElementById("ch-send") as HTMLButtonElement | null; if (btn) btn.disabled = !S.net.chat.draft.trim(); });
+    onEl(input, "keydown", (e) => { if ((e as KeyboardEvent).key === "Enter") { e.preventDefault(); void netSendChat(input.value); } });
+  }
+  app.querySelectorAll(".ch-preset").forEach((b) => onEl(b, "click", () => { void netSendChat((b as HTMLElement).dataset.preset!); }));
+}
+
 // FREE value layer (everyone, no Edge Pass): your win% + the nuts. The PAID MCE overlay
 // (rep read + recommended line) stays gated. Memoized per (hand, board) so the Monte-Carlo
 // only runs once per street, not every render.
@@ -3792,23 +3940,119 @@ function renderNetTable(): void {
   const lobby = status === "waiting";
   const revealed = (pub.revealedHoles || {}) as Record<string, [number, number]>;
   const occupied = seats.map((s, ti) => ({ s, ti })).filter((x) => x.s.uid || x.s.ai);
+  // Lobby display order: humans above bots (does NOT affect table-seat indices ti).
+  const lobbyOrder = (status === "waiting") ? [...occupied].sort((a, b) => (a.s.uid ? 0 : 1) - (b.s.uid ? 0 : 1)) : occupied;
   const humans = occupied.filter((x) => x.s.uid).length;
+  const spectators = (pub.spectators ?? []) as Array<{ uid: string; name: string }>;
+  const isSpectator = !!uid && !seats.some((s) => s.uid === uid) && spectators.some((s) => s.uid === uid);
+  const specPills = spectators.length > 0 ? `<div class="spec-row">👁 ${spectators.length} watching <span class="spec-names">${spectators.slice(0, 6).map((s) => `<span class="spec-pill">${esc(s.name)}</span>`).join("")}${spectators.length > 6 ? `<span class="spec-pill more">+${spectators.length - 6}</span>` : ""}</span></div>` : "";
+
+  // Chat drawer (lobby + table). Shared HTML; opened from the 💬 topbar button.
+  const myUid = uid ?? "";
+  const chat = S.net.chat;
+  const unread = chat.open ? 0 : chat.msgs.filter((m) => m.uid !== myUid && (m.ts ?? 0) > chat.lastReadTs).length;
+  const chatDrawer = chat.open ? `
+    <div class="cog-backdrop" id="ch-close"></div>
+    <div class="chat-drawer">
+      <div class="cog-head"><span>💬 Room chat</span><button class="hdr-btn" id="ch-x">✕</button></div>
+      <div class="ch-stream" id="ch-stream">
+        ${chat.msgs.length === 0
+          ? `<div class="hint" style="text-align:center;padding:20px 0">Say hi — your messages go to seated players and spectators.</div>`
+          : chat.msgs.map((m) => `<div class="ch-msg${m.uid === myUid ? " mine" : ""}"><span class="ch-who">${esc(m.name)}</span><span class="ch-txt">${esc(m.text)}</span></div>`).join("")}
+      </div>
+      <div class="ch-presets">${["gl", "nh", "hurry up 🐌", "wp"].map((p) => `<button class="hdr-btn ch-preset" data-preset="${esc(p)}">${esc(p)}</button>`).join("")}</div>
+      <div class="ch-input-row">
+        <input class="ch-input" id="ch-input" type="text" maxlength="120" placeholder="Say something…" value="${esc(chat.draft)}"/>
+        <button class="join-btn" id="ch-send"${chat.draft.trim() ? "" : " disabled"}>Send</button>
+      </div>
+    </div>` : "";
+
+  // Rebuy sheet — shown on bust (auto) or via cog (manual). Same UI in lobby + table view.
+  const mySeatLocal = seats.find((s) => s.uid === uid);
+  const busted = !!mySeatLocal && mySeatLocal.chips === 0 && status === "hand_over";
+  if (busted && !S.net.rebuy.open && !S.net.cog) {
+    // Auto-open once on bust (idempotent — flag clears when user closes).
+    S.net.rebuy.open = true;
+    if (S.net.rebuy.amount === 0) S.net.rebuy.amount = (pub.startingStack as number) || 20 * (((pub.blinds as { bb?: number })?.bb) || 10);
+  }
+  const myBb = ((pub.blinds as { bb?: number })?.bb) || 10;
+  const minBuy = 20 * myBb;
+  const tierMax = (pub.startingStack as number) || (1000 * myBb / 10); // approximation; server clamps anyway
+  const myWallet = currency === "premium" ? (S.wallet.premium ?? 0) : (S.wallet.play ?? 0);
+  const rebuyAmt = Math.max(0, S.net.rebuy.amount);
+  const newStack = (mySeatLocal?.chips ?? 0) + rebuyAmt;
+  const rbValid = rebuyAmt > 0 && rebuyAmt <= myWallet && newStack >= minBuy && newStack <= tierMax;
+  const rebuySheet = S.net.rebuy.open ? `
+    <div class="cog-backdrop" id="rb-close"></div>
+    <div class="cog-sheet rebuy-sheet">
+      <div class="cog-head"><span>${busted ? "💥 Busted — top up" : "Top up your stack"}</span><button class="hdr-btn" id="rb-x">✕</button></div>
+      <div class="rb-display">
+        <span class="rb-sym">${sym}</span><span class="rb-amt">${mpc(rebuyAmt)}</span>
+        <span class="rb-bb">${(rebuyAmt / myBb).toFixed(1)} bb · new stack ${sym} ${mpc(newStack)}</span>
+      </div>
+      <div class="rb-quick">
+        <button class="hdr-btn" data-rb="${minBuy}">Min ${minBuy}</button>
+        <button class="hdr-btn" data-rb="${Math.min(tierMax - (mySeatLocal?.chips ?? 0), Math.round(tierMax / 2))}">Half cap</button>
+        <button class="hdr-btn" data-rb="${tierMax - (mySeatLocal?.chips ?? 0)}">Max ${sym} ${mpc(tierMax - (mySeatLocal?.chips ?? 0))}</button>
+      </div>
+      <div class="rb-pad">
+        ${[1,2,3,4,5,6,7,8,9].map((n) => `<button class="rb-key" data-key="${n}">${n}</button>`).join("")}
+        <button class="rb-key" data-key="00">00</button>
+        <button class="rb-key" data-key="0">0</button>
+        <button class="rb-key" data-key="back">⌫</button>
+      </div>
+      ${S.net.rebuy.err ? `<div class="room-broke">${esc(S.net.rebuy.err)}</div>` : ""}
+      <div class="rb-actions">
+        ${myWallet < rebuyAmt ? `<button class="start-btn rb-store" id="rb-store">Need chips → Store</button>` : `<button class="start-btn rb-confirm" id="rb-confirm" ${rbValid ? "" : "disabled"}>Rebuy ${sym} ${mpc(rebuyAmt)}</button>`}
+        ${busted ? `<button class="hdr-btn rb-leave" id="rb-leave">Leave table</button>` : ""}
+      </div>
+      <p class="hint" style="text-align:center;margin-top:6px">Wallet ${sym} ${mpc(myWallet)} · min ${minBuy} · max stack ${tierMax}</p>
+    </div>` : "";
 
   // ── LOBBY = a real waiting room (NOT the oval table) — distinct screen so adding a
   // bot never feels like the hand started. Roster, AI picker, share code, explicit START.
   if (lobby) {
     const botLabel = (a: string): string => (({ Station: "Fish 🐟", TAG: "Reg 🎯", LAG: "LAG 🔥", Nit: "Nit 🪨", Auto: "Auto 🧮" }) as Record<string, string>)[a] || a;
-    const assistedOn = !!(seats.find((s) => s.uid === uid) as { assisted?: boolean } | undefined)?.assisted;
+    const mySeat = seats.find((s) => s.uid === uid) as { assisted?: boolean; recStyle?: "balanced" | "tag" | "lag" } | undefined;
+    const assistedOn = !!mySeat?.assisted;
+    const myStyle = mySeat?.recStyle ?? "balanced";
     const canAddAi = isOwner && currency === "play" && occupied.length < seats.length;
+    const isPublic = pub.isPublic !== false;
     // Compact pills (2-3 per row) instead of one row per seat — 12 seats no longer overflow.
     const openSeats = seats.length - occupied.length;
-    const roster = `<div class="roster-pills">${occupied.map(({ s, ti }) => {
+    const roster = `<div class="roster-pills">${lobbyOrder.map(({ s, ti }) => {
       if (s.uid) return `<span class="roster-pill${s.uid === uid ? " me" : ""}">${s.uid === uid ? "🧠" : "🙂"} ${esc(s.name)}${ti === 0 ? " 👑" : ""}<b>${mpc(s.chips)}</b></span>`;
       return `<span class="roster-pill bot">🤖 ${esc(s.name)} <i>${botLabel(s.ai!)}</i><b>${mpc(s.chips)}</b></span>`;
     }).join("")}</div>${openSeats > 0 ? `<div class="roster-open">＋ ${openSeats} open seat${openSeats > 1 ? "s" : ""} — share the code</div>` : ""}`;
+    const botSeats = seats.map((s, ti) => ({ s, ti })).filter((x) => x.s.ai);
+    const cogSheet = S.net.cog ? `
+      <div class="cog-backdrop" id="cog-close"></div>
+      <div class="cog-sheet">
+        <div class="cog-head"><span>Room settings</span><button class="hdr-btn" id="cog-x">✕</button></div>
+        <div class="cog-section"><div class="cog-label">Your seat</div>
+          <div class="cog-row"><span>MCE Strategy</span>
+            <button class="mce-toggle ${hasEdge() && assistedOn ? "on" : ""} ${!hasEdge() ? "locked" : ""}" id="cog-mce">${!hasEdge() ? "🔒 Edge Pass" : assistedOn ? "🧠 ON" : "OFF"}</button>
+          </div>
+          ${hasEdge() && assistedOn ? `<div class="cog-row"><span>Recommendation style</span>
+            <div class="seg" id="cog-style">${(["balanced","tag","lag"] as const).map((k) => `<button class="seg-btn ${myStyle === k ? "sel" : ""}" data-style="${k}">${k === "balanced" ? "Balanced" : k === "tag" ? "TAG 🎯" : "LAG 🔥"}</button>`).join("")}</div>
+          </div>` : ""}
+        </div>
+        ${isOwner ? `<div class="cog-section"><div class="cog-label">Room (host)</div>
+          <div class="cog-row"><span>Visibility</span>
+            <button class="mce-toggle ${isPublic ? "on" : ""}" id="cog-priv">${isPublic ? "🌐 Public" : "🔒 Private"}</button>
+          </div>
+          ${botSeats.length > 0 ? `<div class="cog-row"><span>Kick a bot</span>
+            <div class="cog-kick-list">${botSeats.map(({ s, ti }) => `<button class="hdr-btn cog-kick" data-seat="${ti}">${botLabel(s.ai!)}</button>`).join("")}</div>
+          </div>` : ""}
+        </div>` : ""}
+        <div class="cog-section"><div class="cog-label">Buy-in</div>
+          <div class="cog-row"><span>Top up your stack</span><button class="hdr-btn" id="cog-rebuy">Rebuy →</button></div>
+          <span class="hint">Available when you bust or while the room is waiting.</span>
+        </div>
+      </div>` : "";
     app.innerHTML = `
       <div class="net-game lobby-screen">
-        <div class="game-topbar"><span>Room <strong>${code}</strong> · ${sym} ${currency === "premium" ? "premium" : "play"}</span><button class="hdr-btn" id="net-leave">Leave</button></div>
+        <div class="game-topbar"><span>Room <strong>${code}</strong> · ${sym} ${currency === "premium" ? "premium" : "play"} · ${isPublic ? "🌐" : "🔒"}</span><div class="topbar-btns"><button class="hdr-btn ch-toggle" id="net-chat" title="Chat">💬${unread > 0 ? `<span class="ch-badge">${unread}</span>` : ""}</button><button class="hdr-btn" id="net-cog" title="Settings">⚙</button><button class="hdr-btn" id="net-leave">Leave</button></div></div>
         <div class="lobby-wrap">
           <div class="lobby-hero">
             <div class="lobby-badge">● WAITING ROOM</div>
@@ -3818,19 +4062,41 @@ function renderNetTable(): void {
           <div class="lobby-roster">
             <div class="roster-head"><span>Players</span><span>${occupied.length} / ${seats.length}</span></div>
             ${roster}
+            ${specPills}
           </div>
           ${canAddAi ? `<div class="lobby-addai"><div class="la-label">Add a practice bot</div><div class="la-btns">${[["Station", "🐟 Fish"], ["TAG", "🎯 Reg"], ["LAG", "🔥 LAG"], ["rand", "🎲 Random"]].map(([a, l]) => `<button class="hdr-btn add-ai" data-arch="${a}"${S.net.busy ? " disabled" : ""}>${l}</button>`).join("")}</div></div>`
         : currency === "premium" ? `<div class="lobby-note">💎 Premium room — humans only. Share the code to fill seats.</div>` : ""}
           ${assistedOn ? `<div class="lobby-mce">💡 <strong>MCE Strategy is ON</strong> — you'll get live GTO advice on your turn.</div>` : ""}
-          <button class="start-btn lobby-start" id="net-deal"${occupied.length < 2 ? " disabled" : ""}>${S.net.busy ? "…" : occupied.length < 2 ? "Waiting for players…" : "▶ START GAME"}</button>
+          ${isSpectator
+            ? (openSeats > 0
+              ? `<button class="start-btn lobby-start" id="net-seat"${S.net.busy ? " disabled" : ""}>${S.net.busy ? "…" : "Take a seat"}</button>`
+              : `<div class="lobby-note">👁 Watching · room is full.</div>`)
+            : `<button class="start-btn lobby-start" id="net-deal"${occupied.length < 2 ? " disabled" : ""}>${S.net.busy ? "…" : occupied.length < 2 ? "Waiting for players…" : "▶ START GAME"}</button>`}
           <p class="lobby-foot">${occupied.length < 2 ? (isOwner ? "Add a bot or wait for a friend to join." : "Waiting for more players…") : "Anyone can start — everyone in?"}</p>
           ${S.net.err ? `<div class="room-broke">${esc(S.net.err)}</div>` : ""}
         </div>
+        ${cogSheet}
+        ${rebuySheet}
+        ${chatDrawer}
       </div>`;
     onId("net-leave", "click", () => void netLeave());
+    onId("net-seat", "click", () => { if (S.net.code) void joinNetRoom(S.net.code); });
+    onId("net-cog", "click", () => { S.net.cog = true; render(); });
+    onId("cog-close", "click", () => { S.net.cog = false; render(); });
+    onId("cog-x", "click", () => { S.net.cog = false; render(); });
     onId("net-copy", "click", () => { try { void navigator.clipboard?.writeText(code); } catch { /* */ } });
     onId("net-deal", "click", () => void netDeal());
+    onId("cog-mce", "click", () => {
+      if (!hasEdge()) { S.net.cog = false; S.screen = "store"; render(); return; }
+      void netSetSeatPrefs({ assisted: !assistedOn });
+    });
+    onId("cog-priv", "click", () => { void netSetRoomPrefs({ isPublic: !isPublic }); });
+    onId("cog-rebuy", "click", () => { S.net.cog = false; openRebuySheet(); });
+    app.querySelectorAll("[data-style]").forEach((b) => onEl(b, "click", () => { void netSetSeatPrefs({ recStyle: (b as HTMLElement).dataset.style as "balanced" | "tag" | "lag" }); }));
+    app.querySelectorAll(".cog-kick").forEach((b) => onEl(b, "click", () => { void netKickBot(+(b as HTMLElement).dataset.seat!); }));
     app.querySelectorAll(".add-ai").forEach((b) => onEl(b, "click", () => void netAddBot((b as HTMLElement).dataset.arch!)));
+    wireRebuyHandlers();
+    wireChatHandlers();
     return;
   }
 
@@ -3857,6 +4123,12 @@ function renderNetTable(): void {
     // Mirror the training table seat: avatar silhouette + name/role + stack.
     // FOMO: every player sees who is running MCE Strategy — the asymmetry IS the sales pitch.
     const mceBadge = (s as { assisted?: boolean }).assisted ? `<div class="mce-badge" title="Running MCE Strategy">⚡ MCE</div>` : "";
+    // Last-action callout: server sets lastAction on each act, clears on street advance.
+    // Unique key per (seat,type,amount) so morphdom re-mounts the node → animation replays.
+    const la = pub.lastAction as { seat: number; type: string; amount: number } | null | undefined;
+    const showCallout = la && la.seat === ti && status === "in_hand";
+    const calloutLabel = showCallout ? (la.type === "fold" ? "FOLD" : la.type === "check" ? "CHECK" : la.type === "call" ? "CALL" : `${la.type.toUpperCase()} ${mpc(la.amount)}`) : "";
+    const calloutHtml = showCallout ? `<div class="action-call ${la.type} ${top < 50 ? "below" : "above"}" data-k="${la.seat}-${la.type}-${la.amount}">${calloutLabel}</div>` : "";
     return `<div class="${cls}" data-seat="${ti}" style="left:${left.toFixed(1)}%;top:${top.toFixed(1)}%">
       ${ti === pub.dealerSeat ? '<div class="dealer-btn">D</div>' : ti === sbSeat ? '<div class="dealer-btn sb">SB</div>' : ti === bbSeat ? '<div class="dealer-btn bb">BB</div>' : ""}
       ${mceBadge}
@@ -3869,6 +4141,7 @@ function renderNetTable(): void {
       </div>
       ${betChip}
       ${holeCards}
+      ${calloutHtml}
     </div>`;
   }).join("");
   const board = (pub.board as number[]) || [];
@@ -3877,7 +4150,7 @@ function renderNetTable(): void {
   const center = [0, 1, 2, 3, 4].map((i) => board[i] != null
     ? `<div class="board-card dealt deal-in ${isRed(board[i]!) ? "red" : ""}">${flipFaces(cardDisplay(board[i]!))}</div>`
     : `<div class="board-card empty"></div>`).join("");
-  const potHtml = `<div class="net-pot"><span class="np-amt">${sym} ${mpc((pub.pot as number) || 0)}</span><span class="np-street">${capWord(pub.street || "preflop")}</span></div>`;
+  const potHtml = `<div class="net-pot"><span class="np-amt"><span class="np-tag">POT</span> ${mpc((pub.pot as number) || 0)}</span><span class="np-street">${capWord(pub.street || "preflop")}</span></div>`;
 
   const myTurn = status === "in_hand" && pub.toAct >= 0 && seats[pub.toAct]?.uid === uid;
   // Did I win the hand that just ended? Server tells us directly (pub.lastWinners), so it's
@@ -3964,9 +4237,11 @@ function renderNetTable(): void {
     : "";
   app.innerHTML = `
     <div class="game net-game">
-      <div class="game-topbar"><span>Room <strong>${code}</strong> · ${sym} ${currency === "premium" ? "premium" : "play"}</span><button class="hdr-btn" id="net-leave">Leave</button></div>
+      <div class="game-topbar"><span>Room <strong>${code}</strong> · ${sym} ${currency === "premium" ? "premium" : "play"}${spectators.length ? ` · 👁 ${spectators.length}` : ""}${isSpectator ? " · watching" : ""}</span><div class="topbar-btns"><button class="hdr-btn ch-toggle" id="net-chat" title="Chat">💬${unread > 0 ? `<span class="ch-badge">${unread}</span>` : ""}</button><button class="hdr-btn" id="net-leave">Leave</button></div></div>
       <div class="net-table-wrap"><div class="poker-table"><div class="felt"></div>${seatHtml}<div class="board-center">${center}</div>${potHtml}</div></div>
       <div class="controls"><div class="controls-body">${upsellHtml}${controls}${S.net.err ? `<div class="room-broke" style="margin-top:8px">${esc(S.net.err)}</div>` : ""}</div></div>
+      ${rebuySheet}
+      ${chatDrawer}
     </div>`;
   onId("fomo-upsell", "click", () => { S.screen = "store"; render(); });
   onId("fomo-x", "click", (e) => { (e as Event).stopPropagation(); _fomoDismissed = true; render(); });
@@ -3978,6 +4253,8 @@ function renderNetTable(): void {
   });
   onId("net-copy", "click", () => { try { void navigator.clipboard?.writeText(code); } catch { /* */ } });
   app.querySelectorAll(".add-ai").forEach((b) => onEl(b, "click", () => void netAddBot((b as HTMLElement).dataset.arch!)));
+  wireRebuyHandlers();
+  wireChatHandlers();
   onId("na-fold", "click", () => void netAct({ type: "fold" }));
   onId("na-check", "click", () => void netAct({ type: "check" }));
   onId("na-call", "click", () => void netAct({ type: "call" }));

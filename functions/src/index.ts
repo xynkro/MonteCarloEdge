@@ -51,6 +51,7 @@ function uidOf(req: CallableRequest): string {
 const stateRef = (code: string) => db.doc(`tables/${code}/private/state`);
 const tableRef = (code: string) => db.doc(`tables/${code}`);
 const holeRef = (code: string, uid: string) => db.doc(`tables/${code}/hands/${uid}`); // per-uid private hand
+const chatCol = (code: string) => db.collection(`tables/${code}/chat`);
 const userRef = (uid: string) => db.doc(`users/${uid}`);
 const inboxRef = (uid: string) => db.collection(`users/${uid}/inbox`); // received messages/gifts
 const ledgerRef = () => db.collection("ledger"); // immutable audit trail of every chip transfer
@@ -148,7 +149,9 @@ function persist(tx: Transaction, code: string, t: AuthTable, version: number, b
     let rec: Record<string, unknown> | null = null;
     if (s.assisted === true && t.status === "in_hand" && ts === toActTableSeat(t)) {
       try {
-        const r = recommendForSeat(t, ts, recommend, PROFILES.Auto ?? TAG);
+        const style = s.recStyle ?? "balanced";
+        const styleProfile = style === "lag" ? PROFILES.LAG : style === "tag" ? PROFILES.TAG : (PROFILES.Auto ?? TAG);
+        const r = recommendForSeat(t, ts, recommend, styleProfile ?? TAG);
         rec = r ? { action: r.action, amount: r.amount, handLabel: r.handLabel ?? "", reasoning: r.reasoning, equity: r.equity, potOdds: r.potOdds, source: r.source ?? "heuristic" } : null;
       } catch { rec = null; }
     }
@@ -161,8 +164,8 @@ function persist(tx: Transaction, code: string, t: AuthTable, version: number, b
 /** Create a private room. Returns the shareable code. Owner buys in from their wallet. */
 export const createTable = onCall(async (req) => {
   const uid = uidOf(req);
-  const { tier = "5/10", buyIn, name = "Player", bots = [], currency = "play", assisted = false } = (req.data ?? {}) as
-    { tier?: string; buyIn?: number; name?: string; bots?: string[]; currency?: Currency; assisted?: boolean };
+  const { tier = "5/10", buyIn, name = "Player", bots = [], currency = "play", assisted = false, isPublic = true } = (req.data ?? {}) as
+    { tier?: string; buyIn?: number; name?: string; bots?: string[]; currency?: Currency; assisted?: boolean; isPublic?: boolean };
   const cur: Currency = currency === "premium" ? "premium" : "play";
   // Premium tables are human-only (for now): no AI seats allowed.
   if (cur === "premium" && bots.length > 0) {
@@ -185,7 +188,7 @@ export const createTable = onCall(async (req) => {
     // (collision check; codes are sparse so one retry is plenty)
     if ((await tx.get(stateRef(code))).exists) code = newCode();
 
-    const t = createAuthTable(code, { uid, name }, { name: `${tier} Room`, blinds: { sb: T.sb, bb: T.bb }, startingStack: stack, maxSeats: Math.max(seats, 2) });
+    const t = createAuthTable(code, { uid, name }, { name: `${tier} Room`, blinds: { sb: T.sb, bb: T.bb }, startingStack: stack, maxSeats: Math.max(seats, 2), isPublic: isPublic !== false });
     if (cur !== "premium") bots.slice(0, 7).forEach((arch, i) => seatAi(t, i + 1, `Bot ${i + 1}`, PROFILES[arch] ? arch : "TAG"));
 
     // The owner's assisted (strategy-tool) seat flag is an Edge Pass entitlement.
@@ -203,18 +206,41 @@ export const createTable = onCall(async (req) => {
 /** Join an existing room (by code). Debits buy-in from the joiner's wallet. */
 export const joinTable = onCall(async (req) => {
   const uid = uidOf(req);
-  const { code, name = "Player" } = (req.data ?? {}) as { code?: string; name?: string };
+  const { code, name = "Player", spectate = false } = (req.data ?? {}) as { code?: string; name?: string; spectate?: boolean };
   if (!code) throw new HttpsError("invalid-argument", "Room code required.");
   return db.runTransaction(async (tx) => {
     const { t, version, baseline, currency } = await loadState(tx, code);
-    if (t.seats.some((s) => s.uid === uid)) return { code, already: true }; // idempotent
+    if (t.seats.some((s) => s.uid === uid)) return { code, already: true }; // idempotent (already seated)
+    // Spectate path: no buy-in, no seat, just join the watchers list. Fine mid-hand.
+    if (spectate === true) {
+      const list = (t.spectators ?? []).filter((s) => s.uid !== uid);
+      list.push({ uid, name });
+      t.spectators = list;
+      persist(tx, code, t, version + 1, baseline, false, currency);
+      return { code, spectator: true };
+    }
     if (t.status === "in_hand") throw new HttpsError("failed-precondition", "Hand in progress — try again in a moment.");
-    const seatIdx = t.seats.findIndex((s) => !s.uid && !s.ai);
+    let seatIdx = t.seats.findIndex((s) => !s.uid && !s.ai);
     if (seatIdx < 0) throw new HttpsError("failed-precondition", "Room is full.");
+    // Leaving the spectators list when taking a seat (so the same user isn't double-listed).
+    if ((t.spectators ?? []).some((s) => s.uid === uid)) {
+      t.spectators = (t.spectators ?? []).filter((s) => s.uid !== uid);
+    }
     const u = await tx.get(userRef(uid));
     const w = readWallet(u.exists ? u.data() : undefined);
     const bal = currency === "premium" ? w.premium : w.play;
     if (bal < t.startingStack) throw new HttpsError("failed-precondition", `Not enough ${currency === "premium" ? "premium" : "play"} chips to buy in.`);
+    // Humans-before-bots while waiting: if a bot occupies a lower seat index, swap so
+    // the human takes that lower seat and the bot shifts up. UI-only ergonomics — no
+    // chip movement, no hand-state implication (status=waiting, no GS yet).
+    if (t.status === "waiting") {
+      const firstBotIdx = t.seats.findIndex((s) => s.ai);
+      if (firstBotIdx >= 0 && firstBotIdx < seatIdx) {
+        t.seats[seatIdx] = { ...t.seats[firstBotIdx]! };
+        t.seats[firstBotIdx] = { uid: null, name: "", chips: 0, assisted: false, sittingOut: false, ai: null };
+        seatIdx = firstBotIdx;
+      }
+    }
     sit(t, uid, name, seatIdx);
     if (t.seats[seatIdx]) t.seats[seatIdx]!.assisted = (u.exists ? u.data()?.edgePass : undefined) === true;
     tx.set(userRef(uid), { name, [balField(currency)]: bal - t.startingStack }, { merge: true });
@@ -287,6 +313,151 @@ export const act = onCall(async (req) => {
   });
 });
 
+/** Update YOUR own seat's prefs (assisted ↔ MCE strategy, recStyle). assisted is
+ *  gated by Edge Pass — silently false if not entitled. */
+export const setSeatPrefs = onCall(async (req) => {
+  const uid = uidOf(req);
+  const { code, assisted, recStyle } = (req.data ?? {}) as
+    { code?: string; assisted?: boolean; recStyle?: "balanced" | "tag" | "lag" };
+  if (!code) throw new HttpsError("invalid-argument", "Room code required.");
+  return db.runTransaction(async (tx) => {
+    const { t, version, baseline, currency } = await loadState(tx, code);
+    const seatIdx = t.seats.findIndex((s) => s.uid === uid);
+    if (seatIdx < 0) throw new HttpsError("permission-denied", "Take a seat first.");
+    if (typeof assisted === "boolean") {
+      const u = await tx.get(userRef(uid));
+      const edgePass = (u.exists ? u.data()?.edgePass : undefined) === true;
+      t.seats[seatIdx]!.assisted = assisted === true && edgePass;
+    }
+    if (recStyle === "balanced" || recStyle === "tag" || recStyle === "lag") {
+      t.seats[seatIdx]!.recStyle = recStyle;
+    }
+    persist(tx, code, t, version + 1, baseline, false, currency);
+    return { ok: true, assisted: t.seats[seatIdx]!.assisted, recStyle: t.seats[seatIdx]!.recStyle ?? "balanced" };
+  });
+});
+
+/** Owner-only: flip room privacy. The Online Games list filters on isPublic. */
+export const setRoomPrefs = onCall(async (req) => {
+  const uid = uidOf(req);
+  const { code, isPublic } = (req.data ?? {}) as { code?: string; isPublic?: boolean };
+  if (!code) throw new HttpsError("invalid-argument", "Room code required.");
+  return db.runTransaction(async (tx) => {
+    const { t, version, baseline, currency } = await loadState(tx, code);
+    if (uid !== t.ownerUid) throw new HttpsError("permission-denied", "Only the host can change room prefs.");
+    if (typeof isPublic === "boolean") t.isPublic = isPublic;
+    persist(tx, code, t, version + 1, baseline, false, currency);
+    return { ok: true, isPublic: t.isPublic !== false };
+  });
+});
+
+/** Owner-only: remove a bot from a seat while waiting. */
+export const kickBot = onCall(async (req) => {
+  const uid = uidOf(req);
+  const { code, seatIdx } = (req.data ?? {}) as { code?: string; seatIdx?: number };
+  if (!code || typeof seatIdx !== "number") throw new HttpsError("invalid-argument", "code + seatIdx required.");
+  return db.runTransaction(async (tx) => {
+    const { t, version, baseline, currency } = await loadState(tx, code);
+    if (uid !== t.ownerUid) throw new HttpsError("permission-denied", "Only the host can kick a bot.");
+    if (t.status === "in_hand") throw new HttpsError("failed-precondition", "Finish the hand before kicking.");
+    const s = t.seats[seatIdx];
+    if (!s || !s.ai) throw new HttpsError("failed-precondition", "Not a bot seat.");
+    t.seats[seatIdx] = { uid: null, name: "", chips: 0, assisted: false, sittingOut: false, ai: null };
+    persist(tx, code, t, version + 1, baseline, false, currency);
+    return { ok: true };
+  });
+});
+
+/** Public lobby: ~20 open public rooms in waiting. Unauthenticated callers are fine —
+ *  the data is the same projection already broadcast to subscribers. */
+export const listPublicRooms = onCall(async (_req) => {
+  const snap = await db.collection("tables")
+    .where("status", "==", "waiting")
+    .where("isPublic", "==", true)
+    .limit(50)
+    .get();
+  const rooms: Array<{ code: string; name: string; sb: number; bb: number; occupied: number; max: number; currency: string }> = [];
+  for (const doc of snap.docs) {
+    const d = doc.data() as { id?: string; name?: string; blinds?: { sb: number; bb: number }; seats?: Array<{ uid: string | null; ai: string | null }>; currency?: string };
+    const seats = d.seats ?? [];
+    const occupied = seats.filter((x) => x.uid || x.ai).length;
+    if (occupied >= seats.length) continue; // full → drop
+    rooms.push({
+      code: doc.id, name: d.name ?? "Room",
+      sb: d.blinds?.sb ?? 0, bb: d.blinds?.bb ?? 0,
+      occupied, max: seats.length,
+      currency: d.currency ?? "play",
+    });
+    if (rooms.length >= 20) break;
+  }
+  return { rooms };
+});
+
+/** Lobby + table chat — seated players and spectators only. Server enforces length
+ *  (≤120 chars), rate (1 msg / 2s), and authorship (uid + display name). Client never
+ *  writes to the chat collection directly. */
+export const sendChat = onCall(async (req) => {
+  const uid = uidOf(req);
+  const { code, text } = (req.data ?? {}) as { code?: string; text?: string };
+  if (!code) throw new HttpsError("invalid-argument", "Room code required.");
+  const clean = String(text ?? "").replace(/\s+/g, " ").trim();
+  if (!clean) throw new HttpsError("invalid-argument", "Empty message.");
+  if (clean.length > 120) throw new HttpsError("invalid-argument", "Keep it under 120 characters.");
+  await db.runTransaction(async (tx) => {
+    const stateSnap = await tx.get(stateRef(code));
+    if (!stateSnap.exists) throw new HttpsError("not-found", "Room not found.");
+    const sd = stateSnap.data() as StateDoc | undefined;
+    const t = sd ? sd.snap : null;
+    if (!t) throw new HttpsError("not-found", "Room state missing.");
+    const seated = (t.seats ?? []).some((s) => s.uid === uid);
+    const watching = (t.spectators ?? []).some((s) => s.uid === uid);
+    if (!seated && !watching) throw new HttpsError("permission-denied", "Join the room to chat.");
+    const rl = await rlRead(tx, uid, "chat", 1, 2000); // 1 msg / 2s
+    const userSnap = await tx.get(userRef(uid));
+    const name = (userSnap.exists ? (userSnap.data()?.name as string | undefined) : undefined) ?? "Player";
+    tx.set(rl.ref, rl.data);
+    tx.set(chatCol(code).doc(), { uid, name, text: clean, ts: FieldValue.serverTimestamp() });
+  });
+  return { ok: true };
+});
+
+/** Top-up your seated stack (bust rebuy, or between-hand top up). Debits the room's
+ *  currency wallet, bumps seat.chips + baseline atomically. NEVER allowed mid-hand. */
+export const rebuy = onCall(async (req) => {
+  const uid = uidOf(req);
+  const { code, amount } = (req.data ?? {}) as { code?: string; amount?: number };
+  const amt = Math.round(Number(amount));
+  if (!code) throw new HttpsError("invalid-argument", "Room code required.");
+  if (!Number.isFinite(amt) || amt <= 0) throw new HttpsError("invalid-argument", "Pick a positive amount.");
+  return db.runTransaction(async (tx) => {
+    const { t, version, baseline, currency } = await loadState(tx, code);
+    if (t.status === "in_hand") throw new HttpsError("failed-precondition", "Wait for the hand to end.");
+    const seatIdx = t.seats.findIndex((s) => s.uid === uid);
+    if (seatIdx < 0) throw new HttpsError("permission-denied", "Take a seat first.");
+    const seat = t.seats[seatIdx]!;
+    // Allowed when busted, OR while the room is still in the lobby.
+    if (seat.chips > 0 && t.status !== "waiting") {
+      throw new HttpsError("failed-precondition", "Top-ups only allowed when busted or while waiting.");
+    }
+    const tier = Object.values(TIERS).find((T) => T.bb === t.blinds.bb);
+    const maxCap = tier?.max ?? t.startingStack;
+    const minStack = 20 * t.blinds.bb;
+    const newStack = seat.chips + amt;
+    if (newStack < minStack) throw new HttpsError("invalid-argument", `Top up to at least ${minStack} chips.`);
+    if (newStack > maxCap) throw new HttpsError("invalid-argument", `Stack would exceed table cap of ${maxCap}.`);
+    const u = await tx.get(userRef(uid));
+    const w = readWallet(u.exists ? u.data() : undefined);
+    const bal = currency === "premium" ? w.premium : w.play;
+    if (bal < amt) throw new HttpsError("failed-precondition", `Not enough ${currency === "premium" ? "premium" : "play"} chips.`);
+    seat.chips = newStack;
+    tx.set(userRef(uid), { [balField(currency)]: bal - amt }, { merge: true });
+    // Bumping baseline keeps the stored conservation reference in sync — startHand will
+    // recompute baseline from the live stacks at deal time, so this is belt-and-braces.
+    persist(tx, code, t, version + 1, baseline + amt, false, currency);
+    return { ok: true, stack: newStack };
+  });
+});
+
 /** Leave the table — bank your remaining stack back to your wallet. */
 export const leaveTable = onCall(async (req) => {
   const uid = uidOf(req);
@@ -295,7 +466,14 @@ export const leaveTable = onCall(async (req) => {
   return db.runTransaction(async (tx) => {
     const { t, version, baseline, currency } = await loadState(tx, code);
     const seat = t.seats.find((s) => s.uid === uid);
-    if (!seat) return { ok: true };
+    // Spectator-only path: just drop them from the watcher list.
+    if (!seat) {
+      const list = (t.spectators ?? []).filter((s) => s.uid !== uid);
+      if (list.length === (t.spectators?.length ?? 0)) return { ok: true };
+      t.spectators = list;
+      persist(tx, code, t, version + 1, baseline, false, currency);
+      return { ok: true };
+    }
     if (t.status === "in_hand" && t.liveSeats.includes(t.seats.indexOf(seat))) {
       throw new HttpsError("failed-precondition", "Finish the hand before leaving.");
     }
@@ -304,6 +482,8 @@ export const leaveTable = onCall(async (req) => {
     const w = readWallet(u.exists ? u.data() : undefined);
     const bal = currency === "premium" ? w.premium : w.play;
     leave(t, uid);
+    // Make sure they're not lingering in the spectator list either.
+    t.spectators = (t.spectators ?? []).filter((s) => s.uid !== uid);
     tx.set(userRef(uid), { [balField(currency)]: bal + back }, { merge: true });
     persist(tx, code, t, version + 1, baseline, false, currency);
     return { ok: true, banked: back };

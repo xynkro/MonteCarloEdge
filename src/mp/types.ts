@@ -36,6 +36,9 @@ export interface MPSeat {
   // blind? The core of the benchmark. Independent of personal entitlement so the
   // table owner can run controlled A/B seats.
   assisted: boolean;
+  // Per-seat MCE recommendation flavor (set from settings cog). "balanced" uses the
+  // default TAG-ish profile; "tag" tightens; "lag" loosens. Optional.
+  recStyle?: "balanced" | "tag" | "lag";
 }
 
 // The whole table, public info only — safe to broadcast to every client.
@@ -44,6 +47,7 @@ export interface PublicTableState {
   ownerUid: string;
   name: string;
   blinds: { sb: number; bb: number };
+  startingStack: number;    // owner's original buy-in (used as the rebuy default)
   status: "waiting" | "in_hand" | "hand_over";
   seats: MPSeat[];
   dealerSeat: number;
@@ -57,6 +61,9 @@ export interface PublicTableState {
   lastWinners?: number[];   // table-seat indices that won the last hand (hand_over only)
   lastPot?: number;         // size of the pot just won (hand_over only)
   lastWon?: Record<number, number>; // table-seat → actual amount won
+  isPublic?: boolean;       // visible in Online Games list when waiting + open seats
+  spectators?: Array<{ uid: string; name: string }>; // watching, not seated
+  lastAction?: { seat: number; type: MPActionType; amount: number } | null; // who just acted (per-street)
 }
 
 // Pushed to a SINGLE player — their own hole cards only.
@@ -75,6 +82,7 @@ export interface CreateTableOpts {
   blinds: { sb: number; bb: number };
   startingStack: number;    // chips each seat buys in for
   maxSeats: number;         // 2..9
+  isPublic?: boolean;       // default true; listed in the Online Games picker when waiting
 }
 
 export interface ChipPack { id: string; chips: number; priceUsd: number; label: string }

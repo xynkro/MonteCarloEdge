@@ -47,15 +47,57 @@ async function callFn<T>(name: string, data: unknown): Promise<T> {
   const res = await m.httpsCallable(fns, name)(data);
   return res.data as T;
 }
-export const createRoom = (opts: { tier: string; buyIn: number; name: string; bots: string[]; currency?: "play" | "premium"; assisted?: boolean }) =>
+export const createRoom = (opts: { tier: string; buyIn: number; name: string; bots: string[]; currency?: "play" | "premium"; assisted?: boolean; isPublic?: boolean }) =>
   callFn<{ code: string; currency?: string }>("createTable", opts);
 export const joinRoom = (code: string, name: string) => callFn<{ code: string; seatIdx?: number; already?: boolean }>("joinTable", { code, name });
+/** Watch the room without taking a seat or paying a buy-in. */
+export const spectateRoom = (code: string, name: string) => callFn<{ code: string; spectator: boolean }>("joinTable", { code, name, spectate: true });
 /** Add an AI bot to an existing (waiting) play-currency room. Owner-only (server-enforced). */
 export const addBot = (code: string, archetype = "TAG") => callFn<{ ok: boolean }>("addBot", { code, archetype });
 export const dealHand = (code: string) => callFn<{ ok: boolean }>("startHand", { code });
 export const actRoom = (code: string, action: unknown, expectedVersion: number) =>
   callFn<{ ok: boolean }>("act", { code, action, expectedVersion });
 export const leaveRoom = (code: string) => callFn<{ ok: boolean; banked?: number }>("leaveTable", { code });
+
+/** Per-player seat prefs (toggle MCE strategy on your seat, pick a recommendation style).
+ *  assisted flips silently to false if the user doesn't hold Edge Pass. */
+export const setSeatPrefs = (code: string, prefs: { assisted?: boolean; recStyle?: "balanced" | "tag" | "lag" }) =>
+  callFn<{ ok: boolean; assisted: boolean; recStyle: "balanced" | "tag" | "lag" }>("setSeatPrefs", { code, ...prefs });
+/** Owner-only: flip room privacy. */
+export const setRoomPrefs = (code: string, prefs: { isPublic?: boolean }) =>
+  callFn<{ ok: boolean; isPublic: boolean }>("setRoomPrefs", { code, ...prefs });
+/** Owner-only: remove a bot from a seat while waiting. */
+export const kickBot = (code: string, seatIdx: number) =>
+  callFn<{ ok: boolean }>("kickBot", { code, seatIdx });
+/** Up to 20 open public rooms in waiting (Online Games list). */
+export const listPublicRooms = () =>
+  callFn<{ rooms: Array<{ code: string; name: string; sb: number; bb: number; occupied: number; max: number; currency: string }> }>("listPublicRooms", {});
+/** Top up your seated stack (bust rebuy / lobby top-up). Server-enforced bounds. */
+export const rebuyRoom = (code: string, amount: number) =>
+  callFn<{ ok: boolean; stack: number }>("rebuy", { code, amount });
+/** Post a chat message into the room (1 msg/2s, ≤120 chars; seated + spectators). */
+export const sendChat = (code: string, text: string) => callFn<{ ok: boolean }>("sendChat", { code, text });
+
+/** Subscribe to the last 30 chat messages in a room (orderBy ts desc). */
+export interface ChatMsg { id: string; uid: string; name: string; text: string; ts: number | null }
+export function subscribeChat(code: string, cb: (msgs: ChatMsg[]) => void): () => void {
+  let cancelled = false;
+  let unsub: (() => void) | null = null;
+  (async () => {
+    const { m, db } = await firestore();
+    if (cancelled) return;
+    const q = m.query(m.collection(db, `tables/${code}/chat`), m.orderBy("ts", "desc"), m.limit(30));
+    unsub = m.onSnapshot(q, (snap: { docs: { id: string; data: (opts?: { serverTimestamps?: string }) => { uid?: string; name?: string; text?: string; ts?: { toMillis?: () => number } } }[] }) => {
+      if (cancelled) return;
+      const msgs: ChatMsg[] = snap.docs.map((d) => {
+        const dt = d.data({ serverTimestamps: "estimate" });
+        return { id: d.id, uid: dt.uid ?? "", name: dt.name ?? "?", text: dt.text ?? "", ts: dt.ts?.toMillis?.() ?? null };
+      }).reverse(); // oldest → newest for natural reading
+      cb(msgs);
+    }, () => { if (!cancelled) cb([]); });
+  })();
+  return () => { cancelled = true; unsub?.(); };
+}
 
 /** Live public table state (no hole cards). Returns an unsubscribe fn. */
 export function subscribeRoom(code: string, cb: (pub: Record<string, unknown> | null) => void): () => void {

@@ -62,6 +62,12 @@ service cloud.firestore {
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastSeen', 'connected']);
         allow create, delete: if false;
       }
+      // Room chat — any signed-in user with the code can read; writes go through the
+      // sendChat callable (rate-limited + length-checked there), never client-direct.
+      match /chat/{msgId} {
+        allow read: if signedIn();
+        allow write: if false;
+      }
     }
 
     // Server-only rate-limit buckets.

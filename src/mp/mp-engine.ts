@@ -15,6 +15,8 @@ import { type Rng } from "../engine/rng.js";
 import { evaluate } from "../engine/evaluator.js";
 import { GameState, type ActionType } from "../engine/game-state.js";
 import { positionsForButton } from "../engine/charts/index.js";
+import { handClassKey } from "../engine/gto/pushfold.js";
+import { classJams } from "../engine/gto/pushfold-chart.js";
 import type {
   PublicTableState, PrivateHand, MPSeat, MPAction, CreateTableOpts,
 } from "./types.js";
@@ -26,6 +28,7 @@ export interface AuthSeat {
   assisted: boolean;      // admin-set: does this seat get the strategy tool?
   sittingOut: boolean;
   ai: string | null;      // bot archetype (e.g. "TAG") if this is an AI seat; null = human/empty
+  recStyle?: "balanced" | "tag" | "lag"; // per-seat MCE recommendation flavor
 }
 
 export interface AuthTable {
@@ -44,6 +47,9 @@ export interface AuthTable {
   lastWinners?: number[]; // table-seat indices that won the last hand (for the client share/animation)
   lastPot?: number;       // size of the pot just won
   lastWon?: Record<number, number>; // table-seat → amount actually won (for accurate share cards)
+  isPublic?: boolean;     // listed in the Online Games picker when waiting + open seats
+  spectators?: Array<{ uid: string; name: string }>; // watching, not seated
+  lastAction?: { seat: number; type: ActionType; amount: number } | null; // last seat that acted (cleared on street advance)
   // Live hand (authority-only):
   gs: GameState | null;           // betting state over the LIVE seats
   liveSeats: number[];            // table-seat indices in this hand (gs idx → table idx)
@@ -70,6 +76,7 @@ export function createAuthTable(id: string, owner: { uid: string; name: string }
     id, ownerUid: owner.uid, name: opts.name, blinds: opts.blinds,
     startingStack: opts.startingStack, maxSeats: opts.maxSeats, seats,
     buttonSeat: 0, status: "waiting", handId: null, handCount: 0, lastResult: "",
+    isPublic: opts.isPublic !== false, spectators: [],
     gs: null, liveSeats: [], holes: new Map(), fullBoard: [],
   };
 }
@@ -194,6 +201,9 @@ export function actSeat(t: AuthTable, tableSeat: number, action: MPAction): { ok
     if (amount < minTo && amount < allInTo) return { ok: false, err: `below min ${type} (${minTo})` };
   }
   t.gs.applyAction({ seat: g, type, amount });
+  // Record who just acted so the client can flash a "RAISE 120" / "CALL" callout at the
+  // actor's seat — cleared whenever the street advances (see advance()) or the hand ends.
+  t.lastAction = { seat: tableSeat, type, amount };
   advance(t);
   return { ok: true };
 }
@@ -208,6 +218,8 @@ function advance(t: AuthTable): void {
     const stillBetting = liveStacks.filter((s) => !gs.folded[s.i] && s.chips > 0).length;
     const next = dealNext(gs, t.fullBoard);
     gs.advanceStreet(next);
+    // Street just advanced — drop the per-street callout so the client clears any flash.
+    t.lastAction = null;
     if (stillBetting <= 1) { /* all-in: keep dealing remaining streets */ }
   }
   if (gs.isComplete() || gs.nextToAct() === null) settle(t);
@@ -303,10 +315,11 @@ export function publicState(t: AuthTable): PublicTableState {
       folded: inHand ? gs!.folded[g]! : false,
       sittingOut: !!s.uid && s.chips <= 0,
       assisted: s.assisted,
+      recStyle: s.recStyle,
     };
   });
   return {
-    id: t.id, ownerUid: t.ownerUid, name: t.name, blinds: t.blinds, status: t.status,
+    id: t.id, ownerUid: t.ownerUid, name: t.name, blinds: t.blinds, startingStack: t.startingStack, status: t.status,
     seats, dealerSeat: t.buttonSeat,
     street: gs ? (gs.street as PublicTableState["street"]) : "preflop",
     board: gs ? gs.board.slice() : [],
@@ -318,11 +331,18 @@ export function publicState(t: AuthTable): PublicTableState {
     lastWinners: t.status === "hand_over" ? (t.lastWinners ?? []) : [],
     lastPot: t.status === "hand_over" ? (t.lastPot ?? 0) : 0,
     lastWon: t.status === "hand_over" ? (t.lastWon ?? {}) : {},
+    isPublic: t.isPublic !== false,
+    spectators: (t.spectators ?? []).map((s) => ({ uid: s.uid, name: s.name })),
+    lastAction: t.lastAction ?? null,
   };
 }
 
 /** The strategy recommendation for a seat (only used when that seat is "assisted").
- * Builds a hero-perspective clone (its own hole cards) — mirrors villain-ai's flip. */
+ * Builds a hero-perspective clone (its own hole cards) — mirrors villain-ai's flip.
+ *
+ * Short-stack override: preflop with effective stack ≤ 10bb skips the heuristic engine
+ * and consults the Nash push/fold chart instead — at sub-10bb stacks a 3-bet bluff line
+ * is pure EV-loss, and the chart is solver-grade for this regime. */
 export function recommendForSeat(
   t: AuthTable,
   tableSeat: number,
@@ -337,7 +357,46 @@ export function recommendForSeat(
   const ps = t.gs.clone() as unknown as { heroSeat: number; heroCards: [Card, Card] };
   ps.heroSeat = g;
   ps.heroCards = holes;
-  return recommend(ps as unknown as GameState, profile);
+  const gs = ps as unknown as GameState;
+  // Preflop short-stack push/fold gate (Nash chart, < heuristic noise).
+  if (gs.street === "preflop") {
+    const bb = t.blinds.bb;
+    const liveIdx = (gs.stacks as number[]).map((stk, i) => ({ stk, i })).filter((x) => !gs.folded[x.i] && x.stk > 0);
+    const eff = Math.min(...liveIdx.map((x) => x.stk + (gs.streetInvested[x.i] ?? 0)));
+    const effBB = eff / bb;
+    if (effBB <= 10) {
+      const classKey = handClassKey(holes[0], holes[1]);
+      const jam = classJams(classKey, effBB);
+      const stackBB = Math.round(effBB);
+      const myStack = (gs.stacks[g] ?? 0) + (gs.streetInvested[g] ?? 0);
+      if (jam) {
+        return {
+          action: "raise" as const,
+          amount: myStack,
+          equity: 0.5,
+          potOdds: 0,
+          handLabel: `${classKey} · ${stackBB}bb`,
+          inPosition: false,
+          ev: { fold: 0, call: 0, raise: 0 },
+          reasoning: `Push/fold mode (${stackBB}bb effective): ${classKey} is in the Nash jam range — shove all-in.`,
+          source: "nash" as const,
+        };
+      } else {
+        return {
+          action: "fold" as const,
+          amount: 0,
+          equity: 0.5,
+          potOdds: 0,
+          handLabel: `${classKey} · ${stackBB}bb`,
+          inPosition: false,
+          ev: { fold: 0, call: 0, raise: 0 },
+          reasoning: `Push/fold mode (${stackBB}bb effective): ${classKey} is below the Nash jam threshold — fold.`,
+          source: "nash" as const,
+        };
+      }
+    }
+  }
+  return recommend(gs, profile);
 }
 
 /** A single player's own hole cards — the ONLY secret a client ever receives. */
