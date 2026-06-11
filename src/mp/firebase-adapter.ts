@@ -58,20 +58,34 @@ export const actRoom = (code: string, action: unknown, expectedVersion: number) 
 export const leaveRoom = (code: string) => callFn<{ ok: boolean; banked?: number }>("leaveTable", { code });
 
 /** Live public table state (no hole cards). Returns an unsubscribe fn. */
-export async function subscribeRoom(code: string, cb: (pub: Record<string, unknown> | null) => void): Promise<() => void> {
-  const { m, db } = await firestore();
-  return m.onSnapshot(m.doc(db, "tables", code), (s: { exists: () => boolean; data: () => Record<string, unknown> }) => cb(s.exists() ? s.data() : null));
+export function subscribeRoom(code: string, cb: (pub: Record<string, unknown> | null) => void): () => void {
+  let cancelled = false;
+  let unsub: (() => void) | null = null;
+  (async () => {
+    const { m, db } = await firestore();
+    if (cancelled) return;
+    unsub = m.onSnapshot(m.doc(db, "tables", code), (s: { exists: () => boolean; data: () => Record<string, unknown> }) => { if (!cancelled) cb(s.exists() ? s.data() : null); }, () => { if (!cancelled) cb(null); });
+  })();
+  return () => { cancelled = true; unsub?.(); };
 }
 /** Your OWN hole cards for this room (rules let you read only your own). */
-export async function subscribeMyHand(code: string, uid: string, cb: (hand: { handId?: string; holeCards?: [number, number] | null } | null) => void): Promise<() => void> {
-  const { m, db } = await firestore();
-  return m.onSnapshot(m.doc(db, `tables/${code}/hands/${uid}`), (s: { exists: () => boolean; data: () => { handId?: string; holeCards?: [number, number] | null } }) => cb(s.exists() ? s.data() : null));
+export function subscribeMyHand(code: string, uid: string, cb: (hand: { handId?: string; holeCards?: [number, number] | null } | null) => void): () => void {
+  let cancelled = false;
+  let unsub: (() => void) | null = null;
+  (async () => {
+    const { m, db } = await firestore();
+    if (cancelled) return;
+    unsub = m.onSnapshot(m.doc(db, `tables/${code}/hands/${uid}`), (s: { exists: () => boolean; data: () => { handId?: string; holeCards?: [number, number] | null } }) => { if (!cancelled) cb(s.exists() ? s.data() : null); }, () => { if (!cancelled) cb(null); });
+  })();
+  return () => { cancelled = true; unsub?.(); };
 }
 /** Read the player's server-held chip balance (seeded on first room interaction). */
 export async function readChips(uid: string): Promise<number | null> {
   const { m, db } = await firestore();
   const s = await m.getDoc(m.doc(db, "users", uid));
-  return s.exists() ? (((s.data() as { chips?: number }).chips) ?? 0) : null;
+  if (!s.exists()) return null;
+  const d = s.data() as { chipsPlay?: number; chips?: number };
+  return (d.chipsPlay as number) ?? (d.chips as number) ?? 0;
 }
 
 /** Read the player's account doc: chip balance + Edge Pass entitlement. */
@@ -79,8 +93,8 @@ export async function readUser(uid: string): Promise<{ chips: number | null; edg
   const { m, db } = await firestore();
   const s = await m.getDoc(m.doc(db, "users", uid));
   if (!s.exists()) return { chips: null, edgePass: false };
-  const d = s.data() as { chips?: number; edgePass?: boolean };
-  return { chips: d.chips ?? null, edgePass: !!d.edgePass };
+  const d = s.data() as { chipsPlay?: number; chips?: number; edgePass?: boolean };
+  return { chips: (d.chipsPlay as number) ?? (d.chips as number) ?? null, edgePass: !!d.edgePass };
 }
 
 // ── Stripe Edge Pass ──
@@ -97,7 +111,7 @@ export async function subscribeWallet(uid: string, cb: (w: Wallet) => void): Pro
   return m.onSnapshot(m.doc(db, "users", uid), (s: { exists: () => boolean; data: () => Record<string, unknown> }) => {
     const d = s.exists() ? s.data() : {};
     cb({ play: (d.chipsPlay as number) ?? (d.chips as number) ?? 1000, premium: (d.chipsPremium as number) ?? 0, edgePass: !!d.edgePass, lastWeekly: (d.lastWeekly as number) ?? 0, weeklyStreak: (d.weeklyStreak as number) ?? 0, collectibles: (d.collectibles as string[]) ?? [] });
-  });
+  }, () => {});
 }
 /** Buy a cosmetic collectible with premium chips. */
 export const buyCollectible = (itemId: string) => callFn<{ balance: number }>("buyCollectible", { itemId });
@@ -106,7 +120,7 @@ export interface InboxMsg { id: string; kind: string; from: string; fromName: st
 export async function subscribeInbox(uid: string, cb: (msgs: InboxMsg[]) => void): Promise<() => void> {
   const { m, db } = await firestore();
   const q = m.query(m.collection(db, `users/${uid}/inbox`), m.orderBy("createdAt", "desc"), m.limit(50));
-  return m.onSnapshot(q, (snap: { docs: { id: string; data: () => Record<string, unknown> }[] }) => cb(snap.docs.map((d) => ({ id: d.id, ...d.data() } as InboxMsg))));
+  return m.onSnapshot(q, (snap: { docs: { id: string; data: () => Record<string, unknown> }[] }) => cb(snap.docs.map((d) => ({ id: d.id, ...d.data() } as InboxMsg))), () => {});
 }
 /** Update the player's display name on their account doc (rules allow name-only). */
 export async function updateName(uid: string, name: string): Promise<void> {
@@ -127,7 +141,7 @@ export interface AdminUser { uid: string; name: string; play: number; premium: n
 export async function subscribeUsers(cb: (users: AdminUser[]) => void): Promise<() => void> {
   const { m, db } = await firestore();
   return m.onSnapshot(m.query(m.collection(db, "users"), m.limit(300)), (snap: { docs: { id: string; data: () => Record<string, unknown> }[] }) =>
-    cb(snap.docs.map((d) => { const x = d.data(); return { uid: d.id, name: (x.name as string) ?? "player", play: (x.chipsPlay as number) ?? (x.chips as number) ?? 0, premium: (x.chipsPremium as number) ?? 0, edgePass: !!x.edgePass }; })));
+    cb(snap.docs.map((d) => { const x = d.data(); return { uid: d.id, name: (x.name as string) ?? "player", play: (x.chipsPlay as number) ?? (x.chips as number) ?? 0, premium: (x.chipsPremium as number) ?? 0, edgePass: !!x.edgePass }; })), () => {});
 }
 
 /** Is the signed-in user a super-admin (custom claim)? */
@@ -142,7 +156,7 @@ export async function isAdminClaim(): Promise<boolean> {
 export async function subscribeLedger(cb: (rows: Record<string, unknown>[]) => void): Promise<() => void> {
   const { m, db } = await firestore();
   const q = m.query(m.collection(db, "ledger"), m.orderBy("at", "desc"), m.limit(100));
-  return m.onSnapshot(q, (snap: { docs: { id: string; data: () => Record<string, unknown> }[] }) => cb(snap.docs.map((d) => ({ id: d.id, ...d.data() }))));
+  return m.onSnapshot(q, (snap: { docs: { id: string; data: () => Record<string, unknown> }[] }) => cb(snap.docs.map((d) => ({ id: d.id, ...d.data() }))), () => {});
 }
 
 /** Pop the Google account picker and sign in. */
@@ -231,7 +245,7 @@ export async function changePassword(newPassword: string): Promise<void> {
 export async function signOutUser(): Promise<void> {
   const app = await getFirebaseApp();
   const { getAuth, signOut } = await import("firebase/auth");
-  await clearPresence();
+  await Promise.race([clearPresence(), new Promise((r) => setTimeout(r, 1500))]);
   await signOut(getAuth(app));
 }
 
@@ -245,21 +259,29 @@ export async function onAuthChanged(cb: (u: MPUser | null) => void): Promise<() 
 // ── Presence ──
 let _beat: ReturnType<typeof setInterval> | null = null;
 let _presenceRef: { uid: string } | null = null;
+let _presenceEpoch = 0;
+let _unloadHandler: (() => void) | null = null;
 
 export async function startPresence(user: MPUser): Promise<void> {
+  const epoch = ++_presenceEpoch;
   const { m, db } = await firestore();
+  if (epoch !== _presenceEpoch) return;
   const ref = m.doc(db, "presence", user.uid);
   _presenceRef = { uid: user.uid };
   const beat = () => m.setDoc(ref, { name: user.name, lastSeen: m.serverTimestamp() }).catch(() => {});
   await beat();
+  if (epoch !== _presenceEpoch) return;
   if (_beat) clearInterval(_beat);
   _beat = setInterval(beat, PRESENCE_BEAT_MS);
-  // Best-effort cleanup when the tab closes (RTDB onDisconnect lands in a later pass).
-  window.addEventListener("beforeunload", () => { void m.deleteDoc(ref).catch(() => {}); });
+  if (_unloadHandler) window.removeEventListener("beforeunload", _unloadHandler);
+  _unloadHandler = () => { void m.deleteDoc(ref).catch(() => {}); };
+  window.addEventListener("beforeunload", _unloadHandler);
 }
 
 export async function clearPresence(): Promise<void> {
+  ++_presenceEpoch;
   if (_beat) { clearInterval(_beat); _beat = null; }
+  if (_unloadHandler) { window.removeEventListener("beforeunload", _unloadHandler); _unloadHandler = null; }
   if (_presenceRef) {
     const { m, db } = await firestore();
     await m.deleteDoc(m.doc(db, "presence", _presenceRef.uid)).catch(() => {});
@@ -270,12 +292,12 @@ export async function clearPresence(): Promise<void> {
 /** Live list of users seen within the stale window. Returns an unsubscribe fn. */
 export async function subscribeOnline(cb: (online: { uid: string; name: string }[]) => void): Promise<() => void> {
   const { m, db } = await firestore();
-  return m.onSnapshot(m.collection(db, "presence"), (snap: { docs: { id: string; data: () => { name?: string; lastSeen?: { toMillis?: () => number } } }[] }) => {
+  return m.onSnapshot(m.collection(db, "presence"), (snap: { docs: { id: string; data: (opts?: { serverTimestamps?: string }) => { name?: string; lastSeen?: { toMillis?: () => number } } }[] }) => {
     const now = Date.now();
     const online = snap.docs
-      .map((d) => ({ uid: d.id, name: d.data().name ?? "Player", seen: d.data().lastSeen?.toMillis?.() ?? 0 }))
+      .map((d) => { const x = d.data({ serverTimestamps: "estimate" }); return { uid: d.id, name: x.name ?? "Player", seen: x.lastSeen?.toMillis?.() ?? 0 }; })
       .filter((x) => now - x.seen < PRESENCE_STALE_MS)
       .map((x) => ({ uid: x.uid, name: x.name }));
     cb(online);
-  });
+  }, () => {});
 }

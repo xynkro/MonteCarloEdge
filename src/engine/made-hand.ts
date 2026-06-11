@@ -123,7 +123,19 @@ export function nutLabel(combo: readonly [Card, Card], board: readonly Card[]): 
   };
   switch (cat) {
     case CATEGORY.STRAIGHT_FLUSH: {
-      const t = straightTop();
+      const suitCount = new Array<number>(4).fill(0);
+      for (const c of cards) suitCount[suitOf(c)]!++;
+      let fs = -1;
+      for (let s = 0; s < 4; s++) if (suitCount[s]! >= 5) fs = s;
+      const flushRanks = new Set<number>();
+      for (const c of cards) if (suitOf(c) === fs) flushRanks.add(rankOf(c));
+      let t = -1;
+      for (let hi = 12; hi >= 4; hi--) {
+        let ok = true;
+        for (let k = 0; k < 5; k++) if (!flushRanks.has(hi - k)) { ok = false; break; }
+        if (ok) { t = hi; break; }
+      }
+      if (t < 0 && flushRanks.has(12) && [0, 1, 2, 3].every((r) => flushRanks.has(r))) t = 3;
       return t >= 0 ? `${RANK_WORD[t]}-high straight flush` : "Straight flush";
     }
     case CATEGORY.QUADS: return `Quad ${plur(atLeast(4)[0]!)}`;
@@ -329,8 +341,7 @@ export function describeHand(
       if (isPocket && holeRanks[0] === pairedRank) {
         if (pairedRank > maxBoard) label = "Overpair";
         else label = `Pocket ${plur(pairedRank)}`;
-      } else {
-        // Paired a board card with a hole card.
+      } else if (holeRanks.includes(pairedRank)) {
         const kicker = holeRanks[0] === pairedRank ? holeRanks[1]! : holeRanks[0]!;
         if (pairedRank === sortedBoard[0]) {
           const kq = kicker >= 11 ? " Top Kicker" : kicker >= 8 ? " Good Kicker" : "";
@@ -338,6 +349,9 @@ export function describeHand(
         } else if (pairedRank === sortedBoard[1]) label = "Second Pair";
         else if (pairedRank === sortedBoard[2]) label = "Third Pair";
         else label = "Weak Pair";
+      } else {
+        const hiHole = Math.max(holeRanks[0]!, holeRanks[1]!);
+        label = `${RANK_WORD[hiHole]} High`;
       }
       break;
     }

@@ -16,7 +16,7 @@ export function comboScore(c: Combo): number {
   if (suitOf(c[0]) === suitOf(c[1])) s += 2;
   const gap = hi - lo - 1;
   s += GAP[Math.min(gap, 4)]!;
-  if (gap <= 1 && hi <= 10) s += 1;
+  if (gap <= 1 && hi <= 9) s += 1;
   return Math.ceil(s);
 }
 

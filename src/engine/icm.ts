@@ -15,6 +15,25 @@ export function icmEquityExact(stacks: readonly number[], payouts: readonly numb
   const n = stacks.length;
   const eq = new Array<number>(n).fill(0);
   if (n === 0 || payouts.length === 0) return eq;
+
+  // Award busted (zero-stack) players the worst remaining places, split equally.
+  const busted = stacks.map((s, i) => s <= 0 ? i : -1).filter((i) => i >= 0);
+  if (busted.length > 0) {
+    const live = stacks.filter((s) => s > 0);
+    if (live.length === 0) {
+      const share = payouts.reduce((a, b) => a + b, 0) / n;
+      return eq.map(() => share);
+    }
+    const livePayouts = payouts.slice(0, live.length);
+    const bottomPayouts = payouts.slice(live.length, live.length + busted.length);
+    const bottomShare = bottomPayouts.length > 0 ? bottomPayouts.reduce((a, b) => a + b, 0) / busted.length : 0;
+    for (const b of busted) eq[b] = bottomShare;
+    const liveEq = icmEquityExact(live, livePayouts);
+    let k = 0;
+    for (let i = 0; i < n; i++) if (stacks[i]! > 0) eq[i] = liveEq[k++]!;
+    return eq;
+  }
+
   const total = stacks.reduce((s, x) => s + x, 0);
   if (total <= 0) return eq;
 
@@ -25,7 +44,6 @@ export function icmEquityExact(stacks: readonly number[], payouts: readonly numb
     const pFirst = stacks[i]! / total;
     eq[i]! += pFirst * place1;
     if (restPayouts.length > 0 && n > 1) {
-      // Given i finishes first, distribute the remaining places among the rest.
       const rest: number[] = [];
       for (let j = 0; j < n; j++) if (j !== i) rest.push(stacks[j]!);
       const subEq = icmEquityExact(rest, restPayouts);

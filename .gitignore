@@ -26,3 +26,5 @@ repro-*.mjs
 stress.ts
 full-audit.js
 test-anyone-deals.mjs
+firestore-debug.log
+*-debug.log

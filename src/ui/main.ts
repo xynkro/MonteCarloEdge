@@ -3651,8 +3651,7 @@ async function netAct(action: { type: string; amount?: number }): Promise<void> 
   }
   if (S.screen === "mp-net") render();
   try { await FB.actRoom(code, action, pub.version as number); }
-  catch (e) { _netActing = false; S.net.err = friendlyErr(e); if (S.screen === "mp-net") render(); /* stale/illegal — next snapshot corrects */ }
-  finally { clearTimeout(_actSafety); }
+  catch (e) { clearTimeout(_actSafety); _netActing = false; S.net.err = friendlyErr(e); if (S.screen === "mp-net") render(); }
 }
 async function netDeal(silent = false): Promise<void> {
   const code = S.net.code; if (!code) return;
@@ -3852,7 +3851,7 @@ function renderNetTable(): void {
     const cls = ["table-seat", me ? "hero-seat" : "", s.folded ? "folded" : "", active ? "active" : ""].filter(Boolean).join(" ");
     // Turn timer: the server already sends deadlineMs (40s/turn) — drain a bar on the
     // active seat so you can FOLLOW whose turn it is + how long they have (WSOP feel).
-    const secsLeft = active ? Math.max(0, Math.min(45, ((pub.deadlineMs as number) || 0) - Date.now()) / 1000) : 0;
+    const secsLeft = active ? Math.max(0, Math.min(45, (((pub.deadlineMs as number) || 0) - Date.now()) / 1000)) : 0;
     const betChip = s.bet > 0 && !s.folded ? `<div class="seat-bet ${top < 50 ? "below" : "above"}"><span class="chip-dot"></span>${mpc(s.bet)}</div>` : "";
     const holeCards = cards ? `<div class="seat-cards ${top < 50 ? "below" : "above"}">${cards.map((c) => `<span class="seat-hole reveal ${isRed(c) ? "red" : ""}">${cardDisplay(c)}</span>`).join("")}</div>` : "";
     // Mirror the training table seat: avatar silhouette + name/role + stack.
@@ -3884,8 +3883,8 @@ function renderNetTable(): void {
   // Did I win the hand that just ended? Server tells us directly (pub.lastWinners), so it's
   // robust even when an instant fold-out skips the in_hand frame. Drives the Share-win CTA.
   const mySeatIdx = seats.findIndex((s) => s.uid === uid);
-  const iWonAmt = (status === "hand_over" && mySeatIdx >= 0 && (((pub.lastWinners as number[] | undefined)) || []).includes(mySeatIdx))
-    ? Math.round((pub.lastPot as number) || 0) : 0;
+  const lastWon = (pub.lastWon || {}) as Record<number, number>;
+  const iWonAmt = (status === "hand_over" && mySeatIdx >= 0) ? Math.round(lastWon[mySeatIdx] ?? 0) : 0;
   // FREE read for EVERYONE in-hand: your win% + the nuts (the hook). Strategy stays paid.
   // If I hold Edge Pass, the MCE engine already computed my SITUATIONAL equity (vs villain's
   // actual betting range) — use THAT so the strip and the MCE card never disagree. Free
@@ -3986,11 +3985,11 @@ function renderNetTable(): void {
     const seat = seats[pub.toAct]!; const cur = (pub.currentBet as number) || 0;
     const myMax = seat.chips + seat.bet; const bb = ((pub.blinds as { bb?: number })?.bb) || 2;
     const minTo = cur > 0 ? Math.min(myMax, cur * 2) : Math.min(myMax, bb);
-    if (myMax <= minTo) { void netAct({ type: cur > 0 ? "raise" : "bet", amount: myMax }); return; } // short stack → straight all-in
+    if (myMax <= minTo) { void netAct(myMax <= cur ? { type: "call" } : { type: cur > 0 ? "raise" : "bet", amount: myMax }); return; } // short stack → all-in call or all-in raise
     _netBetAmt = Math.max(minTo, Math.min(myMax, cur > 0 ? cur + (pub.pot as number) : (pub.pot as number) || bb)); // default = pot
     _netBetOpen = true; render();
   });
-  onId("na-allin", "click", () => { const seat = seats[pub.toAct]!; void netAct({ type: (pub.currentBet as number) > 0 ? "raise" : "bet", amount: seat.chips + seat.bet }); });
+  onId("na-allin", "click", () => { const seat = seats[pub.toAct]!; const cur = (pub.currentBet as number) || 0; const total = seat.chips + seat.bet; void netAct(total <= cur ? { type: "call" } : { type: cur > 0 ? "raise" : "bet", amount: total }); });
   onId("nb-cancel", "click", () => { _netBetOpen = false; render(); });
   onId("nb-confirm", "click", () => { _netBetOpen = false; void netAct({ type: (pub.currentBet as number) > 0 ? "raise" : "bet", amount: _netBetAmt }); });
   const _sl = document.getElementById("nb-slider") as HTMLInputElement | null;

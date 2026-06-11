@@ -47,7 +47,7 @@ export function analyzeBoard(board: Card[]): BoardTexture {
     maxConnected = Math.max(maxConnected, count);
   }
   // Also check A-2-3-4-5 wheel draw
-  if (sorted.includes(12) && sorted.includes(0)) {
+  if (sorted.includes(12) && sorted.some(r => r <= 3)) {
     const low = sorted.filter(r => r <= 3 || r === 12);
     maxConnected = Math.max(maxConnected, low.length);
   }
@@ -93,23 +93,29 @@ export function heroConnection(
   const boardSuits = board.map(suitOf);
   const maxBoardRank = Math.max(...boardRanks);
 
-  // Flush draw: hero has 2 of same suit, and board has 2+ of that suit (4 to a flush)
-  const samesuit = hs[0] === hs[1];
-  const suitCounts = new Map<number, number>();
-  for (const s of boardSuits) suitCounts.set(s, (suitCounts.get(s) ?? 0) + 1);
-  const hasFlushDraw = samesuit && (suitCounts.get(hs[0]!) ?? 0) >= 2;
+  // Flush draw: need exactly 4 cards of one suit (hero + board), hero contributes
+  const suitTotals = new Map<number, number>();
+  for (const s of [...boardSuits, ...hs]) suitTotals.set(s, (suitTotals.get(s) ?? 0) + 1);
+  let hasFlushDraw = false;
+  for (const s of hs) { if ((suitTotals.get(s) ?? 0) === 4) { hasFlushDraw = true; break; } }
 
-  // Straight draw: simplified — hero + board have 4 cards within 5 ranks
+  // Straight draw: 4+ cards in a 5-rank window, with at least one hero rank in the window
   const allRanks = [...new Set([...hr, ...boardRanks])].sort((a, b) => a - b);
-  let maxWindow = 0;
-  for (let i = 0; i < allRanks.length; i++) {
+  let hasStraightDraw = false;
+  for (let i = 0; i < allRanks.length && !hasStraightDraw; i++) {
     let count = 0;
     for (let j = i; j < allRanks.length; j++) {
       if (allRanks[j]! - allRanks[i]! <= 4) count++;
     }
-    maxWindow = Math.max(maxWindow, count);
+    if (count >= 4) {
+      const lo = allRanks[i]!, hi = lo + 4;
+      if (hr.some((r) => r >= lo && r <= hi)) hasStraightDraw = true;
+    }
   }
-  const hasStraightDraw = maxWindow >= 4 && !boardRanks.includes(hr[0]!) && !boardRanks.includes(hr[1]!);
+  if (!hasStraightDraw && allRanks.includes(12)) {
+    const wheelRanks = [12, ...allRanks.filter(r => r <= 3)];
+    if (wheelRanks.length >= 4 && hr.some((r) => r <= 3 || r === 12)) hasStraightDraw = true;
+  }
 
   // Pair / overpair
   const hasPair = boardRanks.includes(hr[0]!) || boardRanks.includes(hr[1]!);
@@ -139,16 +145,32 @@ function hasStraight5(cards: Card[]): boolean {
  *  (flop or turn only). Handles gutshot (4) vs OESD (8) vs flush (9) vs combo (15)
  *  precisely, and accounts for hero/board blockers — no hardcoded approximations. */
 export function drawOuts(hero: readonly [Card, Card], board: Card[]): number {
-  if (board.length < 3 || board.length > 4) return 0; // flop or turn only
+  if (board.length < 3 || board.length > 4) return 0;
   const base: Card[] = [hero[0], hero[1], ...board];
   const haveFl = hasFlush5(base), haveStr = hasStraight5(base);
-  if (haveFl && haveStr) return 0; // already made; not a draw
+  if (haveFl) return 0; // made flush; a straight never improves it
+  const heroRanks = [rankOf(hero[0]), rankOf(hero[1])];
+  const heroSuits = [suitOf(hero[0]), suitOf(hero[1])];
   const seen = new Set(base);
   let outs = 0;
   for (let c = 0; c < 52; c++) {
     if (seen.has(c)) continue;
     const withC = [...base, c];
-    if ((hasFlush5(withC) && !haveFl) || (hasStraight5(withC) && !haveStr)) outs++;
+    if (!haveStr && hasStraight5(withC)) {
+      const r = new Set(withC.map(rankOf));
+      let heroParticipates = false;
+      for (let hi = 12; hi >= 4 && !heroParticipates; hi--) {
+        let ok = true;
+        for (let k = 0; k < 5; k++) if (!r.has(hi - k)) { ok = false; break; }
+        if (ok && heroRanks.some((hr) => hr >= hi - 4 && hr <= hi)) heroParticipates = true;
+      }
+      if (!heroParticipates && r.has(12) && [0, 1, 2, 3].every((x) => r.has(x))) {
+        if (heroRanks.some((hr) => hr <= 3 || hr === 12)) heroParticipates = true;
+      }
+      if (heroParticipates) outs++;
+    } else if (hasFlush5(withC)) {
+      if (heroSuits.some((hs) => suitOf(c) === hs || withC.filter((x) => suitOf(x) === hs).length >= 5)) outs++;
+    }
   }
   return outs;
 }
@@ -157,8 +179,8 @@ export function drawOuts(hero: readonly [Card, Card], board: Card[]): number {
 export function drawHitProb(outs: number, boardLen: number): number {
   const unseen = 50 - boardLen; // 52 − 2 hero − board
   const toCome = 5 - boardLen;
-  if (outs <= 0 || unseen <= 0) return 0;
-  if (toCome <= 1) return Math.min(1, outs / unseen);
+  if (outs <= 0 || unseen <= 0 || toCome <= 0) return 0;
+  if (toCome === 1) return Math.min(1, outs / unseen);
   const miss = ((unseen - outs) / unseen) * ((unseen - outs - 1) / (unseen - 1));
   return 1 - miss;
 }

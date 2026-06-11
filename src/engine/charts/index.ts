@@ -21,8 +21,8 @@ const POSITION_NAMES: Record<number, readonly string[]> = {
 
 const POSITION_ALIASES: Record<string, string> = {
   MP1: "HJ",
-  UTG3: "UTG",
-  UTG4: "UTG",
+  UTG3: "UTG2",
+  UTG4: "UTG2",
 };
 
 function pickChart(tableSize: number) {

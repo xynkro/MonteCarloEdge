@@ -43,6 +43,7 @@ export interface AuthTable {
   lastResult: string;
   lastWinners?: number[]; // table-seat indices that won the last hand (for the client share/animation)
   lastPot?: number;       // size of the pot just won
+  lastWon?: Record<number, number>; // table-seat → amount actually won (for accurate share cards)
   // Live hand (authority-only):
   gs: GameState | null;           // betting state over the LIVE seats
   liveSeats: number[];            // table-seat indices in this hand (gs idx → table idx)
@@ -279,6 +280,9 @@ function settle(t: AuthTable): void {
   // having to diff snapshots (instant fold-outs jump waiting→hand_over with no in_hand frame).
   t.lastWinners = won.map((w, i) => (w > 0 ? gsToTable(t, i) : -1)).filter((i) => i >= 0);
   t.lastPot = invested.reduce((a, b) => a + b, 0);
+  const lw: Record<number, number> = {};
+  for (let i = 0; i < n; i++) if (won[i]! > 0) lw[gsToTable(t, i)] = won[i]!;
+  t.lastWon = lw;
   t.status = "hand_over";
 }
 
@@ -313,6 +317,7 @@ export function publicState(t: AuthTable): PublicTableState {
     lastResult: t.lastResult,
     lastWinners: t.status === "hand_over" ? (t.lastWinners ?? []) : [],
     lastPot: t.status === "hand_over" ? (t.lastPot ?? 0) : 0,
+    lastWon: t.status === "hand_over" ? (t.lastWon ?? {}) : {},
   };
 }
 

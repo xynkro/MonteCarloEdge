@@ -206,8 +206,9 @@ export const joinTable = onCall(async (req) => {
   const { code, name = "Player" } = (req.data ?? {}) as { code?: string; name?: string };
   if (!code) throw new HttpsError("invalid-argument", "Room code required.");
   return db.runTransaction(async (tx) => {
-    const { t, version, currency } = await loadState(tx, code);
+    const { t, version, baseline, currency } = await loadState(tx, code);
     if (t.seats.some((s) => s.uid === uid)) return { code, already: true }; // idempotent
+    if (t.status === "in_hand") throw new HttpsError("failed-precondition", "Hand in progress — try again in a moment.");
     const seatIdx = t.seats.findIndex((s) => !s.uid && !s.ai);
     if (seatIdx < 0) throw new HttpsError("failed-precondition", "Room is full.");
     const u = await tx.get(userRef(uid));
@@ -215,13 +216,9 @@ export const joinTable = onCall(async (req) => {
     const bal = currency === "premium" ? w.premium : w.play;
     if (bal < t.startingStack) throw new HttpsError("failed-precondition", `Not enough ${currency === "premium" ? "premium" : "play"} chips to buy in.`);
     sit(t, uid, name, seatIdx);
-    // PER-PLAYER MCE entitlement: a joiner gets the strategy overlay iff THEY personally
-    // hold Edge Pass — independent of the room owner. (The rec is written only to this
-    // uid's private hand doc, which firestore.rules gates to request.auth.uid == uid, so
-    // a non-payer at the same table can neither see the UI nor read the payload.)
     if (t.seats[seatIdx]) t.seats[seatIdx]!.assisted = (u.exists ? u.data()?.edgePass : undefined) === true;
     tx.set(userRef(uid), { name, [balField(currency)]: bal - t.startingStack }, { merge: true });
-    persist(tx, code, t, version + 1, 0, false, currency);
+    persist(tx, code, t, version + 1, baseline, false, currency);
     return { code, seatIdx, currency };
   });
 });
@@ -234,14 +231,14 @@ export const addBot = onCall(async (req) => {
   if (!code) throw new HttpsError("invalid-argument", "Room code required.");
   const arch = archetype && PROFILES[archetype] ? archetype : "TAG";
   return db.runTransaction(async (tx) => {
-    const { t, version, currency } = await loadState(tx, code);
+    const { t, version, baseline, currency } = await loadState(tx, code);
     if (uid !== t.ownerUid) throw new HttpsError("permission-denied", "Only the host can add a bot.");
     if (currency !== "play") throw new HttpsError("failed-precondition", "Premium rooms can't add AI.");
     if (t.status === "in_hand") throw new HttpsError("failed-precondition", "Finish the hand before adding a bot.");
     const seatIdx = t.seats.findIndex((s) => !s.uid && !s.ai);
     if (seatIdx < 0) throw new HttpsError("failed-precondition", "Room is full.");
     if (!seatAi(t, seatIdx, `Bot ${seatIdx}`, arch)) throw new HttpsError("failed-precondition", "Couldn't seat the bot.");
-    persist(tx, code, t, version + 1, 0, false, currency);
+    persist(tx, code, t, version + 1, baseline, false, currency);
     return { ok: true, seatIdx, archetype: arch };
   });
 });

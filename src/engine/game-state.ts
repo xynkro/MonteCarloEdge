@@ -194,7 +194,7 @@ export class GameState {
       return a;
     }
     const a: ActionType[] = ["check"];
-    if (this.stacks[seat]! > 0) a.push("bet");
+    if (this.stacks[seat]! > 0) a.push(this.currentBet > 0 ? "raise" : "bet");
     return a;
   }
 
@@ -249,14 +249,15 @@ export class GameState {
         // short all-in (smaller increment) does NOT reopen the betting.
         const fullRaise = opening || increment >= this._lastRaiseSize - 1e-9;
         if (fullRaise) {
-          this._lastRaiseSize = opening ? newBet : increment;
+          this._lastRaiseSize = opening ? Math.max(newBet, this.bb) : increment;
           this._raiseReopened = true;
+          this._actedThisStreet = new Set([seat]);
           for (let i = 0; i < this.stacks.length; i++) {
             if (i !== seat && !this.folded[i] && this.stacks[i]! > 0) this._needsAct.add(i);
           }
-        } else {
-          // Short all-in: only players who still owe chips act again (call/fold),
-          // and the action is not reopened for re-raising.
+        } else if (this.stacks[seat]! <= 0) {
+          // Genuine short all-in: only players who still owe chips act again
+          // (call/fold), and the action is not reopened for re-raising.
           this._raiseReopened = false;
           for (let i = 0; i < this.stacks.length; i++) {
             if (i !== seat && !this.folded[i] && this.stacks[i]! > 0 && this.toCall(i) > 0)

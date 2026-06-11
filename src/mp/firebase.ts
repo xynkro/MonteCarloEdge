@@ -42,22 +42,24 @@ function detectEmu(): boolean {
 }
 export const DEV_EMU = detectEmu();
 
-let _app: FirebaseApp | null = null;
-let _emuWired = false;
+let _appPromise: Promise<FirebaseApp> | null = null;
 
 /** Initialise (once) and return the Firebase app. Dynamic import = lazy chunk. */
-export async function getFirebaseApp(): Promise<FirebaseApp> {
-  if (_app) return _app;
-  const { initializeApp, getApps, getApp } = await import("firebase/app");
-  _app = getApps().length ? getApp() : initializeApp(firebaseConfig);
-  if (DEV_EMU && !_emuWired) {
-    _emuWired = true;
-    const [auth, fs, fns] = await Promise.all([import("firebase/auth"), import("firebase/firestore"), import("firebase/functions")]);
-    try { auth.connectAuthEmulator(auth.getAuth(_app), "http://127.0.0.1:9099", { disableWarnings: true }); } catch { /* already wired */ }
-    try { fs.connectFirestoreEmulator(fs.getFirestore(_app), "127.0.0.1", 8080); } catch { /* already wired */ }
-    try { fns.connectFunctionsEmulator(fns.getFunctions(_app, "asia-southeast1"), "127.0.0.1", 5001); } catch { /* already wired */ }
-    // eslint-disable-next-line no-console
-    console.log("%c🔧 MCE DEV — Firebase emulators wired (auth:9099 / firestore:8080 / functions:5001)", "color:#f5c451;font-weight:bold");
+export function getFirebaseApp(): Promise<FirebaseApp> {
+  if (!_appPromise) {
+    _appPromise = (async () => {
+      const { initializeApp, getApps, getApp } = await import("firebase/app");
+      const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
+      if (DEV_EMU) {
+        const [auth, fs, fns] = await Promise.all([import("firebase/auth"), import("firebase/firestore"), import("firebase/functions")]);
+        try { auth.connectAuthEmulator(auth.getAuth(app), "http://127.0.0.1:9099", { disableWarnings: true }); } catch { /* already wired */ }
+        try { fs.connectFirestoreEmulator(fs.getFirestore(app), "127.0.0.1", 8080); } catch { /* already wired */ }
+        try { fns.connectFunctionsEmulator(fns.getFunctions(app, "asia-southeast1"), "127.0.0.1", 5001); } catch { /* already wired */ }
+        // eslint-disable-next-line no-console
+        console.log("%c🔧 MCE DEV — Firebase emulators wired (auth:9099 / firestore:8080 / functions:5001)", "color:#f5c451;font-weight:bold");
+      }
+      return app;
+    })();
   }
-  return _app;
+  return _appPromise;
 }

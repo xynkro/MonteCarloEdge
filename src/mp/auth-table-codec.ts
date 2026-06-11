@@ -25,6 +25,7 @@ export interface AuthTableSnapshot {
   lastResult: string;
   lastWinners?: number[];
   lastPot?: number;
+  lastWon?: Record<number, number>;
   gs: GameStateSnapshot | null;
   liveSeats: number[];
   holes: Record<number, [Card, Card]>; // table-seat idx → hole cards (SECRET)
@@ -47,6 +48,7 @@ export function serializeAuthTable(t: AuthTable): AuthTableSnapshot {
     lastResult: t.lastResult,
     lastWinners: t.lastWinners ?? [],
     lastPot: t.lastPot ?? 0,
+    lastWon: t.lastWon ?? {},
     gs: t.gs ? t.gs.toSnapshot() : null,
     liveSeats: [...t.liveSeats],
     holes: Object.fromEntries(t.holes) as Record<number, [Card, Card]>,
@@ -70,6 +72,7 @@ export function deserializeAuthTable(s: AuthTableSnapshot): AuthTable {
     lastResult: s.lastResult,
     lastWinners: s.lastWinners ?? [],
     lastPot: s.lastPot ?? 0,
+    lastWon: s.lastWon ?? {},
     gs: s.gs ? GameState.fromSnapshot(s.gs) : null,
     liveSeats: [...s.liveSeats],
     holes: new Map(Object.entries(s.holes).map(([k, v]) => [Number(k), v] as [number, [Card, Card]])),
