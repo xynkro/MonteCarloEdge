@@ -2188,6 +2188,7 @@ function doAction(seat: number, type: ActionType): void {
 
   playSound(type === "fold" ? "fold" : type === "check" ? "check"
     : type === "call" ? "bet" : "bet");
+  flashActionCallout(seat, type, amount);
 
   if (type === "fold") S.foldAnim = seat; // muck-toss animation on the next render
   S.gs.applyAction({ seat, type, amount });
@@ -2509,6 +2510,7 @@ function villainStep(): void {
   S.gs.applyAction({ seat: next, type: action, amount });
   S.flashSeat = next; // pulse the seat that just acted
   playSound(action === "fold" ? "fold" : action === "check" ? "check" : "bet");
+  flashActionCallout(next, action, amount);
 
   // Villain folded everyone else out → hero (or last seat) wins outright.
   if (S.gs.activeSeatCount <= 1) {
@@ -3788,18 +3790,30 @@ let _histStartChips: number | null = null;
 const BOT_STAGGER_MS = 650;
 // Replay-key memo so a re-render doesn't double-fire the same staggered trace.
 let _lastBotTraceKey = "";
-function flashBotAction(step: { seat: number; type: string; amount: number }, board: { top: number } | null): void {
+// Visual-only floating callout at a seat. Sound is the caller's responsibility so
+// trainer can reuse this without double-firing the SFX that's already played at action time.
+// Deferred via queueMicrotask + RAF so it survives any synchronous render() in the same tick
+// (morphdom otherwise wipes the dynamically-appended child).
+function flashActionCallout(seat: number, type: string, amount: number): void {
+  const inject = (): void => {
+    const seatEl = document.querySelector(`.table-seat[data-seat="${seat}"]`);
+    if (!seatEl) return;
+    const label = type === "fold" ? "FOLD" : type === "check" ? "CHECK" : type === "call" ? "CALL" : `${type.toUpperCase()} ${mpc(amount)}`;
+    const seatTop = parseFloat((seatEl as HTMLElement).style.top || "50");
+    const placement = seatTop < 50 ? "below" : "above";
+    const el = document.createElement("div");
+    el.className = `action-call ${type} ${placement} bot-replay`;
+    el.textContent = label;
+    seatEl.appendChild(el);
+    setTimeout(() => el.remove(), 1300);
+  };
+  // Run after the current synchronous render cycle so morphdom doesn't drop our child.
+  requestAnimationFrame(() => requestAnimationFrame(inject));
+}
+function flashBotAction(step: { seat: number; type: string; amount: number }, _unused: { top: number } | null): void {
   playSound(step.type === "fold" ? "fold" : step.type === "check" ? "check" : step.type === "call" ? "chip" : "bet");
   if (step.amount > 0) requestAnimationFrame(() => animateChipBet(step.seat));
-  const seatEl = document.querySelector(`.table-seat[data-seat="${step.seat}"]`);
-  if (!seatEl) return;
-  const label = step.type === "fold" ? "FOLD" : step.type === "check" ? "CHECK" : step.type === "call" ? "CALL" : `${step.type.toUpperCase()} ${mpc(step.amount)}`;
-  const placement = board && board.top < 50 ? "below" : "above";
-  const el = document.createElement("div");
-  el.className = `action-call ${step.type} ${placement} bot-replay`;
-  el.textContent = label;
-  seatEl.appendChild(el);
-  setTimeout(() => el.remove(), 1100);
+  flashActionCallout(step.seat, step.type, step.amount);
 }
 function blindPosition(pub: Record<string, any>, seatIdx: number): string {
   const seats = (pub.seats as Array<{ uid: string | null; ai: string | null }> | undefined) ?? [];
