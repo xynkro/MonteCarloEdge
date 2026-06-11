@@ -315,7 +315,7 @@ export function publicState(t: AuthTable): PublicTableState {
       folded: inHand ? gs!.folded[g]! : false,
       sittingOut: !!s.uid && s.chips <= 0,
       assisted: s.assisted,
-      recStyle: s.recStyle,
+      recStyle: s.recStyle ?? null, // Firestore rejects undefined values
     };
   });
   return {

@@ -37,8 +37,9 @@ export interface MPSeat {
   // table owner can run controlled A/B seats.
   assisted: boolean;
   // Per-seat MCE recommendation flavor (set from settings cog). "balanced" uses the
-  // default TAG-ish profile; "tag" tightens; "lag" loosens. Optional.
-  recStyle?: "balanced" | "tag" | "lag";
+  // default TAG-ish profile; "tag" tightens; "lag" loosens. Null when unset (publicState
+  // coerces undefined → null so Firestore can persist it).
+  recStyle?: "balanced" | "tag" | "lag" | null;
 }
 
 // The whole table, public info only — safe to broadcast to every client.
