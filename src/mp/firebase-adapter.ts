@@ -61,8 +61,9 @@ export const leaveRoom = (code: string) => callFn<{ ok: boolean; banked?: number
 
 /** Per-player seat prefs (toggle MCE strategy on your seat, pick a recommendation style).
  *  assisted flips silently to false if the user doesn't hold Edge Pass. */
-export const setSeatPrefs = (code: string, prefs: { assisted?: boolean; recStyle?: "balanced" | "tag" | "lag" }) =>
-  callFn<{ ok: boolean; assisted: boolean; recStyle: "balanced" | "tag" | "lag" }>("setSeatPrefs", { code, ...prefs });
+export type RecStyle = "balanced" | "tag" | "lag" | "nit" | "station" | "maniac";
+export const setSeatPrefs = (code: string, prefs: { assisted?: boolean; recStyle?: RecStyle }) =>
+  callFn<{ ok: boolean; assisted: boolean; recStyle: RecStyle }>("setSeatPrefs", { code, ...prefs });
 /** Owner-only: flip room privacy. */
 export const setRoomPrefs = (code: string, prefs: { isPublic?: boolean }) =>
   callFn<{ ok: boolean; isPublic: boolean }>("setRoomPrefs", { code, ...prefs });

@@ -36,10 +36,10 @@ export interface MPSeat {
   // blind? The core of the benchmark. Independent of personal entitlement so the
   // table owner can run controlled A/B seats.
   assisted: boolean;
-  // Per-seat MCE recommendation flavor (set from settings cog). "balanced" uses the
-  // default TAG-ish profile; "tag" tightens; "lag" loosens. Null when unset (publicState
-  // coerces undefined → null so Firestore can persist it).
-  recStyle?: "balanced" | "tag" | "lag" | null;
+  // Per-seat MCE villain model — the OPPONENT'S assumed playstyle drives recommend().
+  // "balanced" → AUTO (auto-adapts); others lock the read.
+  // Null when unset (publicState coerces undefined → null so Firestore can persist it).
+  recStyle?: "balanced" | "tag" | "lag" | "nit" | "station" | "maniac" | null;
 }
 
 // The whole table, public info only — safe to broadcast to every client.
@@ -65,6 +65,7 @@ export interface PublicTableState {
   isPublic?: boolean;       // visible in Online Games list when waiting + open seats
   spectators?: Array<{ uid: string; name: string }>; // watching, not seated
   lastAction?: { seat: number; type: MPActionType; amount: number } | null; // who just acted (per-street)
+  botTrace?: Array<{ seat: number; type: MPActionType; amount: number }>;   // ordered bot actions from the last tick (for staggered client replay)
 }
 
 // Pushed to a SINGLE player — their own hole cards only.

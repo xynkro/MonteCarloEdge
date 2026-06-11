@@ -3785,6 +3785,22 @@ function netPreAnims(prev: Record<string, any>, pub: Record<string, any>): void 
 // History capture state for the LIVE online hand. Module-level so transitions across
 // multiple netPostAnims calls within a hand share continuity.
 let _histStartChips: number | null = null;
+const BOT_STAGGER_MS = 650;
+// Replay-key memo so a re-render doesn't double-fire the same staggered trace.
+let _lastBotTraceKey = "";
+function flashBotAction(step: { seat: number; type: string; amount: number }, board: { top: number } | null): void {
+  playSound(step.type === "fold" ? "fold" : step.type === "check" ? "check" : step.type === "call" ? "chip" : "bet");
+  if (step.amount > 0) requestAnimationFrame(() => animateChipBet(step.seat));
+  const seatEl = document.querySelector(`.table-seat[data-seat="${step.seat}"]`);
+  if (!seatEl) return;
+  const label = step.type === "fold" ? "FOLD" : step.type === "check" ? "CHECK" : step.type === "call" ? "CALL" : `${step.type.toUpperCase()} ${mpc(step.amount)}`;
+  const placement = board && board.top < 50 ? "below" : "above";
+  const el = document.createElement("div");
+  el.className = `action-call ${step.type} ${placement} bot-replay`;
+  el.textContent = label;
+  seatEl.appendChild(el);
+  setTimeout(() => el.remove(), 1100);
+}
 function blindPosition(pub: Record<string, any>, seatIdx: number): string {
   const seats = (pub.seats as Array<{ uid: string | null; ai: string | null }> | undefined) ?? [];
   const occupied = seats.map((s, ti) => ({ s, ti })).filter((x) => x.s.uid || x.s.ai);
@@ -3812,11 +3828,16 @@ function netPostAnims(prev: Record<string, any>, pub: Record<string, any>): void
   // Uses pub.lastWinners (robust — works even for instant fold-outs that skip an in_hand frame).
   if (prev.status !== "hand_over" && pub.status === "hand_over") {
     const winners = (pub.lastWinners || []) as number[];
-    if (winners.length) requestAnimationFrame(() => { animatePotToWinner(winners); winners.forEach((w) => animateCoinShower(w)); });
-    // SFX: did I win? Big win sound for me, generic chip-rake for spectators / when I lost.
+    const traceLen = ((pub.botTrace as Array<unknown> | undefined)?.length ?? 0);
+    const handOverDelay = traceLen * BOT_STAGGER_MS;
+    const fireHandOver = (): void => {
+      if (winners.length) requestAnimationFrame(() => { animatePotToWinner(winners); winners.forEach((w) => animateCoinShower(w)); });
+      const mySeat = (pub.seats as Array<{ uid: string | null }> | undefined)?.findIndex((s) => s?.uid === uid) ?? -1;
+      const iWon = mySeat >= 0 && winners.includes(mySeat);
+      playSound(iWon ? "win" : "chip");
+    };
+    if (handOverDelay > 0) setTimeout(fireHandOver, handOverDelay); else fireHandOver();
     const mySeat = (pub.seats as Array<{ uid: string | null }> | undefined)?.findIndex((s) => s?.uid === uid) ?? -1;
-    const iWon = mySeat >= 0 && winners.includes(mySeat);
-    playSound(iWon ? "win" : "chip");
     // History capture: snapshot what just happened from MY view, drop into localStorage.
     if (mySeat >= 0 && pub.handId && Hist.currentHandId() === String(pub.handId)) {
       const mySeatData = (pub.seats as Array<{ chips: number; uid: string | null }>)[mySeat];
@@ -3844,8 +3865,18 @@ function netPostAnims(prev: Record<string, any>, pub: Record<string, any>): void
       _histStartChips = null;
     }
   }
+  // Bot turn-speed rework: server emits `botTrace` (ordered list of bot actions from
+  // the last tick). Stagger SFX + callouts so the user perceives bots taking turns.
+  const trace = (pub.botTrace as Array<{ seat: number; type: string; amount: number }> | undefined) ?? [];
+  const traceKey = trace.length ? `${pub.handId}-${pub.street}-${trace.map((s) => `${s.seat}:${s.type}:${s.amount}`).join("|")}` : "";
+  const traceSeats = new Set(trace.map((s) => s.seat));
+  if (traceKey && traceKey !== _lastBotTraceKey) {
+    _lastBotTraceKey = traceKey;
+    trace.forEach((step, i) => setTimeout(() => flashBotAction(step, null), i * BOT_STAGGER_MS));
+  }
   // Per-action bet: a seat's wager grew on the SAME street → fly chips from that seat
-  // toward the pot (the "chips flowing in" you wanted on a bet/raise).
+  // toward the pot. Trace seats are handled by the staggered replay above → skip here
+  // so we don't double-up SFX or fire a synchronous chip-fly under a staggered callout.
   if (prev.status === "in_hand" && pub.status === "in_hand" && prev.street === pub.street) {
     const oldS = (prev.seats || []) as Array<{ bet?: number; folded?: boolean; uid?: string | null }>;
     const newS = (pub.seats || []) as Array<{ bet?: number; folded?: boolean; uid?: string | null }>;
@@ -3854,12 +3885,15 @@ function netPostAnims(prev: Record<string, any>, pub: Record<string, any>): void
       const wasMe = oldS[i]?.uid === uid && uid;
       const oldBet = oldS[i]?.bet || 0;
       const newBet = s.bet || 0;
+      const inTrace = traceSeats.has(i);
       if (newBet > oldBet) {
-        requestAnimationFrame(() => animateChipBet(i));
-        if (!wasMe) playSound(newBet > oldBet * 1.5 ? "bet" : "chip");
+        if (!inTrace) {
+          requestAnimationFrame(() => animateChipBet(i));
+          if (!wasMe) playSound(newBet > oldBet * 1.5 ? "bet" : "chip");
+        }
         Hist.pushAction({ street: String(pub.street ?? "preflop"), type: newBet === oldBet ? "call" : "bet", amount: newBet - oldBet, bySeat: i });
       } else if (nowFolded && !wasFolded) {
-        if (!wasMe) playSound("fold");
+        if (!wasMe && !inTrace) playSound("fold");
         Hist.pushAction({ street: String(pub.street ?? "preflop"), type: "fold", amount: 0, bySeat: i });
       }
     });
@@ -3909,7 +3943,7 @@ async function netAddBot(archetype: string): Promise<void> {
   catch (e) { S.net.busy = false; S.net.err = friendlyErr(e); render(); }
 }
 
-async function netSetSeatPrefs(prefs: { assisted?: boolean; recStyle?: "balanced" | "tag" | "lag" }): Promise<void> {
+async function netSetSeatPrefs(prefs: { assisted?: boolean; recStyle?: import("../mp/firebase-adapter.js").RecStyle }): Promise<void> {
   const code = S.net.code; if (!code) return;
   try { await FB.setSeatPrefs(code, prefs); }
   catch (e) { S.net.err = friendlyErr(e); render(); }
@@ -4116,7 +4150,7 @@ function renderNetTable(): void {
   // bot never feels like the hand started. Roster, AI picker, share code, explicit START.
   if (lobby) {
     const botLabel = (a: string): string => (({ Station: "Fish 🐟", TAG: "Reg 🎯", LAG: "LAG 🔥", Nit: "Nit 🪨", Auto: "Auto 🧮" }) as Record<string, string>)[a] || a;
-    const mySeat = seats.find((s) => s.uid === uid) as { assisted?: boolean; recStyle?: "balanced" | "tag" | "lag" } | undefined;
+    const mySeat = seats.find((s) => s.uid === uid) as { assisted?: boolean; recStyle?: import("../mp/firebase-adapter.js").RecStyle } | undefined;
     const assistedOn = !!mySeat?.assisted;
     const myStyle = mySeat?.recStyle ?? "balanced";
     const canAddAi = isOwner && currency === "play" && occupied.length < seats.length;
@@ -4128,6 +4162,15 @@ function renderNetTable(): void {
       return `<span class="roster-pill bot">🤖 ${esc(s.name)} <i>${botLabel(s.ai!)}</i><b>${mpc(s.chips)}</b></span>`;
     }).join("")}</div>${openSeats > 0 ? `<div class="roster-open">＋ ${openSeats} open seat${openSeats > 1 ? "s" : ""} — share the code</div>` : ""}`;
     const botSeats = seats.map((s, ti) => ({ s, ti })).filter((x) => x.s.ai);
+    const STYLE_OPTS: Array<{ k: import("../mp/firebase-adapter.js").RecStyle; label: string; blurb: string }> = [
+      { k: "balanced", label: "🧭 Balanced",       blurb: "Auto-adapts from villain's action — safe default." },
+      { k: "tag",      label: "🎯 TAG",             blurb: "Tight-Aggressive — solid regs, value-heavy ranges." },
+      { k: "lag",      label: "🔥 LAG",             blurb: "Loose-Aggressive — wide opens, lots of barrels." },
+      { k: "nit",      label: "🪨 Nit",             blurb: "Super tight — premiums only, fold to pressure." },
+      { k: "station",  label: "🐟 Station",         blurb: "Calling fish — never folds, draws to anything." },
+      { k: "maniac",   label: "🌪 Maniac",          blurb: "Over-aggressive — random shoves, max bluff." },
+    ];
+    const styleBlurb = STYLE_OPTS.find((x) => x.k === myStyle)?.blurb ?? "";
     const cogSheet = S.net.cog ? `
       <div class="cog-backdrop" id="cog-close"></div>
       <div class="cog-sheet">
@@ -4136,8 +4179,9 @@ function renderNetTable(): void {
           <div class="cog-row"><span>MCE Strategy</span>
             <button class="mce-toggle ${hasEdge() && assistedOn ? "on" : ""} ${!hasEdge() ? "locked" : ""}" id="cog-mce">${!hasEdge() ? "🔒 Edge Pass" : assistedOn ? "🧠 ON" : "OFF"}</button>
           </div>
-          ${hasEdge() && assistedOn ? `<div class="cog-row"><span>Recommendation style</span>
-            <div class="seg" id="cog-style">${(["balanced","tag","lag"] as const).map((k) => `<button class="seg-btn ${myStyle === k ? "sel" : ""}" data-style="${k}">${k === "balanced" ? "Balanced" : k === "tag" ? "TAG 🎯" : "LAG 🔥"}</button>`).join("")}</div>
+          ${hasEdge() && assistedOn ? `<div class="cog-style-block">
+            <div class="cog-style-head"><span>Villain read</span><span class="cog-style-blurb">${esc(styleBlurb)}</span></div>
+            <div class="cog-style-grid">${STYLE_OPTS.map((o) => `<button class="cog-style-btn ${myStyle === o.k ? "sel" : ""}" data-style="${o.k}"><span class="cs-lbl">${o.label}</span></button>`).join("")}</div>
           </div>` : ""}
         </div>
         ${isOwner ? `<div class="cog-section"><div class="cog-label">Room (host)</div>
@@ -4201,7 +4245,7 @@ function renderNetTable(): void {
     onId("cog-priv", "click", () => { void netSetRoomPrefs({ isPublic: !isPublic }); });
     onId("cog-rebuy", "click", () => { S.net.cog = false; openRebuySheet(); });
     onId("cog-sound", "click", () => { setSoundEnabled(!isSoundEnabled()); render(); });
-    app.querySelectorAll("[data-style]").forEach((b) => onEl(b, "click", () => { void netSetSeatPrefs({ recStyle: (b as HTMLElement).dataset.style as "balanced" | "tag" | "lag" }); }));
+    app.querySelectorAll("[data-style]").forEach((b) => onEl(b, "click", () => { void netSetSeatPrefs({ recStyle: (b as HTMLElement).dataset.style as import("../mp/firebase-adapter.js").RecStyle }); }));
     app.querySelectorAll(".cog-kick").forEach((b) => onEl(b, "click", () => { void netKickBot(+(b as HTMLElement).dataset.seat!); }));
     app.querySelectorAll(".add-ai").forEach((b) => onEl(b, "click", () => void netAddBot((b as HTMLElement).dataset.arch!)));
     wireRebuyHandlers();
@@ -5044,6 +5088,17 @@ function renderHome(): void {
       ${loggedIn ? "" : `<button class="mc-login-banner" id="home-signin-banner">🔒 <strong>Not logged in</strong> — sign in to save your chips &amp; play online. <span>Train is free →</span></button>`}
       ${S.isAdmin && _viewAsPlayer ? `<button class="mc-login-banner preview" id="home-exit-preview">👁 <strong>Player preview</strong> — you're seeing the app as a normal player. <span>Exit →</span></button>` : ""}
 
+      <button class="mce-card" id="home-mce">
+        <span class="mce-shimmer" aria-hidden="true"></span>
+        <span class="mce-icon">⚡</span>
+        <span class="mce-body">
+          <span class="mce-eyebrow">What is MCE Strategy?</span>
+          <span class="mce-title">Your edge at every table</span>
+          <span class="mce-sub">A live, in-hand GTO read on your villain's range — equity, pot odds, recommended line. Learn how it gives you the edge.</span>
+        </span>
+        <span class="mce-cta">Learn →</span>
+      </button>
+
       <div class="mc-modes">
         <button class="mc-mode train" id="home-train" style="--d:.05s"><span class="mc-mi">🎯</span><span class="mc-mtext"><span class="mc-mt">Train</span><span class="mc-md">Solo vs the MCE Engine · free</span></span><span class="mc-arrow">→</span></button>
         <button class="mc-mode online ${loggedIn ? "" : "locked"}" id="home-pass" style="--d:.12s"><span class="mc-mi">🌐</span><span class="mc-mtext"><span class="mc-mt">Play Online</span><span class="mc-md">${loggedIn ? "Create a room · play for chips" : "Sign in to play"}</span></span><span class="mc-arrow">${loggedIn ? "→" : "🔒"}</span></button>
@@ -5067,6 +5122,7 @@ function renderHome(): void {
   onId("home-settings2", "click", () => { S.screen = "settings"; render(); });
   onId("home-proof", "click", () => { try { window.open("/proof.html", "_blank", "noopener"); } catch { location.assign("/proof.html"); } });
   onId("home-explainer", "click", () => { _docReturn = "home"; S.screen = "explainer"; render(); });
+  onId("home-mce", "click", () => { _docReturn = "home"; S.screen = "explainer"; render(); });
   onId("home-legal", "click", () => { _docReturn = "home"; S.screen = "legal"; render(); });
   onId("home-profile", "click", () => { S.screen = loggedIn ? "profile" : "signin"; render(); });
   onId("home-profile2", "click", () => { S.screen = "profile"; render(); });

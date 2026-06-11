@@ -1085,7 +1085,13 @@ body::before {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"); }
 
 /* topbar */
-.mc-topbar { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.mc-topbar { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; }
+.mc-topbar .mc-profile { min-width: 0; flex: 1 1 auto; }
+.mc-topbar .mc-top-right { flex: 0 0 auto; }
+.mc-pmeta2 { min-width: 0; }
+.mc-pmeta2 .mc-bal2,
+.mc-pmeta2 .mc-pname { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.mc-store { white-space: nowrap; padding: 9px 14px; font-size: 12.5px; }
 .mc-profile { display: flex; align-items: center; gap: 9px; padding: 5px 15px 5px 5px; border-radius: 999px;
   background: var(--glass); -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
   border: 1px solid var(--glass-edge); cursor: pointer; }
@@ -1101,6 +1107,40 @@ body::before {
 .mc-login-banner span { color: var(--emerald); font-weight: 700; white-space: nowrap; }
 .mc-login-banner.preview { background: rgba(247,207,114,.12); border-color: rgba(247,207,114,.45); color: #f3e2b8; }
 .mc-login-banner.preview span { color: var(--gold-2); }
+
+/* ── MCE Strategy explainer card (above modes on home) ── */
+.mce-card {
+  display: grid; grid-template-columns: auto 1fr auto; gap: 14px; align-items: center;
+  width: 100%; text-align: left; cursor: pointer; position: relative; overflow: hidden;
+  padding: 16px 18px; border-radius: 18px; margin-bottom: 14px;
+  background: linear-gradient(135deg, rgba(245,196,81,.16) 0%, rgba(245,158,11,.06) 55%, rgba(124,92,255,.10) 100%);
+  border: 1px solid rgba(245,196,81,.45);
+  box-shadow: 0 8px 28px rgba(245,196,81,.12), 0 0 0 1px rgba(245,196,81,.08) inset;
+  color: var(--text); font-family: inherit;
+  transition: transform .12s, box-shadow .2s, border-color .2s;
+}
+.mce-card:active { transform: scale(.985); }
+.mce-card:hover { border-color: rgba(245,196,81,.65); box-shadow: 0 10px 36px rgba(245,196,81,.20), 0 0 0 1px rgba(245,196,81,.14) inset; }
+.mce-shimmer {
+  position: absolute; inset: 0; pointer-events: none; opacity: .5;
+  background: linear-gradient(120deg, transparent 28%, rgba(255,255,255,.08) 50%, transparent 72%);
+  transform: translateX(-100%);
+  animation: mceShim 4.8s ease-in-out infinite;
+}
+@keyframes mceShim { 0% { transform: translateX(-100%); } 60%,100% { transform: translateX(100%); } }
+.mce-icon {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 46px; height: 46px; border-radius: 14px;
+  background: radial-gradient(circle at 30% 30%, rgba(245,196,81,.55), rgba(245,158,11,.25) 60%, transparent);
+  font-size: 1.6rem; text-shadow: 0 2px 8px rgba(245,196,81,.5);
+  border: 1px solid rgba(245,196,81,.4);
+}
+.mce-body { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.mce-eyebrow { font-size: .68rem; font-weight: 800; letter-spacing: 1.4px; text-transform: uppercase; color: rgba(245,196,81,.85); }
+.mce-title { font: 800 1.04rem/1.15 var(--display, inherit); color: #fff; }
+.mce-sub { font-size: .78rem; line-height: 1.35; color: rgba(255,255,255,.68); font-weight: 500; }
+.mce-cta { font-size: .8rem; font-weight: 800; color: var(--gold-2); white-space: nowrap; }
+@media (max-width: 380px) { .mce-card { grid-template-columns: auto 1fr; padding: 13px 14px; gap: 11px; } .mce-cta { grid-column: 2; padding-top: 4px; } }
 /* Locked (not signed in): grey the text + icon, dim the accent rail, gold padlock —
    reads as "locked", not just faded. */
 .mc-mode.locked { opacity: 1; }
@@ -1563,6 +1603,20 @@ body::before {
 .cog-row .seg { flex: 1; max-width: 60%; }
 .cog-kick-list { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; max-width: 65%; }
 .cog-kick-list .hdr-btn { padding: 6px 10px; font-size: 11px; }
+.cog-style-block { padding: 4px 0 2px; }
+.cog-style-head { display: flex; flex-direction: column; gap: 3px; margin-bottom: 8px; }
+.cog-style-head > span:first-child { font-size: .9rem; color: rgba(255,255,255,.85); font-weight: 600; }
+.cog-style-blurb { font-size: .76rem; color: rgba(255,255,255,.55); line-height: 1.35; font-weight: 500; }
+.cog-style-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.cog-style-btn {
+  padding: 10px 4px; border-radius: 11px; cursor: pointer;
+  background: var(--glass); border: 1px solid var(--glass-edge); color: var(--text);
+  font-size: .76rem; font-weight: 700; letter-spacing: .2px; text-align: center;
+  transition: background .15s, border-color .15s, transform .1s;
+}
+.cog-style-btn:active { transform: scale(.97); background: var(--elevate); }
+.cog-style-btn.sel { background: rgba(245,196,81,.18); border-color: rgba(245,196,81,.55); color: var(--gold-2); box-shadow: 0 0 0 1px rgba(245,196,81,.2) inset; }
+.cs-lbl { display: block; white-space: nowrap; }
 
 /* ── Rebuy / top-up sheet ── */
 .rebuy-sheet .rb-display { text-align: center; padding: 16px 0 12px; }

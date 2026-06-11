@@ -28,7 +28,9 @@ export interface AuthSeat {
   assisted: boolean;      // admin-set: does this seat get the strategy tool?
   sittingOut: boolean;
   ai: string | null;      // bot archetype (e.g. "TAG") if this is an AI seat; null = human/empty
-  recStyle?: "balanced" | "tag" | "lag"; // per-seat MCE recommendation flavor
+  // Per-seat MCE villain model — the OPPONENT'S assumed playstyle, drives recommend().
+  // "balanced" → AUTO (auto-adapts to observed action); the others lock the assumption.
+  recStyle?: "balanced" | "tag" | "lag" | "nit" | "station" | "maniac";
 }
 
 export interface AuthTable {
@@ -50,6 +52,10 @@ export interface AuthTable {
   isPublic?: boolean;     // listed in the Online Games picker when waiting + open seats
   spectators?: Array<{ uid: string; name: string }>; // watching, not seated
   lastAction?: { seat: number; type: ActionType; amount: number } | null; // last seat that acted (cleared on street advance)
+  // Ordered trace of bot actions resolved in the LAST server tick — lets the client
+  // stagger SFX + callouts so a chain of bots feels like they "took turns" instead of
+  // jumping to the final state in one snapshot. Reset before each act/startHand.
+  botTrace?: Array<{ seat: number; type: ActionType; amount: number }>;
   // Live hand (authority-only):
   gs: GameState | null;           // betting state over the LIVE seats
   liveSeats: number[];            // table-seat indices in this hand (gs idx → table idx)
@@ -334,6 +340,7 @@ export function publicState(t: AuthTable): PublicTableState {
     isPublic: t.isPublic !== false,
     spectators: (t.spectators ?? []).map((s) => ({ uid: s.uid, name: s.name })),
     lastAction: t.lastAction ?? null,
+    botTrace: (t.botTrace ?? []).slice(),
   };
 }
 

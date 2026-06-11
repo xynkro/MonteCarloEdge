@@ -21,7 +21,7 @@ import { serializeAuthTable, deserializeAuthTable, type AuthTableSnapshot } from
 import type { MPAction } from "../../src/mp/types.js";
 import { villainDecision } from "../../src/engine/villain-ai.js";
 import { recommend } from "../../src/engine/decision.js";
-import { AUTO, TAG, LAG, STATION, NIT, type OpponentProfile } from "../../src/engine/opponent.js";
+import { AUTO, TAG, LAG, STATION, NIT, MANIAC, type OpponentProfile } from "../../src/engine/opponent.js";
 import { cryptoRng } from "./crypto-rng.js";
 
 setGlobalOptions({ region: "asia-southeast1", maxInstances: 10 });
@@ -31,7 +31,7 @@ const db = getFirestore();
 // Stripe Edge Pass paywall (createCheckoutSession / createBillingPortal / stripeWebhook).
 export * from "./stripe.js";
 
-const PROFILES: Record<string, OpponentProfile> = { Auto: AUTO, TAG, LAG, Station: STATION, Nit: NIT };
+const PROFILES: Record<string, OpponentProfile> = { Auto: AUTO, TAG, LAG, Station: STATION, Nit: NIT, Maniac: MANIAC };
 const TURN_SECONDS = 40;
 const DEFAULT_CHIPS = 1_000; // ~$9.90 of value at the ~100 chips/$ ratio
 const TIERS: Record<string, { sb: number; bb: number; max: number }> = {
@@ -90,6 +90,9 @@ function readWallet(d: Record<string, unknown> | undefined): { play: number; pre
 
 // Bots decide server-side until it's a human's turn or the hand ends.
 function runBots(t: AuthTable): void {
+  // Reset the trace at the START of this tick — clients use the diff to drive a
+  // staggered "bots took turns" replay. A new client snapshot replaces the old trace.
+  t.botTrace = [];
   let guard = 0;
   while (t.status === "in_hand" && guard++ < 400) {
     const seat = toActTableSeat(t);
@@ -101,12 +104,18 @@ function runBots(t: AuthTable): void {
     if (g < 0 || !cards || !t.gs) break;
     const dec = villainDecision(t.gs, g, cards, PROFILES[s.ai] ?? TAG, cryptoRng);
     let r = actSeat(t, seat, { type: dec.type, amount: dec.amount });
+    let appliedType = dec.type, appliedAmount = dec.amount;
     if (!r.ok) { // safety: fall back to a legal no-op
       const ps = publicState(t);
       const toCall = ps.currentBet - (ps.seats[seat]?.bet ?? 0);
-      r = actSeat(t, seat, { type: toCall > 0 ? "fold" : "check" });
+      const fallback = (toCall > 0 ? "fold" : "check") as MPAction["type"];
+      r = actSeat(t, seat, { type: fallback });
+      appliedType = fallback; appliedAmount = 0;
       if (!r.ok) break;
     }
+    // Record the action the engine accepted (post-cap-to-allin). Bound the trace so
+    // a runaway loop can't grow it without bound.
+    if (t.botTrace.length < 32) t.botTrace.push({ seat, type: appliedType, amount: appliedAmount });
   }
 }
 
@@ -122,6 +131,9 @@ function persist(tx: Transaction, code: string, t: AuthTable, version: number, b
       throw new HttpsError("internal", `chip conservation broken: ${banked} != ${baseline}`);
     }
   }
+  // Non-tick callables (lobby cogs, kick, rebuy, join/leave) shouldn't surface a stale
+  // bot trace from a previous tick — only act/startHand (settled=true) intend to ship one.
+  if (!settled) t.botTrace = [];
 
   const pub = publicState(t);
   // Reveal hole cards ONLY at a genuine multi-way showdown. On a fold-out the lone
@@ -150,8 +162,14 @@ function persist(tx: Transaction, code: string, t: AuthTable, version: number, b
     if (s.assisted === true && t.status === "in_hand" && ts === toActTableSeat(t)) {
       try {
         const style = s.recStyle ?? "balanced";
-        const styleProfile = style === "lag" ? PROFILES.LAG : style === "tag" ? PROFILES.TAG : (PROFILES.Auto ?? TAG);
-        const r = recommendForSeat(t, ts, recommend, styleProfile ?? TAG);
+        const styleProfile =
+          style === "lag"     ? PROFILES.LAG :
+          style === "tag"     ? PROFILES.TAG :
+          style === "nit"     ? PROFILES.Nit :
+          style === "station" ? PROFILES.Station :
+          style === "maniac"  ? PROFILES.Maniac :
+          PROFILES.Auto;
+        const r = recommendForSeat(t, ts, recommend, styleProfile ?? AUTO);
         rec = r ? { action: r.action, amount: r.amount, handLabel: r.handLabel ?? "", reasoning: r.reasoning, equity: r.equity, potOdds: r.potOdds, source: r.source ?? "heuristic" } : null;
       } catch { rec = null; }
     }
@@ -318,7 +336,7 @@ export const act = onCall(async (req) => {
 export const setSeatPrefs = onCall(async (req) => {
   const uid = uidOf(req);
   const { code, assisted, recStyle } = (req.data ?? {}) as
-    { code?: string; assisted?: boolean; recStyle?: "balanced" | "tag" | "lag" };
+    { code?: string; assisted?: boolean; recStyle?: "balanced" | "tag" | "lag" | "nit" | "station" | "maniac" };
   if (!code) throw new HttpsError("invalid-argument", "Room code required.");
   return db.runTransaction(async (tx) => {
     const { t, version, baseline, currency } = await loadState(tx, code);
@@ -329,7 +347,7 @@ export const setSeatPrefs = onCall(async (req) => {
       const edgePass = (u.exists ? u.data()?.edgePass : undefined) === true;
       t.seats[seatIdx]!.assisted = assisted === true && edgePass;
     }
-    if (recStyle === "balanced" || recStyle === "tag" || recStyle === "lag") {
+    if (recStyle === "balanced" || recStyle === "tag" || recStyle === "lag" || recStyle === "nit" || recStyle === "station" || recStyle === "maniac") {
       t.seats[seatIdx]!.recStyle = recStyle;
     }
     persist(tx, code, t, version + 1, baseline, false, currency);
