@@ -1102,13 +1102,15 @@ body::before {
 .mc-bg::before {
   content: ""; position: absolute; inset: 0;
   background: url(/textures/hero-bg.webp) center/cover no-repeat;
-  opacity: .32;
-  -webkit-mask-image: radial-gradient(120% 85% at 50% 38%, rgba(0,0,0,.25) 0%, #000 70%);
-  mask-image: radial-gradient(120% 85% at 50% 38%, rgba(0,0,0,.25) 0%, #000 70%);
+  opacity: .5;
+  -webkit-mask-image: radial-gradient(125% 88% at 50% 36%, rgba(0,0,0,.4) 0%, #000 72%);
+  mask-image: radial-gradient(125% 88% at 50% 36%, rgba(0,0,0,.4) 0%, #000 72%);
 }
 .mc-bg::after {
   content: ""; position: absolute; inset: 0;
-  background: linear-gradient(180deg, rgba(7,10,15,.55) 0%, rgba(7,10,15,.2) 40%, rgba(7,10,15,.75) 100%);
+  /* keep the very top + very bottom dark for the topbar/footer + tile contrast, but let the
+     cinematic scene read through the mid-band. */
+  background: linear-gradient(180deg, rgba(7,10,15,.5) 0%, rgba(7,10,15,.08) 42%, rgba(7,10,15,.18) 62%, rgba(7,10,15,.72) 100%);
 }
 .mc-glow { position: absolute; border-radius: 50%; filter: blur(64px); opacity: .55; }
 .mc-glow.g-emerald { width: 75vw; height: 75vw; left: -22vw; top: -12vh; background: radial-gradient(circle, rgba(17,147,107,.6), transparent 70%); animation: mcDrift 18s ease-in-out infinite alternate; }

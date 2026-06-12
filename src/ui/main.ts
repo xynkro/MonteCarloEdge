@@ -3139,13 +3139,19 @@ async function renderStats(): Promise<void> {
     const pts = cumSeries.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ");
     const zeroY = y(0).toFixed(1);
     const end = cumSeries[cumSeries.length - 1]!;
-    const stroke = end >= 0 ? "var(--green)" : "var(--red)";
-    const area = `${pad},${y(0).toFixed(1)} ${pts} ${x(cumSeries.length - 1).toFixed(1)},${y(0).toFixed(1)}`;
+    // Bright explicit colours (the CSS --green/--red read too dark on the near-black card).
+    const stroke = end >= 0 ? "#3ee089" : "#ff5d7a";
+    const endX = x(cumSeries.length - 1).toFixed(1), endY = y(end).toFixed(1);
+    const area = `${pad},${zeroY} ${pts} ${endX},${zeroY}`;
     return `<svg class="spark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="cumulative P&L">
-      <line x1="0" y1="${zeroY}" x2="${W}" y2="${zeroY}" stroke="rgba(255,255,255,.12)" stroke-width="1" stroke-dasharray="3 3"/>
-      <polygon points="${area}" fill="${stroke}" opacity="0.12"/>
-      <polyline points="${pts}" fill="none" stroke="${stroke}" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"/>
-      <circle cx="${x(cumSeries.length - 1).toFixed(1)}" cy="${y(end).toFixed(1)}" r="3.2" fill="${stroke}"/>
+      <defs><linearGradient id="sparkFill" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="${stroke}" stop-opacity="0.32"/>
+        <stop offset="100%" stop-color="${stroke}" stop-opacity="0.02"/>
+      </linearGradient></defs>
+      <line x1="0" y1="${zeroY}" x2="${W}" y2="${zeroY}" stroke="rgba(255,255,255,.14)" stroke-width="1" stroke-dasharray="3 3"/>
+      <polygon points="${area}" fill="url(#sparkFill)"/>
+      <polyline points="${pts}" fill="none" stroke="${stroke}" stroke-width="2.6" stroke-linejoin="round" stroke-linecap="round" style="filter:drop-shadow(0 0 4px ${stroke}66)"/>
+      <circle cx="${endX}" cy="${endY}" r="3.6" fill="${stroke}" style="filter:drop-shadow(0 0 5px ${stroke})"/>
     </svg>`;
   })();
 
