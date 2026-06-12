@@ -388,6 +388,13 @@ function flipFaces(content: string): string {
 function cardDisplay(c: Card): string {
   return RANKS[rankOf(c)] + SUITS[suitOf(c)];
 }
+// Rich playing-card face for the BIG cards (board + hero): a glanceable centre rank+suit
+// PLUS a small top-left corner index, so it reads like a real card. (cardDisplay stays plain
+// text for the share-card canvas + tiny inline pips.) Container must be position:relative.
+function cardFace(c: Card): string {
+  const r = RANKS[rankOf(c)], s = SUITS[suitOf(c)];
+  return `<span class="cf-ix">${r}<small>${s}</small></span><span class="cf-mid">${r}${s}</span>`;
+}
 function isRed(c: Card): boolean {
   return SUIT_RED[suitOf(c)]!;
 }
@@ -1563,14 +1570,14 @@ function animateCoinShower(seat: number): void {
 // Stash winners for the highlight + queue the one-shot pot→winner travel.
 function markWinners(w: number[]): void { S.winnerSeat = w.slice(); S.potFlyPending = w.slice(); }
 
+// Generated mascot avatar set (Higgsfield recraft). Hero is always the shark (the brand
+// mascot + Caspar's icon); other seats cycle through the 5 remaining personas by seat index
+// so each seat keeps a stable, distinct face.
+const SEAT_AVATARS = ["fox", "owl", "bear", "panther", "eagle"] as const;
 function avatarHtml(seat: number, isHero: boolean): string {
   const color = isHero ? "#00d68f" : AVATAR_COLORS[seat % AVATAR_COLORS.length]!;
-  return `<div class="seat-avatar" style="color:${color}">
-    <svg viewBox="0 0 24 24" width="100%" height="100%" aria-hidden="true">
-      <circle cx="12" cy="8.5" r="4.3" fill="currentColor"/>
-      <path d="M3.5 21c0-4.6 3.8-7.5 8.5-7.5s8.5 2.9 8.5 7.5z" fill="currentColor"/>
-    </svg>
-  </div>`;
+  const name = isHero ? "shark" : SEAT_AVATARS[seat % SEAT_AVATARS.length]!;
+  return `<div class="seat-avatar img" style="color:${color}"><img src="/avatars/${name}.webp" alt="" loading="lazy" draggable="false"></div>`;
 }
 
 function renderGame(): void {
@@ -1681,7 +1688,7 @@ function renderGame(): void {
       const anim = animBoard >= 0 && i >= animBoard
         ? ` deal-in" style="animation-delay:${((i - animBoard) * 90)}ms`
         : "";
-      return `<div class="board-card dealt ${isRed(c) ? "red" : ""}${anim}">${flipFaces(cardDisplay(c))}</div>`;
+      return `<div class="board-card dealt ${isRed(c) ? "red" : ""}${anim}">${flipFaces(cardFace(c))}</div>`;
     }
     return `<div class="board-card empty"></div>`;
   }).join("");
@@ -1689,7 +1696,7 @@ function renderGame(): void {
   // ── Hero cards ──
   const heroHtml = S.heroCards
     ? S.heroCards.map((c, i) =>
-        `<div class="hero-card dealt ${isRed(c) ? "red" : ""}${animHero ? ` deal-in" style="animation-delay:${i * 110}ms` : ""}">${flipFaces(cardDisplay(c))}</div>`
+        `<div class="hero-card dealt ${isRed(c) ? "red" : ""}${animHero ? ` deal-in" style="animation-delay:${i * 110}ms` : ""}">${flipFaces(cardFace(c))}</div>`
       ).join("")
     : `<div class="hero-card empty">?</div><div class="hero-card empty">?</div>`;
 
@@ -4385,7 +4392,7 @@ function renderNetTable(): void {
   // Board: 5 cards laid DIRECTLY in .board-center (a centered horizontal row) — exactly like
   // the training table, not the old wrapping .net-board grid.
   const center = [0, 1, 2, 3, 4].map((i) => board[i] != null
-    ? `<div class="board-card dealt deal-in ${isRed(board[i]!) ? "red" : ""}">${flipFaces(cardDisplay(board[i]!))}</div>`
+    ? `<div class="board-card dealt deal-in ${isRed(board[i]!) ? "red" : ""}">${flipFaces(cardFace(board[i]!))}</div>`
     : `<div class="board-card empty"></div>`).join("");
   const potHtml = `<div class="net-pot"><span class="np-amt"><span class="np-tag">POT</span> ${mpc((pub.pot as number) || 0)}</span><span class="np-street">${capWord(pub.street || "preflop")}</span></div>`;
 
@@ -4448,7 +4455,7 @@ function renderNetTable(): void {
     const myMax = seat.chips + seat.bet; // all-in total (stack behind + already-in bet)
     const minTo = cur > 0 ? Math.min(myMax, cur * 2) : Math.min(myMax, bb);
     const canSlide = myMax > minTo; // false = short stack, only legal aggression is all-in
-    const hero = (S.net.myHand ? `<div class="net-hero">${S.net.myHand.map((c) => `<span class="hero-card ${isRed(c) ? "red" : ""}">${cardDisplay(c)}</span>`).join("")}</div>` : "") + freeRead;
+    const hero = (S.net.myHand ? `<div class="net-hero">${S.net.myHand.map((c) => `<span class="hero-card ${isRed(c) ? "red" : ""}">${cardFace(c)}</span>`).join("")}</div>` : "") + freeRead;
     // MCE Strategy overlay — live GTO advice for assisted (Edge Pass) seats.
     const rec = S.net.myRec;
     const mceCard = rec ? `<div class="net-mce">
@@ -4486,7 +4493,7 @@ function renderNetTable(): void {
       </div>`;
     }
   } else {
-    controls = `${S.net.myHand ? `<div class="net-hero">${S.net.myHand.map((c) => `<span class="hero-card ${isRed(c) ? "red" : ""}">${cardDisplay(c)}</span>`).join("")}</div>` : ""}${freeRead}<div class="mp-turn">${esc(seats[pub.toAct]?.name || "…")}'s turn</div><div class="mp-thinking">waiting<span>.</span><span>.</span><span>.</span></div>`;
+    controls = `${S.net.myHand ? `<div class="net-hero">${S.net.myHand.map((c) => `<span class="hero-card ${isRed(c) ? "red" : ""}">${cardFace(c)}</span>`).join("")}</div>` : ""}${freeRead}<div class="mp-turn">${esc(seats[pub.toAct]?.name || "…")}'s turn</div><div class="mp-thinking">waiting<span>.</span><span>.</span><span>.</span></div>`;
   }
 
   // FOMO upsell: a non-entitled player at a table where others run MCE Strategy. The

@@ -350,6 +350,11 @@ body::before {
   box-shadow: 0 2px 8px rgba(0,0,0,.5);
 }
 .seat-avatar svg { display: block; opacity: .92; }
+/* Generated mascot avatars fill the whole circle (no inner padding); the seat ring stays.
+   The catch-all `.seat-avatar img` is defensive: ANY img in a seat avatar is clamped to the
+   circle, so a 1024px source can never blow out of its 28px box. */
+.seat-avatar.img { padding: 0; overflow: hidden; background: #161b24; }
+.seat-avatar img { width: 100%; height: 100%; max-width: 100%; max-height: 100%; object-fit: cover; display: block; border-radius: 50%; }
 .table-seat.folded .seat-avatar { opacity: .3; filter: grayscale(.7); }
 .table-seat.active .seat-avatar { box-shadow: 0 0 12px 1px currentColor; }
 
@@ -548,16 +553,27 @@ body::before {
   background: linear-gradient(170deg, #fff, #eef1f5); color: var(--card-black);
   /* 2.5D lift: a tight contact shadow + a soft cast shadow so the card floats off the felt. */
   box-shadow: 0 1px 2px rgba(0,0,0,.5), 0 6px 14px rgba(0,0,0,.4), inset 0 1px 0 #fff, inset 0 -2px 5px rgba(0,0,0,.06);
+  position: relative; overflow: hidden;
 }
+
+/* ── Playing-card face: small corner index (top-left) + glanceable centre rank+suit ── */
+.cf-ix {
+  position: absolute; top: 3px; left: 4px; z-index: 1;
+  display: flex; flex-direction: column; align-items: center; line-height: .78;
+  font-size: .44em; font-weight: 900; letter-spacing: -.02em;
+}
+.cf-ix small { font-size: .92em; margin-top: 1px; }
+.cf-mid { font-weight: 800; }
+.net-hero .hero-card { position: relative; overflow: hidden; }
+.net-hero .hero-card .cf-ix { top: 2px; left: 3px; }
 .hero-card.dealt .flip-front { box-shadow: 0 2px 3px rgba(0,0,0,.55), 0 10px 22px rgba(0,0,0,.45), inset 0 1px 0 #fff, inset 0 -2px 6px rgba(0,0,0,.07); }
 .board-card.red .flip-front, .hero-card.red .flip-front { color: var(--card-red); }
 /* Card back — only seen mid-flip on reveal. */
 .flip-back {
   transform: rotateY(180deg);
-  background:
-    repeating-linear-gradient(45deg, rgba(124,92,255,.30) 0 7px, rgba(124,92,255,.13) 7px 14px),
-    linear-gradient(160deg, #2c2456, #15122e);
-  border: 1px solid rgba(124,92,255,.55);
+  /* Branded MCE card-back art (Higgsfield) — seen mid-flip on every reveal. */
+  background: #0c3a2a url(/cards/back.webp) center/cover no-repeat;
+  border: 1px solid rgba(199,148,51,.5);
 }
 /* Reveal flip — one-shot via .deal-in (only freshly-dealt cards), starts on the
    back and rotates to the front. Re-renders during play don't replay it. */
@@ -1231,7 +1247,7 @@ body::before {
   box-shadow: 0 14px 30px rgba(0,0,0,.6); border: 1px solid rgba(0,0,0,.12); }
 .mc-hc i { font-style: normal; margin-left: 1px; }
 .mc-hc.red { color: var(--card-red); }
-.mc-hc.back { background: repeating-linear-gradient(45deg, #2c2456 0 7px, #15122e 7px 14px); border: 1px solid rgba(124,92,255,.5); }
+.mc-hc.back { background: #0c3a2a url(/cards/back.webp) center/cover no-repeat; border: 1px solid rgba(199,148,51,.55); padding: 0; }
 .mc-fan .mc-hc:nth-child(1) { transform: rotate(0deg) translateY(6px); z-index: 1; }
 .mc-fan .mc-hc:nth-child(2) { transform: rotate(-15deg) translate(8px, -2px); z-index: 2; }
 .mc-fan .mc-hc:nth-child(3) { transform: rotate(15deg) translate(-8px, -2px); z-index: 3; box-shadow: 0 16px 34px rgba(0,0,0,.6), var(--glow-gold); }
