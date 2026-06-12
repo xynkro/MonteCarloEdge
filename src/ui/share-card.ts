@@ -73,7 +73,9 @@ function drawWinCard(ctx: CanvasRenderingContext2D, c: WinCard): void {
   // chip label / tag
   ctx.fillStyle = "#3fd6c4";
   ctx.font = "700 42px system-ui, sans-serif";
-  ctx.fillText(c.tag ? c.tag : `${c.sym} chips`, W / 2, 654);
+  // Canvas can't render the inline-SVG currency glyph (c.sym is now HTML on the web side),
+  // so draw a plain word label here instead of the symbol.
+  ctx.fillText(c.tag ? c.tag : "chips won", W / 2, 654);
   // hero cards
   if (c.cards && c.cards.length) drawHand(ctx, c.cards, W / 2, 690);
   // footer

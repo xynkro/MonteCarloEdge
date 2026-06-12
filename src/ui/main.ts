@@ -16,7 +16,7 @@ import morphdom from "morphdom";
 // gap). aggression scales bluff/barrel/value-thinness/3-bet width; looseness
 // scales open/call/defense width.
 const HERO_STYLES: Record<string, { label: string; style: HeroStyle; blurb: string }> = {
-  gto: { label: "Balanced (equilibrium)", style: { aggression: 1.0, looseness: 1.0 }, blurb: "Equilibrium baseline — hard to exploit." },
+  gto: { label: "Balanced", style: { aggression: 1.0, looseness: 1.0 }, blurb: "Equilibrium baseline — hard to exploit." },
   tag: { label: "Tight-Aggressive", style: { aggression: 1.15, looseness: 0.82 }, blurb: "Fewer hands, bet/raise them hard." },
   lag: { label: "Loose-Aggressive", style: { aggression: 1.35, looseness: 1.28 }, blurb: "Wide, lots of pressure & bluffs." },
   nit: { label: "Tight / Cautious", style: { aggression: 0.75, looseness: 0.7 }, blurb: "Premiums only, minimal bluffing." },
@@ -107,7 +107,7 @@ interface AppState {
   stackBB: number;
   bbValue: number;
   sbValue: number;
-  currency: "usd" | "chips"; // table money display ($ for train/live, 🪙 for Create Room)
+  currency: "usd" | "chips"; // table money display ($ for train/live, <i class=ic-coin></i> for Create Room)
   sbManual: boolean; // true once SB is edited directly → stops auto-tracking BB/2
   heroSeat: number;
   dealerSeat: number;
@@ -399,7 +399,7 @@ function roundBet(bb: number): number {
 
 function chips(bb: number): string {
   const v = bb * S.bbValue;
-  if (S.currency === "chips") return `🪙 ${Math.round(v).toLocaleString()}`;
+  if (S.currency === "chips") return `<i class=ic-coin></i> ${Math.round(v).toLocaleString()}`;
   if (v === 0) return "$0";
   return v % 1 === 0 ? `$${v}` : `$${v.toFixed(2)}`;
 }
@@ -3125,6 +3125,30 @@ async function renderStats(): Promise<void> {
     `<div class="chart-bar" style="height:${Math.abs(v) / maxAbs * 40}px;background:${v >= 0 ? "var(--green)" : "var(--red)"}"></div>`
   ).join("");
 
+  // All-time cumulative-P&L sparkline. allStats.pnlHistory is already the running total
+  // across every recorded hand (training + live), so it fills the page even when THIS
+  // session has 0 hands — which is exactly when the page looked empty before.
+  const cumSeries = allStats.pnlHistory;
+  const sparkSvg = ((): string => {
+    if (cumSeries.length < 2) return "";
+    const W = 320, H = 64, pad = 4;
+    const lo = Math.min(0, ...cumSeries), hi = Math.max(0, ...cumSeries);
+    const span = Math.max(1, hi - lo);
+    const x = (i: number) => pad + (i / (cumSeries.length - 1)) * (W - pad * 2);
+    const y = (v: number) => pad + (1 - (v - lo) / span) * (H - pad * 2);
+    const pts = cumSeries.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ");
+    const zeroY = y(0).toFixed(1);
+    const end = cumSeries[cumSeries.length - 1]!;
+    const stroke = end >= 0 ? "var(--green)" : "var(--red)";
+    const area = `${pad},${y(0).toFixed(1)} ${pts} ${x(cumSeries.length - 1).toFixed(1)},${y(0).toFixed(1)}`;
+    return `<svg class="spark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="cumulative P&L">
+      <line x1="0" y1="${zeroY}" x2="${W}" y2="${zeroY}" stroke="rgba(255,255,255,.12)" stroke-width="1" stroke-dasharray="3 3"/>
+      <polygon points="${area}" fill="${stroke}" opacity="0.12"/>
+      <polyline points="${pts}" fill="none" stroke="${stroke}" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"/>
+      <circle cx="${x(cumSeries.length - 1).toFixed(1)}" cy="${y(end).toFixed(1)}" r="3.2" fill="${stroke}"/>
+    </svg>`;
+  })();
+
   app.innerHTML = `
     <div class="setup">
       <h1>Session Stats</h1>
@@ -3182,10 +3206,15 @@ async function renderStats(): Promise<void> {
         <div class="chart-row">${chartBars}</div>
       </div>` : ""}
 
-      ${allHands.length > hands.length ? `
+      ${sparkSvg ? `
+      <div class="stats-card">
+        <div class="stat-label" style="margin-bottom:8px">All-Time Trend · ${allStats.hands} hands</div>
+        ${sparkSvg}
+        <div class="spark-foot"><span>${allStats.hands} hands tracked</span><span style="color:${cumSeries[cumSeries.length-1]! >= 0 ? "var(--green)" : "var(--red)"}">${fmt(cumSeries[cumSeries.length-1]!)} all-time</span></div>
+      </div>` : (allHands.length > hands.length ? `
       <div class="stats-card">
         <div class="stat-label">All Time: ${allStats.hands} hands, ${fmt(allStats.totalPnl)}</div>
-      </div>` : ""}
+      </div>` : "")}
 
       <button class="start-btn" id="leak-report" style="background:linear-gradient(135deg,#7c3aed,#5b21b6);color:#fff">🔍 Leak Report</button>
       <button class="start-btn" id="back-setup" style="margin-top:8px">Back to Table</button>
@@ -3382,7 +3411,7 @@ function renderMpSetup(): void {
   }
   const tier = ROOM_TIERS[su.tier]!;
   const premium = _roomCurrency === "premium";
-  const sym = premium ? "💎" : "🪙";
+  const sym = premium ? "<i class=ic-gem></i>" : "<i class=ic-coin></i>";
   const bal = premium ? (S.wallet.premium ?? 0) : (S.wallet.play ?? 0);
   const minBuy = 20 * su.bb;
   const maxBuy = Math.max(minBuy, Math.min(tier.max, bal));
@@ -3394,7 +3423,7 @@ function renderMpSetup(): void {
     <div class="setup">
       <div class="doc-top"><button class="hdr-btn" id="mp-back">← Back</button><h1>🌐 Play Online</h1><span style="width:54px"></span></div>
 
-      <div class="room-bal"><span>Balance <strong>🪙 ${fmtBal(S.wallet.play)}</strong> · <strong>💎 ${fmtBal(S.wallet.premium)}</strong></span><button class="hdr-btn" id="room-buychips">＋ Buy chips</button></div>
+      <div class="room-bal"><span>Balance <strong><i class=ic-coin></i> ${fmtBal(S.wallet.play)}</strong> · <strong><i class=ic-gem></i> ${fmtBal(S.wallet.premium)}</strong></span><button class="hdr-btn" id="room-buychips">＋ Buy chips</button></div>
 
       <div class="join-card">
         <label>Join a room</label>
@@ -3409,20 +3438,20 @@ function renderMpSetup(): void {
           ? `<span class="hint">${S.net.publicRoomsBusy ? "Loading open rooms…" : "Tap ↻ to find open public rooms."}</span>`
           : (S.net.publicRooms.length === 0
             ? `<span class="hint">No open public rooms right now — be the first to create one.</span>`
-            : `<div class="pr-list">${S.net.publicRooms.map((r) => `<button class="pr-row" data-code="${r.code}"><span class="pr-code">${r.code}</span><span class="pr-meta">${r.currency === "premium" ? "💎" : "🪙"} ${r.sb}/${r.bb}</span><span class="pr-seats">${r.occupied}/${r.max} seats</span></button>`).join("")}</div>`)}
+            : `<div class="pr-list">${S.net.publicRooms.map((r) => `<button class="pr-row" data-code="${r.code}"><span class="pr-code">${r.code}</span><span class="pr-meta">${r.currency === "premium" ? "<i class=ic-gem></i>" : "<i class=ic-coin></i>"} ${r.sb}/${r.bb}</span><span class="pr-seats">${r.occupied}/${r.max} seats</span></button>`).join("")}</div>`)}
       </div>
 
       <div class="join-divider"><span>or create your own</span></div>
 
       <div class="cur-seg" id="room-cur">
-        <button class="${!premium ? "sel" : ""}" data-cur="play">🪙 Chips</button>
-        <button class="${premium ? "sel" : ""}" data-cur="premium">💎 Premium Chips</button>
+        <button class="${!premium ? "sel" : ""}" data-cur="play"><i class=ic-coin></i> Chips</button>
+        <button class="${premium ? "sel" : ""}" data-cur="premium"><i class=ic-gem></i> Premium Chips</button>
       </div>
 
       <div class="${noPrem ? "room-greyed" : ""}">
-        ${noPrem ? `<div class="room-broke">You have no 💎 Premium Chips. Win them at premium tables, or buy them in the Store.</div><button class="start-btn" id="room-buyprem" style="background:var(--gold-foil);color:#2a1c05;margin:8px 0">Get Premium Chips</button>` : ""}
+        ${noPrem ? `<div class="room-broke">You have no <i class=ic-gem></i> Premium Chips. Win them at premium tables, or buy them in the Store.</div><button class="start-btn" id="room-buyprem" style="background:var(--gold-foil);color:#2a1c05;margin:8px 0">Get Premium Chips</button>` : ""}
 
-        <div class="field"><label>Stakes ${premium ? "💎" : "🪙"}</label>
+        <div class="field"><label>Stakes ${premium ? "<i class=ic-gem></i>" : "<i class=ic-coin></i>"}</label>
           <div class="seg room-stakes" id="room-tier">${ROOM_TIERS.map((t, i) => `<button class="seg-btn ${su.tier === i ? "sel" : ""}" data-tier="${i}" ${noPrem ? "disabled" : ""}><span class="rs-name">${t.name}</span></button>`).join("")}</div>
         </div>
 
@@ -3451,7 +3480,7 @@ function renderMpSetup(): void {
           <span class="hint" style="display:block;margin-top:4px">How fast bots act. You can change this mid-room from the ⚙ cog too.</span>
         </div>
 
-        ${canAfford && !noPrem ? `<button class="start-btn" id="net-create" style="background:linear-gradient(135deg,#4285F4,#1a73e8);color:#fff">${S.net.busy ? "…" : `🌐 Create ${premium ? "💎 Premium" : "🪙 Play"} Room`}</button>` : ""}
+        ${canAfford && !noPrem ? `<button class="start-btn" id="net-create" style="background:linear-gradient(135deg,#4285F4,#1a73e8);color:#fff">${S.net.busy ? "…" : `🌐 Create ${premium ? "<i class=ic-gem></i> Premium" : "<i class=ic-coin></i> Play"} Room`}</button>` : ""}
       </div>
 
       <div class="field" style="margin-top:14px"><label>Who's online${online.length ? ` · ${online.length}` : ""}</label>
@@ -3512,7 +3541,7 @@ function renderMpTable(): void {
     const active = ti === ps.toAct;
     return `<div class="mp-seat ${active ? "active" : ""} ${s.folded ? "folded" : ""}">
       <span class="mp-seat-name">${s.assisted ? "🧠" : "🙈"} ${s.name}${ti === ps.dealerSeat ? " Ⓓ" : ""}</span>
-      <span class="mp-seat-chips">🪙 ${mpc(s.chips)}${s.bet > 0 ? ` · bet ${mpc(s.bet)}` : ""}${s.folded ? " · folded" : ""}</span>
+      <span class="mp-seat-chips"><i class=ic-coin></i> ${mpc(s.chips)}${s.bet > 0 ? ` · bet ${mpc(s.bet)}` : ""}${s.folded ? " · folded" : ""}</span>
     </div>`;
   }).join("");
 
@@ -3529,7 +3558,7 @@ function renderMpTable(): void {
           <div class="wr-trophy">🏆</div>
           <div class="wr-title">YOU WIN THE TABLE</div>
           <div class="wr-sub">Last player standing</div>
-          <div class="wr-stack"><span class="wr-final">🪙 ${mpc(final)}</span></div>
+          <div class="wr-stack"><span class="wr-final"><i class=ic-coin></i> ${mpc(final)}</span></div>
           <div class="wr-actions">
             <button class="hdr-btn" id="mp-rematch">↻ Rematch (reset stacks)</button>
             <button class="hdr-btn" id="mp-home">🏠 Home</button>
@@ -3576,8 +3605,8 @@ function renderMpTable(): void {
 
   app.innerHTML = `
     <div class="game">
-      <div class="game-topbar"><span>${t.name} · 🪙 play chips (no cash value)</span><button class="hdr-btn" id="mp-leave">Leave</button></div>
-      <div class="mp-felt"><div class="mp-board">${boardHtml}</div><div class="mp-pot">POT 🪙 ${mpc(ps.pot)} · ${capWord(ps.street)}</div></div>
+      <div class="game-topbar"><span>${t.name} · <i class=ic-coin></i> play chips (no cash value)</span><button class="hdr-btn" id="mp-leave">Leave</button></div>
+      <div class="mp-felt"><div class="mp-board">${boardHtml}</div><div class="mp-pot">POT <i class=ic-coin></i> ${mpc(ps.pot)} · ${capWord(ps.street)}</div></div>
       <div class="mp-seats">${seatsHtml}</div>
       <div class="controls"><div class="controls-body">${panel}${sbHtml}</div></div>
     </div>`;
@@ -4098,7 +4127,7 @@ function renderNetTable(): void {
   const seats = (pub.seats || []) as Array<{ uid: string | null; ai: string | null; name: string; chips: number; bet: number; folded: boolean; inHand?: boolean }>;
   const status = pub.status as string;
   const currency = (pub.currency as string) === "premium" ? "premium" : "play";
-  const sym = currency === "premium" ? "💎" : "🪙";
+  const sym = currency === "premium" ? "<i class=ic-gem></i>" : "<i class=ic-coin></i>";
   const isOwner = pub.ownerUid === uid;
   const lobby = status === "waiting";
   const revealed = (pub.revealedHoles || {}) as Record<string, [number, number]>;
@@ -4265,7 +4294,7 @@ function renderNetTable(): void {
             ${specPills}
           </div>
           ${canAddAi ? `<div class="lobby-addai"><div class="la-label">Add a practice bot</div><div class="la-btns">${[["Station", "🐟 Fish"], ["TAG", "🎯 Reg"], ["LAG", "🔥 LAG"], ["rand", "🎲 Random"]].map(([a, l]) => `<button class="hdr-btn add-ai" data-arch="${a}"${S.net.busy ? " disabled" : ""}>${l}</button>`).join("")}</div></div>`
-        : currency === "premium" ? `<div class="lobby-note">💎 Premium room — humans only. Share the code to fill seats.</div>` : ""}
+        : currency === "premium" ? `<div class="lobby-note"><i class=ic-gem></i> Premium room — humans only. Share the code to fill seats.</div>` : ""}
           ${assistedOn ? `<div class="lobby-mce">💡 <strong>MCE Strategy is ON</strong> — you'll get live GTO advice on your turn.</div>` : ""}
           ${isSpectator
             ? (openSeats > 0
@@ -4501,9 +4530,9 @@ function renderNetTable(): void {
   const _sl = document.getElementById("nb-slider") as HTMLInputElement | null;
   if (_sl) onEl(_sl, "input", () => { // live-update labels without a full re-render (keeps the drag smooth)
     _netBetAmt = +_sl.value; const cur = (pub.currentBet as number) || 0; const bb = ((pub.blinds as { bb?: number })?.bb) || 2;
-    const a = document.querySelector(".bet-amt"); if (a) a.textContent = `${sym} ${mpc(_netBetAmt)}`;
+    const a = document.querySelector(".bet-amt"); if (a) a.innerHTML = `${sym} ${mpc(_netBetAmt)}`; // sym is inline-SVG HTML → innerHTML
     const b = document.querySelector(".bet-amt-bb"); if (b) b.textContent = `${(_netBetAmt / bb).toFixed(1)} bb`;
-    const c = document.getElementById("nb-confirm"); if (c) c.textContent = `${cur > 0 ? "Raise to" : "Bet"} ${sym} ${mpc(_netBetAmt)}`;
+    const c = document.getElementById("nb-confirm"); if (c) c.innerHTML = `${cur > 0 ? "Raise to" : "Bet"} ${sym} ${mpc(_netBetAmt)}`;
   });
   app.querySelectorAll(".bp").forEach((b) => onEl(b, "click", () => {
     const k = (b as HTMLElement).dataset.bp; const seat = seats[pub.toAct]!; const cur = (pub.currentBet as number) || 0;
@@ -4711,7 +4740,7 @@ function renderInbox(): void {
       ${msgs.length === 0 ? `<div class="hint" style="text-align:center;margin-top:14px">No messages yet.<br/>Tap a player above or ＋ New to message / gift.</div>` : msgs.map((m) => {
         const icon = m.kind === "gift" ? "🎁" : m.kind === "admin" ? "🛡" : "💬";
         const body = (m.kind === "gift" || m.kind === "admin")
-          ? `sent you ${m.currency === "premium" ? "💎" : "🪙"} <strong>${(m.chips || 0).toLocaleString()}</strong>${m.text ? ` — “${esc(m.text)}”` : ""}`
+          ? `sent you ${m.currency === "premium" ? "<i class=ic-gem></i>" : "<i class=ic-coin></i>"} <strong>${(m.chips || 0).toLocaleString()}</strong>${m.text ? ` — “${esc(m.text)}”` : ""}`
           : esc(m.text || "");
         return `<div class="inbox-row ${m.read ? "" : "unread"}">
           <span class="ib-ic">${icon}</span>
@@ -4743,10 +4772,10 @@ function renderCompose(): void {
         ? `<div class="co-to">To <strong>${esc(c.toName)}</strong> · <button class="mc-foot-link" id="co-clear">change</button></div>`
         : `<div class="field"><label>To — players online now</label>${online.length ? `<div class="co-online">${online.map((p) => `<button class="hdr-btn co-pick" data-uid="${esc(p.uid)}" data-name="${esc(p.name)}">🙂 ${esc(p.name)}</button>`).join("")}</div>` : `<div class="hint">No one else is online right now. Reply from your inbox, or have a friend sign in.</div>`}</div>`}
       <div class="field"><label>Message</label><textarea class="si-input" id="co-text" rows="3" maxlength="500" placeholder="Say something…">${esc(c.text)}</textarea></div>
-      <div class="field"><label>Gift play chips (optional) — you have 🪙 ${fmtBal(S.wallet.play)}</label>
+      <div class="field"><label>Gift play chips (optional) — you have <i class=ic-coin></i> ${fmtBal(S.wallet.play)}</label>
         <input class="si-input" id="co-gift" type="number" min="0" step="50" value="${c.giftAmt || ""}" placeholder="0"/></div>
       ${c.err ? `<div class="room-broke">${esc(c.err)}</div>` : ""}${c.sent ? `<div class="se-active">${esc(c.sent)}</div>` : ""}
-      <button class="si-btn primary" id="co-send" ${!c.toUid || c.busy ? "disabled style=opacity:.5" : ""}>${c.busy ? "…" : c.giftAmt > 0 ? `Send + gift 🪙 ${c.giftAmt.toLocaleString()}` : "Send"}</button>
+      <button class="si-btn primary" id="co-send" ${!c.toUid || c.busy ? "disabled style=opacity:.5" : ""}>${c.busy ? "…" : c.giftAmt > 0 ? `Send + gift <i class=ic-coin></i> ${c.giftAmt.toLocaleString()}` : "Send"}</button>
     </div>`;
   onId("co-back", "click", () => { S.screen = "inbox"; render(); });
   onId("co-clear", "click", () => { c.toUid = ""; c.toName = ""; render(); });
@@ -4792,11 +4821,11 @@ function renderAdmin(): void {
             <div class="admin-user">
               <div class="au-main">
                 <div class="au-name">${esc(u.name)}${u.edgePass ? " 🧠" : ""}${u.uid === myUid ? " · you" : ""}</div>
-                <div class="au-bal">🪙 ${u.play.toLocaleString()} · 💎 ${u.premium.toLocaleString()}</div>
+                <div class="au-bal"><i class=ic-coin></i> ${u.play.toLocaleString()} · <i class=ic-gem></i> ${u.premium.toLocaleString()}</div>
               </div>
               <div class="au-actions">
-                <button class="hdr-btn au-act" data-u="${u.uid}" data-cur="play" data-amt="500">+500🪙</button>
-                <button class="hdr-btn au-act" data-u="${u.uid}" data-cur="premium" data-amt="100">+100💎</button>
+                <button class="hdr-btn au-act" data-u="${u.uid}" data-cur="play" data-amt="500">+500<i class=ic-coin></i></button>
+                <button class="hdr-btn au-act" data-u="${u.uid}" data-cur="premium" data-amt="100">+100<i class=ic-gem></i></button>
                 <button class="hdr-btn au-edge ${u.edgePass ? "on" : ""}" data-u="${u.uid}" data-on="${u.edgePass ? "0" : "1"}">${u.edgePass ? "Edge ✓" : "Edge"}</button>
                 ${u.uid === myUid ? "" : `<button class="hdr-btn danger au-del" data-u="${u.uid}" data-n="${esc(u.name)}">🗑</button>`}
               </div>
@@ -4805,14 +4834,14 @@ function renderAdmin(): void {
 
       <div class="set-group"><div class="set-head">Custom grant (by UID)</div>
         <div class="field"><label>Recipient UID</label><input class="si-input" id="ad-uid" placeholder="paste a UID from above" value="${esc(c.toUid)}"/></div>
-        <div class="field"><label>Currency</label><select class="mp-type" id="ad-cur"><option value="play">🪙 Play</option><option value="premium">💎 Premium</option></select></div>
+        <div class="field"><label>Currency</label><select class="mp-type" id="ad-cur"><option value="play"><i class=ic-coin></i> Play</option><option value="premium"><i class=ic-gem></i> Premium</option></select></div>
         <div class="field"><label>Amount (negative = deduct)</label><input class="si-input" id="ad-amt" type="number" value="${c.giftAmt || ""}"/></div>
         ${c.err ? `<div class="room-broke">${esc(c.err)}</div>` : ""}${c.sent ? `<div class="se-active">${esc(c.sent)}</div>` : ""}
         <button class="si-btn primary" id="ad-give" ${c.busy ? "disabled" : ""}>${c.busy ? "…" : "Grant"}</button>
       </div>
 
       <div class="set-group"><div class="set-head">Ledger — last ${S.ledger.length}</div>
-        ${S.ledger.length === 0 ? `<div class="hint">No transfers yet.</div>` : S.ledger.map((r) => `<div class="ledger-row"><span>${r.type === "admin" ? "🛡" : r.type === "edgepass" ? "🧠" : r.type === "buy" ? "🛍" : "🎁"} ${r.currency === "premium" ? "💎" : r.currency === "play" ? "🪙" : ""} ${r.amount != null ? Number(r.amount).toLocaleString() : (r.on ? "on" : "off")}</span><span class="hint">${esc(r.fromName || r.from)} → ${esc(r.toName || r.to)}</span></div>`).join("")}
+        ${S.ledger.length === 0 ? `<div class="hint">No transfers yet.</div>` : S.ledger.map((r) => `<div class="ledger-row"><span>${r.type === "admin" ? "🛡" : r.type === "edgepass" ? "🧠" : r.type === "buy" ? "🛍" : "🎁"} ${r.currency === "premium" ? "<i class=ic-gem></i>" : r.currency === "play" ? "<i class=ic-coin></i>" : ""} ${r.amount != null ? Number(r.amount).toLocaleString() : (r.on ? "on" : "off")}</span><span class="hint">${esc(r.fromName || r.from)} → ${esc(r.toName || r.to)}</span></div>`).join("")}
       </div>
 
       <div class="set-group"><div class="set-head">View</div>
@@ -4888,7 +4917,7 @@ function showWeeklyClaim(): void {
   wrap.innerHTML = `
     <div class="weekly-card">
       <div class="wk-ring" aria-hidden="true"></div>
-      <div class="wk-coin">🪙</div>
+      <div class="wk-coin"><i class=ic-coin></i></div>
       <h2>Week ${wkNum}</h2>
       <p class="wk-sub">${S.weeklyStreak > 0 ? `🔥 ${S.weeklyStreak}-week streak` : "Your weekly free chips"}</p>
       <div class="wk-amt">+<span id="wk-num">${amt.toLocaleString()}</span></div>
@@ -4928,7 +4957,7 @@ function showWeeklyClaim(): void {
 function coinBurst(card: HTMLElement, n: number): void {
   for (let i = 0; i < n; i++) {
     const c = document.createElement("span");
-    c.className = "wk-fly"; c.textContent = "🪙";
+    c.className = "wk-fly"; c.textContent = "<i class=ic-coin></i>";
     const ang = (i / n) * 2 * Math.PI + (i * 0.7);
     const dist = 64 + (i % 5) * 18;
     c.style.setProperty("--dx", `${(Math.cos(ang) * dist).toFixed(0)}px`);
@@ -4944,7 +4973,7 @@ function coinBurst(card: HTMLElement, n: number): void {
 const PRESET_AVATARS = [
   "🦈", "🐺", "🦊", "🐉", "🦁", "🐯", "🐻", "🐼", "🦏", "🐗", "🦌", "🦅", "🦉", "🐊", "🐢", "🐙",
   "🦭", "🐬", "🦓", "🦄", "🐸", "🐧", "🐳", "🦋", "🦜", "🦚", "🦂", "🐲", "🦛", "🐅",
-  "🃏", "👑", "🎩", "💎", "🔥", "⚡", "🌟", "🍀", "🎰", "🎲",
+  "🃏", "👑", "🎩", "<i class=ic-gem></i>", "🔥", "⚡", "🌟", "🍀", "🎰", "🎲",
   "🤠", "🥷", "🤖", "👾", "💀", "🤡", "😎", "🧠", "👽", "🦾"];
 function hashHue(s: string): number { let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0; return h % 360; }
 function avatarChip(av: string, seed: string, size = 40): string {
@@ -5042,11 +5071,11 @@ function renderStore(): void {
   app.innerHTML = `
     <div class="setup doc">
       <div class="doc-top"><button class="hdr-btn" id="store-back">← Back</button><h1>🛍 Store</h1><span style="width:54px"></span></div>
-      <div class="store-bal">Balance <strong>🪙 ${fmtBal(playBal)}</strong> · <strong>💎 ${fmtBal(premBal)}</strong></div>
+      <div class="store-bal">Balance <strong><i class=ic-coin></i> ${fmtBal(playBal)}</strong> · <strong><i class=ic-gem></i> ${fmtBal(premBal)}</strong></div>
 
       <div class="set-group"><div class="set-head">🎁 Weekly free chips</div>
         ${!loggedIn ? `<div class="set-note">Sign in to claim free play chips every week — the streak grows your reward (500 › 600 › 750 › 1,000).</div>`
-          : claimReady ? `<button class="start-btn" id="store-claim" style="background:linear-gradient(135deg,#f7cf72,#b8860b);color:#2a1c05">🎁 Claim 🪙 ${nextWeeklyAmt().toLocaleString()} · week ${S.weeklyStreak + 1}</button>`
+          : claimReady ? `<button class="start-btn" id="store-claim" style="background:linear-gradient(135deg,#f7cf72,#b8860b);color:#2a1c05">🎁 Claim <i class=ic-coin></i> ${nextWeeklyAmt().toLocaleString()} · week ${S.weeklyStreak + 1}</button>`
           : `<div class="set-note">Next free chips in <strong>${daysLeft} day${daysLeft === 1 ? "" : "s"}</strong> · 🔥 ${S.weeklyStreak}-week streak.</div>`}
       </div>
 
@@ -5057,21 +5086,21 @@ function renderStore(): void {
           <span class="hint">7-day free trial · cancel anytime in one tap.</span>`}
       </div>
 
-      <div class="set-group"><div class="set-head">🪙 Play chips</div>
+      <div class="set-group"><div class="set-head"><i class=ic-coin></i> Play chips</div>
         <div class="set-note" style="margin-bottom:9px">Practice currency · refills free every Monday (+streak). AI rooms + learning tables. Buy-in capped at 100bb, so chips never buy an edge.</div>
-        <div class="pack-grid">${PLAY_PACKS.map((pk) => pack(pk, "🪙")).join("")}</div>
+        <div class="pack-grid">${PLAY_PACKS.map((pk) => pack(pk, "<i class=ic-coin></i>")).join("")}</div>
       </div>
 
-      <div class="set-group"><div class="set-head">💎 Premium chips</div>
+      <div class="set-group"><div class="set-head"><i class=ic-gem></i> Premium chips</div>
         <div class="set-note" style="margin-bottom:9px">Competitive currency · won and lost against real players · buys Collectibles. Never given free (except admin events).</div>
-        <div class="pack-grid">${PREMIUM_PACKS.map((pk) => pack(pk, "💎")).join("")}</div>
+        <div class="pack-grid">${PREMIUM_PACKS.map((pk) => pack(pk, "<i class=ic-gem></i>")).join("")}</div>
       </div>
 
       <div class="set-group"><div class="set-head">Collectibles</div>
         <div class="set-note" style="margin-bottom:9px">Cosmetic only — card-backs, felts, frames. <strong>Account-bound: cannot be sold, traded, or transferred for value.</strong> The flashiest ones unlock by beating the trainer.</div>
         <div class="store-grid">${COSMETICS.map((c) => {
           const own = owned.includes(c.id);
-          return `<div class="store-item ${own ? "owned" : ""}"><div class="si-emoji">${c.emoji}</div><div class="si-name">${c.name}</div><div class="si-desc">${c.desc}</div>${own ? `<div class="si-own">Owned ✓</div>` : (loggedIn ? `<button class="hdr-btn buy-col" data-col="${c.id}" ${(S.wallet.premium ?? 0) < c.chips ? "disabled" : ""}>💎 ${c.chips.toLocaleString()}</button>` : `<button class="hdr-btn" disabled>💎 ${c.chips.toLocaleString()}</button>`)}</div>`;
+          return `<div class="store-item ${own ? "owned" : ""}"><div class="si-emoji">${c.emoji}</div><div class="si-name">${c.name}</div><div class="si-desc">${c.desc}</div>${own ? `<div class="si-own">Owned ✓</div>` : (loggedIn ? `<button class="hdr-btn buy-col" data-col="${c.id}" ${(S.wallet.premium ?? 0) < c.chips ? "disabled" : ""}><i class=ic-gem></i> ${c.chips.toLocaleString()}</button>` : `<button class="hdr-btn" disabled><i class=ic-gem></i> ${c.chips.toLocaleString()}</button>`)}</div>`;
         }).join("")}</div>
       </div>
 
@@ -5127,7 +5156,7 @@ function renderHome(): void {
       <header class="mc-topbar">
         <button class="mc-profile" id="home-profile">
           <span class="mc-ring">${avatarChip(p.avatar, loggedIn ? p.nickname : "?", 36)}</span>
-          ${loggedIn ? `<span class="mc-pmeta2"><span class="mc-pname">${esc(S.mp.auth!.name)}</span><span class="mc-bal2">🪙 ${fmtBal(S.wallet.play)} · 💎 ${fmtBal(S.wallet.premium)}</span></span>` : `<span class="mc-pchips-big locked">🔒 Sign in</span>`}
+          ${loggedIn ? `<span class="mc-pmeta2"><span class="mc-pname">${esc(S.mp.auth!.name)}</span><span class="mc-bal2"><i class=ic-coin></i> ${fmtBal(S.wallet.play)} · <i class=ic-gem></i> ${fmtBal(S.wallet.premium)}</span></span>` : `<span class="mc-pchips-big locked">🔒 Sign in</span>`}
         </button>
         <div class="mc-top-right">
           ${loggedIn ? `<button class="mc-gear" id="home-inbox" aria-label="Inbox">✉️${unreadCount() ? `<span class="ib-badge">${unreadCount()}</span>` : ""}</button>` : ""}
@@ -5228,7 +5257,7 @@ function renderHistory(): void {
               <button class="hh-head" data-toggle="${esc(h.id)}">
                 <span class="hh-cards-line">${myCards}</span>
                 <span class="hh-pos">${esc(h.position)}</span>
-                <span class="hh-stakes">${h.currency === "premium" ? "💎" : "🪙"} ${h.blinds.sb}/${h.blinds.bb}</span>
+                <span class="hh-stakes">${h.currency === "premium" ? "<i class=ic-gem></i>" : "<i class=ic-coin></i>"} ${h.blinds.sb}/${h.blinds.bb}</span>
                 <span class="hh-net ${h.myNet > 0 ? "g-ok" : h.myNet < 0 ? "g-bad" : ""}">${h.myNet > 0 ? "+" : ""}${mpc(h.myNet)}</span>
                 <span class="hh-ago">${ago}</span>
               </button>
@@ -5272,9 +5301,9 @@ function renderProfile(): void {
         </div>
       </div>
       <div class="mp-scoreboard">
-        <div class="mp-score-row"><span>🪙 Play chips</span><span class="g-ok">${fmtBal(loggedIn ? S.wallet.play : p.chips)}</span></div>
-        ${loggedIn ? `<div class="mp-score-row"><span>💎 Premium chips</span><span class="g-ok">${fmtBal(S.wallet.premium)}</span></div>` : ""}
-        <span class="hint" style="display:block;margin-top:6px">${loggedIn ? "Free play chips every week — claim on Home / in the Store. Win 💎 at premium tables." : "Sign in (Play Online) to save your chips to your account + play online."}</span>
+        <div class="mp-score-row"><span><i class=ic-coin></i> Play chips</span><span class="g-ok">${fmtBal(loggedIn ? S.wallet.play : p.chips)}</span></div>
+        ${loggedIn ? `<div class="mp-score-row"><span><i class=ic-gem></i> Premium chips</span><span class="g-ok">${fmtBal(S.wallet.premium)}</span></div>` : ""}
+        <span class="hint" style="display:block;margin-top:6px">${loggedIn ? "Free play chips every week — claim on Home / in the Store. Win <i class=ic-gem></i> at premium tables." : "Sign in (Play Online) to save your chips to your account + play online."}</span>
       </div>
       ${loggedIn ? `<button class="hdr-btn" id="pf-store" style="width:100%;padding:12px;margin-top:10px">🛍 Store · buy chips</button>` : ""}
       <button class="hdr-btn" id="pf-history" style="width:100%;padding:12px;margin-top:6px">📜 Hand history</button>
@@ -5523,7 +5552,7 @@ if (FB.DEV_EMU) {
     },
     go(screen: string) { S.screen = screen; render(); },
     previewCard(amount = 320) { // dev-only: render the share-win card to screenshot it
-      const cv = buildWinCanvas({ amount, sym: "🪙", cards: [{ t: "A♥", red: true }, { t: "K♥", red: true }], tag: "Top set" });
+      const cv = buildWinCanvas({ amount, sym: "<i class=ic-coin></i>", cards: [{ t: "A♥", red: true }, { t: "K♥", red: true }], tag: "Top set" });
       cv.id = "_cardprev";
       cv.style.cssText = "position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);width:380px;height:380px;z-index:99999;border-radius:18px;box-shadow:0 0 0 9999px rgba(0,0,0,.7)";
       document.getElementById("_cardprev")?.remove();
