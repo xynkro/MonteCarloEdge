@@ -388,12 +388,11 @@ function flipFaces(content: string): string {
 function cardDisplay(c: Card): string {
   return RANKS[rankOf(c)] + SUITS[suitOf(c)];
 }
-// Rich playing-card face for the BIG cards (board + hero): a glanceable centre rank+suit
-// PLUS a small top-left corner index, so it reads like a real card. (cardDisplay stays plain
-// text for the share-card canvas + tiny inline pips.) Container must be position:relative.
+// Card face for the big cards (board + hero). Reverted to the clean single centred rank+suit
+// glyph — the earlier corner-index version read as a "pill" rather than a card. (cardDisplay
+// is identical but kept separate for the share-card canvas / plain-text uses.)
 function cardFace(c: Card): string {
-  const r = RANKS[rankOf(c)], s = SUITS[suitOf(c)];
-  return `<span class="cf-ix">${r}<small>${s}</small></span><span class="cf-mid">${r}${s}</span>`;
+  return RANKS[rankOf(c)] + SUITS[suitOf(c)];
 }
 function isRed(c: Card): boolean {
   return SUIT_RED[suitOf(c)]!;
