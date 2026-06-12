@@ -1570,6 +1570,22 @@ function animateCoinShower(seat: number): void {
 // Stash winners for the highlight + queue the one-shot pot→winner travel.
 function markWinners(w: number[]): void { S.winnerSeat = w.slice(); S.potFlyPending = w.slice(); }
 
+// A burst of falling confetti for the win-the-room celebration. Deterministic spread (even
+// distribution, no RNG needed). Pure CSS animation — pointer-events:none so it never blocks.
+function confettiHtml(): string {
+  const colors = ["#f5c451", "#3ecf8e", "#ffffff", "#7c5cff", "#ff9f1c", "#4fd0ee"];
+  let s = "";
+  for (let i = 0; i < 20; i++) {
+    const left = (i * 50 + (i % 3) * 11) % 100;
+    const c = colors[i % colors.length]!;
+    const delay = (i % 7) * 0.11;
+    const dur = 2.1 + (i % 5) * 0.32;
+    const rot = (i * 47) % 360;
+    s += `<i style="left:${left}%;background:${c};animation-delay:${delay.toFixed(2)}s;animation-duration:${dur.toFixed(2)}s;--r:${rot}deg"></i>`;
+  }
+  return `<div class="wr-confetti" aria-hidden="true">${s}</div>`;
+}
+
 // Copy a room code to the clipboard with a brief visual "Copied!" confirmation on the
 // tapped button (no silent copy — the user needs to know it worked).
 function copyCodeWithFeedback(code: string, e: unknown): void {
@@ -3581,6 +3597,7 @@ function renderMpTable(): void {
       const final = heroSeated.chips;
       panel = `
         <div class="win-room">
+          ${confettiHtml()}
           <div class="wr-trophy">🏆</div>
           <div class="wr-title">YOU WIN THE TABLE</div>
           <div class="wr-sub">Last player standing</div>
@@ -4446,6 +4463,7 @@ function renderNetTable(): void {
       const canRefill = isOwner && currency === "play" && occupied.length < seats.length;
       controls = `
         <div class="win-room">
+          ${confettiHtml()}
           <div class="wr-trophy">🏆</div>
           <div class="wr-title">YOU WIN THE ROOM</div>
           <div class="wr-sub">Last player standing${liveOpponents === 0 && occupied.length === 2 ? " · heads-up" : ""}</div>
@@ -5110,6 +5128,7 @@ function renderStore(): void {
       </div>
 
       <div class="set-group"><div class="set-head">Edge Pass · the Monte Carlo Edge, live</div>
+        ${!hasEdge() ? `<div class="edge-banner"><div class="eb-copy"><span class="eb-eyebrow">⚡ Edge Pass</span><span class="eb-title">Read every villain's range — live</span><span class="eb-sub">Equity · pot odds · the line, at your seat</span></div></div>` : ""}
         <div class="set-note" style="margin-bottom:9px">The real-time MCE overlay in online play + hand-history review + leak report. <strong>Solo Train stays 100% free, forever.</strong></div>
         ${hasEdge() ? `<div class="se-active">✓ Edge Pass active${S.isAdmin && !S.edgePass ? " (admin)" : ""}</div>${S.edgePass && !S.isAdmin ? `<button class="hdr-btn" id="edge-manage" style="width:100%;margin-top:8px">Manage subscription</button>` : ""}`
           : `${EDGE_TIERS.map((t) => `<div class="edge-tier ${t.best ? "best" : ""}"><div class="et-main"><div class="et-price">${t.price}</div><div class="et-sub">${t.sub}</div></div><button class="et-buy" id="edge-buy">${S.net.busy ? "…" : "Get"}</button></div>`).join("")}
