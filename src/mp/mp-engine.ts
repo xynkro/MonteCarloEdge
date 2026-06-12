@@ -322,6 +322,7 @@ export function publicState(t: AuthTable): PublicTableState {
       sittingOut: !!s.uid && s.chips <= 0,
       assisted: s.assisted,
       recStyle: s.recStyle ?? null, // Firestore rejects undefined values
+      inHand,  // dealt into the CURRENT hand? distinguishes all-in (chips=0, inHand) from busted (chips=0, !inHand)
     };
   });
   return {

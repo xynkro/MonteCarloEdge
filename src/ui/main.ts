@@ -4095,23 +4095,26 @@ function renderNetTable(): void {
     onId("net-leave", "click", () => void netLeave());
     return;
   }
-  const seats = (pub.seats || []) as Array<{ uid: string | null; ai: string | null; name: string; chips: number; bet: number; folded: boolean }>;
+  const seats = (pub.seats || []) as Array<{ uid: string | null; ai: string | null; name: string; chips: number; bet: number; folded: boolean; inHand?: boolean }>;
   const status = pub.status as string;
   const currency = (pub.currency as string) === "premium" ? "premium" : "play";
   const sym = currency === "premium" ? "💎" : "🪙";
   const isOwner = pub.ownerUid === uid;
   const lobby = status === "waiting";
   const revealed = (pub.revealedHoles || {}) as Record<string, [number, number]>;
-  // Busted seats (chips==0) between hands are hidden from the table — they're effectively
-  // sidelined until they rebuy. Server still has them seated so a rebuy puts them right
-  // back in. For the busted player themselves, the rebuy sheet auto-opens as the prompt.
+  // Busted seats are hidden from the table — they're effectively sidelined until they
+  // rebuy. Server still has them seated so a rebuy puts them right back in. For the busted
+  // player themselves, the rebuy sheet auto-opens as the prompt.
+  //
+  // A seat is "sidelined" when it has 0 chips AND is NOT in the current live hand. The
+  // `inHand` flag matters DURING a hand: an all-in player has chips=0 behind but inHand=true
+  // (still contesting the pot, must stay visible), while a bot that busted a prior hand has
+  // chips=0 and inHand=false (sat out of this deal → hide it). Between hands nobody is
+  // inHand, so this reduces to the simple chips>0 check.
   const allOccupied = seats.map((s, ti) => ({ s, ti })).filter((x) => x.s.uid || x.s.ai);
-  const sidelined = (status === "in_hand")
-    ? []
-    : allOccupied.filter((x) => x.s.chips === 0);
-  const occupied = (status === "in_hand")
-    ? allOccupied
-    : allOccupied.filter((x) => x.s.chips > 0);
+  const isSidelined = (x: { s: { chips: number; inHand?: boolean } }): boolean => x.s.chips === 0 && !x.s.inHand;
+  const sidelined = allOccupied.filter(isSidelined);
+  const occupied = allOccupied.filter((x) => !isSidelined(x));
   // Lobby display order: humans above bots (does NOT affect table-seat indices ti).
   const lobbyOrder = (status === "waiting") ? [...occupied].sort((a, b) => (a.s.uid ? 0 : 1) - (b.s.uid ? 0 : 1)) : occupied;
   const humans = occupied.filter((x) => x.s.uid).length;

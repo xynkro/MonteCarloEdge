@@ -303,6 +303,13 @@ export const startHand = onCall(async (req) => {
     if (!t.seats.some((s) => s.uid && s.chips > 0 && !s.sittingOut)) {
       throw new HttpsError("failed-precondition", "Need a seated player with chips.");
     }
+    // Clear out busted BOTS before dealing — a bot can't rebuy, so a 0-chip bot would
+    // otherwise linger as a sidelined ghost seat forever. (Busted HUMANS keep their seat
+    // so their rebuy puts them straight back in.)
+    for (let i = 0; i < t.seats.length; i++) {
+      const s = t.seats[i]!;
+      if (s.ai && s.chips <= 0) t.seats[i] = { uid: null, name: "", chips: 0, assisted: false, sittingOut: false, ai: null };
+    }
     if (!engineStartHand(t, cryptoRng)) throw new HttpsError("failed-precondition", "Need 2+ players with chips.");
     // Total chips at the table (blinds are now in the pot, but seats[].chips still
     // hold each buy-in until settle). Conserved across the whole hand.

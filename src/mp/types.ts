@@ -40,6 +40,10 @@ export interface MPSeat {
   // "balanced" → AUTO (auto-adapts); others lock the read.
   // Null when unset (publicState coerces undefined → null so Firestore can persist it).
   recStyle?: "balanced" | "tag" | "lag" | "nit" | "station" | "maniac" | null;
+  // True only while this seat is dealt into the CURRENT live hand. Lets the client tell a
+  // genuinely-busted seat (chips 0, not in the hand) apart from an all-in player (chips 0
+  // behind, still contesting the pot) so it can sideline the former mid-hand.
+  inHand?: boolean;
 }
 
 // The whole table, public info only — safe to broadcast to every client.
