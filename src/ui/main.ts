@@ -3446,6 +3446,11 @@ function renderMpSetup(): void {
           <span class="hint" style="display:block;margin-top:4px">${_roomPublic ? "Anyone can find this room in the Online games list." : "Only friends with the code can join."}</span>
         </div>
 
+        <div class="field"><label>Bot speed</label>
+          <div class="seg" id="room-speed">${SPEED_TIERS.map((t) => `<button class="seg-btn ${trainingSpeed() === t ? "sel" : ""}" data-speed="${t}">${SPEED_LABEL[t]}</button>`).join("")}</div>
+          <span class="hint" style="display:block;margin-top:4px">How fast bots act. You can change this mid-room from the ⚙ cog too.</span>
+        </div>
+
         ${canAfford && !noPrem ? `<button class="start-btn" id="net-create" style="background:linear-gradient(135deg,#4285F4,#1a73e8);color:#fff">${S.net.busy ? "…" : `🌐 Create ${premium ? "💎 Premium" : "🪙 Play"} Room`}</button>` : ""}
       </div>
 
@@ -3465,6 +3470,7 @@ function renderMpSetup(): void {
   onId("net-join", "click", () => { const v = (document.getElementById("net-code") as HTMLInputElement | null)?.value.trim().toUpperCase() || S.net.joinCode; void joinNetRoom(v); });
   onId("net-spectate", "click", () => { const v = (document.getElementById("net-code") as HTMLInputElement | null)?.value.trim().toUpperCase() || S.net.joinCode; void spectateNetRoom(v); });
   app.querySelectorAll("#room-priv [data-priv]").forEach((b) => onEl(b, "click", () => { _roomPublic = (b as HTMLElement).dataset.priv !== "private"; render(); }));
+  app.querySelectorAll("#room-speed [data-speed]").forEach((b) => onEl(b, "click", () => { try { localStorage.setItem("mce-speed", (b as HTMLElement).dataset.speed!); } catch { /* */ } render(); }));
   onId("pr-refresh", "click", () => { void netRefreshPublic(); });
   app.querySelectorAll("[data-code]").forEach((b) => onEl(b, "click", () => { const c = (b as HTMLElement).dataset.code!; S.net.joinCode = c; void joinNetRoom(c); }));
   // Auto-fetch on first open (avoids requiring a tap to discover the list exists).
@@ -3787,7 +3793,10 @@ function netPreAnims(prev: Record<string, any>, pub: Record<string, any>): void 
 // History capture state for the LIVE online hand. Module-level so transitions across
 // multiple netPostAnims calls within a hand share continuity.
 let _histStartChips: number | null = null;
-const BOT_STAGGER_MS = 650;
+// Bot stagger driven by the same speed tier as the trainer (saved to localStorage). Lets
+// the user dial the per-action delay so a 5-handed pot doesn't feel like a slot machine.
+const BOT_STAGGER_BY_TIER: Record<SpeedTier, number> = { slow: 1100, normal: 650, fast: 350, instant: 90 };
+const botStaggerMs = (): number => BOT_STAGGER_BY_TIER[trainingSpeed()];
 // Replay-key memo so a re-render doesn't double-fire the same staggered trace.
 let _lastBotTraceKey = "";
 // Visual-only floating callout at a seat. Sound is the caller's responsibility so
@@ -3843,7 +3852,7 @@ function netPostAnims(prev: Record<string, any>, pub: Record<string, any>): void
   if (prev.status !== "hand_over" && pub.status === "hand_over") {
     const winners = (pub.lastWinners || []) as number[];
     const traceLen = ((pub.botTrace as Array<unknown> | undefined)?.length ?? 0);
-    const handOverDelay = traceLen * BOT_STAGGER_MS;
+    const handOverDelay = traceLen * botStaggerMs();
     const fireHandOver = (): void => {
       if (winners.length) requestAnimationFrame(() => { animatePotToWinner(winners); winners.forEach((w) => animateCoinShower(w)); });
       const mySeat = (pub.seats as Array<{ uid: string | null }> | undefined)?.findIndex((s) => s?.uid === uid) ?? -1;
@@ -3886,7 +3895,7 @@ function netPostAnims(prev: Record<string, any>, pub: Record<string, any>): void
   const traceSeats = new Set(trace.map((s) => s.seat));
   if (traceKey && traceKey !== _lastBotTraceKey) {
     _lastBotTraceKey = traceKey;
-    trace.forEach((step, i) => setTimeout(() => flashBotAction(step, null), i * BOT_STAGGER_MS));
+    trace.forEach((step, i) => setTimeout(() => flashBotAction(step, null), i * botStaggerMs()));
   }
   // Per-action bet: a seat's wager grew on the SAME street → fly chips from that seat
   // toward the pot. Trace seats are handled by the staggered replay above → skip here
@@ -4226,6 +4235,12 @@ function renderNetTable(): void {
           <div class="cog-row"><span>Top up your stack</span><button class="hdr-btn" id="cog-rebuy">Rebuy →</button></div>
           <span class="hint">Available when you bust or while the room is waiting.</span>
         </div>
+        <div class="cog-section"><div class="cog-label">Pace</div>
+          <div class="cog-row"><span>Bot speed</span>
+            <div class="seg cog-speed">${SPEED_TIERS.map((t) => `<button class="seg-btn ${trainingSpeed() === t ? "sel" : ""}" data-speed="${t}">${SPEED_LABEL[t]}</button>`).join("")}</div>
+          </div>
+          <span class="hint">How fast bots take their turns. Stays with you across rooms.</span>
+        </div>
         <div class="cog-section"><div class="cog-label">Audio</div>
           <div class="cog-row"><span>Sound effects</span>
             <button class="mce-toggle ${isSoundEnabled() ? "on" : ""}" id="cog-sound">${isSoundEnabled() ? "🔊 ON" : "🔇 OFF"}</button>
@@ -4275,6 +4290,7 @@ function renderNetTable(): void {
     onId("cog-priv", "click", () => { void netSetRoomPrefs({ isPublic: !isPublic }); });
     onId("cog-rebuy", "click", () => { S.net.cog = false; openRebuySheet(); });
     onId("cog-sound", "click", () => { setSoundEnabled(!isSoundEnabled()); render(); });
+    app.querySelectorAll(".cog-speed [data-speed]").forEach((b) => onEl(b, "click", () => { try { localStorage.setItem("mce-speed", (b as HTMLElement).dataset.speed!); } catch { /* */ } render(); }));
     app.querySelectorAll("[data-style]").forEach((b) => onEl(b, "click", () => { void netSetSeatPrefs({ recStyle: (b as HTMLElement).dataset.style as import("../mp/firebase-adapter.js").RecStyle }); }));
     app.querySelectorAll(".cog-kick").forEach((b) => onEl(b, "click", () => { void netKickBot(+(b as HTMLElement).dataset.seat!); }));
     app.querySelectorAll(".add-ai").forEach((b) => onEl(b, "click", () => void netAddBot((b as HTMLElement).dataset.arch!)));
@@ -4777,6 +4793,7 @@ function renderAdmin(): void {
                 <button class="hdr-btn au-act" data-u="${u.uid}" data-cur="play" data-amt="500">+500🪙</button>
                 <button class="hdr-btn au-act" data-u="${u.uid}" data-cur="premium" data-amt="100">+100💎</button>
                 <button class="hdr-btn au-edge ${u.edgePass ? "on" : ""}" data-u="${u.uid}" data-on="${u.edgePass ? "0" : "1"}">${u.edgePass ? "Edge ✓" : "Edge"}</button>
+                ${u.uid === myUid ? "" : `<button class="hdr-btn danger au-del" data-u="${u.uid}" data-n="${esc(u.name)}">🗑</button>`}
               </div>
             </div>`).join("")}
       </div>
@@ -4806,6 +4823,7 @@ function renderAdmin(): void {
   onId("ad-give", "click", () => void doAdminGift());
   app.querySelectorAll(".au-act").forEach((b) => onEl(b, "click", () => { const el = b as HTMLElement; void doAdminGiftUser(el.dataset.u!, el.dataset.cur as "play" | "premium", +el.dataset.amt!); }));
   app.querySelectorAll(".au-edge").forEach((b) => onEl(b, "click", () => { const el = b as HTMLElement; void doAdminEdge(el.dataset.u!, el.dataset.on === "1"); }));
+  app.querySelectorAll(".au-del").forEach((b) => onEl(b, "click", () => { const el = b as HTMLElement; void doAdminDeleteUser(el.dataset.u!, el.dataset.n ?? "user"); }));
 }
 async function doAdminGiftUser(uid: string, cur: "play" | "premium", amt: number): Promise<void> {
   try { await FB.adminGift(uid, cur, amt); try { playSound("chip"); } catch { /* */ } }
@@ -4813,6 +4831,14 @@ async function doAdminGiftUser(uid: string, cur: "play" | "premium", amt: number
 }
 async function doAdminEdge(uid: string, on: boolean): Promise<void> {
   try { await FB.adminSetEdgePass(uid, on); } catch (e) { S.compose.err = friendlyErr(e); render(); }
+}
+async function doAdminDeleteUser(uid: string, name: string): Promise<void> {
+  // Two-stage confirm so a misclick can't nuke an account. The server still re-checks
+  // the admin claim — the UI gate is convenience, not security.
+  if (!confirm(`Delete ${name}'s account? Their Firestore profile, inbox, presence, and Auth user will be removed.`)) return;
+  if (!confirm("Last chance — this is irreversible. Continue?")) return;
+  try { await FB.adminDeleteUser(uid); S.compose.sent = `Deleted ${name}`; render(); }
+  catch (e) { S.compose.err = friendlyErr(e); render(); }
 }
 async function doAdminGift(): Promise<void> {
   const c = S.compose;

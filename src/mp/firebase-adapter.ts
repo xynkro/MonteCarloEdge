@@ -179,6 +179,8 @@ export const sendMessage = (toUid: string, text: string) => callFn<{ ok: boolean
 export const claimWeekly = () => callFn<{ granted: number; balance: number }>("claimWeekly", {});
 export const adminGift = (toUid: string, currency: "play" | "premium", amount: number) => callFn<{ balance: number }>("adminGift", { toUid, currency, amount });
 export const adminSetEdgePass = (toUid: string, on: boolean) => callFn<{ edgePass: boolean }>("adminSetEdgePass", { toUid, on });
+/** Super-admin only: delete a user's Firestore profile + inbox + presence + Auth user. */
+export const adminDeleteUser = (toUid: string) => callFn<{ ok: boolean }>("adminDeleteUser", { toUid });
 export interface AdminUser { uid: string; name: string; play: number; premium: number; edgePass: boolean }
 /** Live list of ALL users (admin only — rules enforce list-if-admin). */
 export async function subscribeUsers(cb: (users: AdminUser[]) => void): Promise<() => void> {

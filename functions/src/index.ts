@@ -12,6 +12,7 @@ import { onCall, HttpsError, type CallableRequest } from "firebase-functions/v2/
 import { setGlobalOptions } from "firebase-functions/v2";
 import { initializeApp } from "firebase-admin/app";
 import { getFirestore, FieldValue, type Transaction } from "firebase-admin/firestore";
+import { getAuth } from "firebase-admin/auth";
 
 import {
   createAuthTable, sit, seatAi, leave, startHand as engineStartHand,
@@ -615,6 +616,48 @@ export const adminSetEdgePass = onCall(async (req) => {
     tx.set(inboxRef(toUid).doc(), { kind: "admin", from: "admin", fromName: "MonteCarloEdge", text: on ? "Edge Pass unlocked for you 🎉" : "Edge Pass removed", createdAt: FieldValue.serverTimestamp(), read: false });
     return { ok: true, edgePass: !!on };
   });
+});
+
+/** Super-admin only: delete a target user's Firestore footprint AND their Firebase Auth
+ *  user record. Writes a ledger entry first so the action is auditable even after the
+ *  user doc is gone. Inbox + presence + seats subcollections are wiped in batches. */
+export const adminDeleteUser = onCall(async (req) => {
+  uidOf(req);
+  const tok = (req.auth?.token ?? {}) as { email?: string; email_verified?: boolean; admin?: boolean };
+  const isAdmin = tok.admin === true || (ADMIN_EMAILS.has(tok.email ?? "") && tok.email_verified === true);
+  if (!isAdmin) throw new HttpsError("permission-denied", "Admins only.");
+  const { toUid } = (req.data ?? {}) as { toUid?: string };
+  if (!toUid) throw new HttpsError("invalid-argument", "Recipient required.");
+  if (toUid === req.auth?.uid) throw new HttpsError("failed-precondition", "Refusing to delete the calling admin.");
+
+  // Audit trail BEFORE the data is gone (so we always have a record of who killed what).
+  const snap = await userRef(toUid).get();
+  const toName = (snap.exists ? (snap.data()?.name as string | undefined) : undefined) ?? "user";
+  await ledgerRef().doc().set({
+    type: "admin-delete", currency: "", amount: 0, from: "admin",
+    fromName: (req.auth?.token?.email as string) ?? "admin",
+    to: toUid, toName, at: FieldValue.serverTimestamp(),
+  });
+
+  // Wipe inbox + presence + per-table seats subcollection-by-subcollection.
+  const wipeCollection = async (snapDocs: FirebaseFirestore.DocumentSnapshot[]): Promise<void> => {
+    if (snapDocs.length === 0) return;
+    const batch = db.batch();
+    snapDocs.forEach((d) => batch.delete(d.ref));
+    await batch.commit();
+  };
+  await wipeCollection((await inboxRef(toUid).limit(500).get()).docs);
+  await db.doc(`presence/${toUid}`).delete().catch(() => { /* may not exist */ });
+
+  // Profile doc itself.
+  await userRef(toUid).delete().catch(() => { /* may not exist */ });
+
+  // Finally, the Auth user (so the email can be re-registered). Best-effort: if Auth is
+  // already gone or the project doesn't have the user, swallow the error so the rest of
+  // the cleanup still counts as a success.
+  try { await getAuth().deleteUser(toUid); } catch (_e) { /* already gone or unknown */ }
+
+  return { ok: true };
 });
 
 /** Claim the weekly free PLAY chips on a DETERMINISTIC streak ladder (no RNG / no loot
