@@ -3482,53 +3482,61 @@ function renderMpSetup(): void {
             : `<div class="pr-list">${S.net.publicRooms.map((r) => `<button class="pr-row" data-code="${r.code}"><span class="pr-code">${r.code}</span><span class="pr-meta">${r.currency === "premium" ? "<i class=ic-gem></i>" : "<i class=ic-coin></i>"} ${r.sb}/${r.bb}</span><span class="pr-seats">${r.occupied}/${r.max} seats</span></button>`).join("")}</div>`)}
       </div>
 
-      <div class="join-divider"><span>or create your own</span></div>
+      <button class="create-toggle ${_createOpen ? "open" : ""}" id="create-toggle">
+        <span class="ct-main">＋ Create your own room</span>
+        <span class="ct-sub">${_createOpen ? "Set it up below" : "Private or public · stakes & buy-in"}</span>
+        <span class="ct-chev">${_createOpen ? "▾" : "▸"}</span>
+      </button>
 
-      <div class="cur-seg" id="room-cur">
-        <button class="${!premium ? "sel" : ""}" data-cur="play"><i class=ic-coin></i> Chips</button>
-        <button class="${premium ? "sel" : ""}" data-cur="premium"><i class=ic-gem></i> Premium Chips</button>
-      </div>
-
-      <div class="${noPrem ? "room-greyed" : ""}">
-        ${noPrem ? `<div class="room-broke">You have no <i class=ic-gem></i> Premium Chips. Win them at premium tables, or buy them in the Store.</div><button class="start-btn" id="room-buyprem" style="background:var(--gold-foil);color:#2a1c05;margin:8px 0">Get Premium Chips</button>` : ""}
-
-        <div class="field"><label>Stakes ${premium ? "<i class=ic-gem></i>" : "<i class=ic-coin></i>"}</label>
-          <div class="seg room-stakes" id="room-tier">${ROOM_TIERS.map((t, i) => `<button class="seg-btn ${su.tier === i ? "sel" : ""}" data-tier="${i}" ${noPrem ? "disabled" : ""}><span class="rs-name">${t.name}</span></button>`).join("")}</div>
+      ${_createOpen ? `
+      <div class="create-panel">
+        <div class="cur-seg" id="room-cur">
+          <button class="${!premium ? "sel" : ""}" data-cur="play"><i class=ic-coin></i> Chips</button>
+          <button class="${premium ? "sel" : ""}" data-cur="premium"><i class=ic-gem></i> Premium Chips</button>
         </div>
 
-        ${canAfford && !noPrem ? `
-        <div class="field"><label>Your buy-in</label>
-          <div class="buyin-value">${sym} ${su.buyIn.toLocaleString()}<span> · ${Math.round(su.buyIn / su.bb)}bb</span></div>
-          <input class="buyin-slider" id="room-buyin" type="range" min="${minBuy}" max="${maxBuy}" step="${Math.max(1, Math.round(su.bb))}" value="${su.buyIn}"/>
-          <div class="buyin-ends"><span>min ${minBuy.toLocaleString()}</span><span>you have ${sym} ${bal.toLocaleString()}</span></div>
-        </div>` : (!noPrem ? `<div class="room-broke">You need at least ${sym} ${minBuy.toLocaleString()} to sit at ${tier.name}. Lower the stakes or top up.</div>` : "")}
+        <div class="${noPrem ? "room-greyed" : ""}">
+          ${noPrem ? `<div class="room-broke">You have no <i class=ic-gem></i> Premium Chips. Win them at premium tables, or buy them in the Store.</div><button class="start-btn" id="room-buyprem" style="background:var(--gold-foil);color:#2a1c05;margin:8px 0">Get Premium Chips</button>` : ""}
 
-        <div class="field"><label>MCE Strategy overlay</label>
-          <button class="mce-toggle ${hasEdge() && _roomAssisted ? "on" : ""} ${!hasEdge() ? "locked" : ""}" id="room-mce" ${noPrem ? "disabled" : ""}>${!hasEdge() ? "🔒 Edge Pass" : _roomAssisted ? "🧠 ON" : "OFF"}</button>
-          <span class="hint" style="display:block;margin-top:4px">${!hasEdge() ? "Live in-game GTO recommendations — unlock with Edge Pass in the Store." : "Show the live MCE recommendation at your seat this room."}</span>
-        </div>
-
-        <div class="field"><label>Room visibility</label>
-          <div class="cur-seg" id="room-priv">
-            <button class="${_roomPublic ? "sel" : ""}" data-priv="public">🌐 Public</button>
-            <button class="${!_roomPublic ? "sel" : ""}" data-priv="private">🔒 Private</button>
+          <div class="field"><label>Stakes ${premium ? "<i class=ic-gem></i>" : "<i class=ic-coin></i>"}</label>
+            <div class="seg room-stakes" id="room-tier">${ROOM_TIERS.map((t, i) => `<button class="seg-btn ${su.tier === i ? "sel" : ""}" data-tier="${i}" ${noPrem ? "disabled" : ""}><span class="rs-name">${t.name}</span></button>`).join("")}</div>
           </div>
-          <span class="hint" style="display:block;margin-top:4px">${_roomPublic ? "Anyone can find this room in the Online games list." : "Only friends with the code can join."}</span>
+
+          ${canAfford && !noPrem ? `
+          <div class="field"><label>Your buy-in</label>
+            <div class="buyin-value">${sym} ${su.buyIn.toLocaleString()}<span> · ${Math.round(su.buyIn / su.bb)}bb</span></div>
+            <input class="buyin-slider" id="room-buyin" type="range" min="${minBuy}" max="${maxBuy}" step="${Math.max(1, Math.round(su.bb))}" value="${su.buyIn}"/>
+            <div class="buyin-ends"><span>min ${minBuy.toLocaleString()}</span><span>you have ${sym} ${bal.toLocaleString()}</span></div>
+          </div>` : (!noPrem ? `<div class="room-broke">You need at least ${sym} ${minBuy.toLocaleString()} to sit at ${tier.name}. Lower the stakes or top up.</div>` : "")}
+
+          <button class="opts-toggle ${_createOptsOpen ? "open" : ""}" id="opts-toggle">⚙ Table options${_createOptsOpen ? "" : ` <span class="ot-peek">· ${_roomPublic ? "Public" : "Private"} · ${hasEdge() && _roomAssisted ? "MCE on" : "MCE off"}</span>`}<span class="ct-chev">${_createOptsOpen ? "▾" : "▸"}</span></button>
+          ${_createOptsOpen ? `
+          <div class="opts-panel">
+            <div class="field"><label>MCE Strategy overlay</label>
+              <button class="mce-toggle ${hasEdge() && _roomAssisted ? "on" : ""} ${!hasEdge() ? "locked" : ""}" id="room-mce" ${noPrem ? "disabled" : ""}>${!hasEdge() ? "🔒 Edge Pass" : _roomAssisted ? "🧠 ON" : "OFF"}</button>
+              <span class="hint" style="display:block;margin-top:4px">${!hasEdge() ? "Live in-game GTO recommendations — unlock with Edge Pass in the Store." : "Show the live MCE recommendation at your seat this room."}</span>
+            </div>
+            <div class="field"><label>Room visibility</label>
+              <div class="cur-seg" id="room-priv">
+                <button class="${_roomPublic ? "sel" : ""}" data-priv="public">🌐 Public</button>
+                <button class="${!_roomPublic ? "sel" : ""}" data-priv="private">🔒 Private</button>
+              </div>
+            </div>
+            <div class="field"><label>Bot speed</label>
+              <div class="seg" id="room-speed">${SPEED_TIERS.map((t) => `<button class="seg-btn ${trainingSpeed() === t ? "sel" : ""}" data-speed="${t}">${SPEED_LABEL[t]}</button>`).join("")}</div>
+              <span class="hint" style="display:block;margin-top:4px">Adjustable mid-game from the ⚙ cog too.</span>
+            </div>
+          </div>` : ""}
+
+          ${canAfford && !noPrem ? `<button class="start-btn" id="net-create" style="background:linear-gradient(135deg,#4285F4,#1a73e8);color:#fff;margin-top:10px">${S.net.busy ? "…" : `🌐 Create ${premium ? "<i class=ic-gem></i> Premium" : "<i class=ic-coin></i> Play"} Room`}</button>` : ""}
         </div>
+      </div>` : ""}
 
-        <div class="field"><label>Bot speed</label>
-          <div class="seg" id="room-speed">${SPEED_TIERS.map((t) => `<button class="seg-btn ${trainingSpeed() === t ? "sel" : ""}" data-speed="${t}">${SPEED_LABEL[t]}</button>`).join("")}</div>
-          <span class="hint" style="display:block;margin-top:4px">How fast bots act. You can change this mid-room from the ⚙ cog too.</span>
-        </div>
-
-        ${canAfford && !noPrem ? `<button class="start-btn" id="net-create" style="background:linear-gradient(135deg,#4285F4,#1a73e8);color:#fff">${S.net.busy ? "…" : `🌐 Create ${premium ? "<i class=ic-gem></i> Premium" : "<i class=ic-coin></i> Play"} Room`}</button>` : ""}
-      </div>
-
-      <div class="field" style="margin-top:14px"><label>Who's online${online.length ? ` · ${online.length}` : ""}</label>
-        ${online.length ? `<div class="online-list">${online.map((p) => `<span class="online-chip">🟢 ${esc(p.name)}</span>`).join("")}</div>` : `<span class="hint">No one else online right now. Share a room code to bring friends in.</span>`}
-      </div>
+      ${online.length ? `<div class="online-foot"><span class="online-dot">🟢</span> ${online.length} player${online.length === 1 ? "" : "s"} online</div>` : ""}
     </div>`;
   onId("mp-back", "click", () => { S.screen = "home"; render(); });
+  onId("create-toggle", "click", () => { _createOpen = !_createOpen; render(); });
+  onId("opts-toggle", "click", () => { _createOptsOpen = !_createOptsOpen; render(); });
   onId("room-buychips", "click", () => { S.screen = "store"; render(); });
   onId("room-buyprem", "click", () => { S.screen = "store"; render(); });
   app.querySelectorAll("#room-cur [data-cur]").forEach((b) => onEl(b, "click", () => { _roomCurrency = (b as HTMLElement).dataset.cur === "premium" ? "premium" : "play"; S.net.err = ""; render(); }));
@@ -3699,6 +3707,8 @@ let _netChatUnsub: (() => void) | null = null;
 let _roomCurrency: "play" | "premium" = "play";
 let _roomAssisted = false; // MCE Strategy overlay toggle (Edge Pass only)
 let _roomPublic = true;    // public-by-default — listed in Online Games when waiting
+let _createOpen = false;   // Play Online: "Create your own" config collapsed by default (declutter)
+let _createOptsOpen = false; // …and the secondary table-options (MCE/privacy/bot speed) nested under it
 function clearNetSubs(): void {
   if (_netTableUnsub) { _netTableUnsub(); _netTableUnsub = null; }
   if (_netHandUnsub) { _netHandUnsub(); _netHandUnsub = null; }
@@ -4124,6 +4134,84 @@ function wireChatHandlers(): void {
   app.querySelectorAll(".ch-preset").forEach((b) => onEl(b, "click", () => { void netSendChat((b as HTMLElement).dataset.preset!); }));
 }
 
+// ── Shared room-settings cog (used by BOTH the lobby waiting-room AND the in-game table) ──
+const COG_BOT_LABEL = (a: string): string => (({ Station: "Fish 🐟", TAG: "Reg 🎯", LAG: "LAG 🔥", Nit: "Nit 🪨", Auto: "Auto 🧮" }) as Record<string, string>)[a] || a;
+const COG_STYLE_OPTS: Array<{ k: import("../mp/firebase-adapter.js").RecStyle; label: string; blurb: string }> = [
+  { k: "balanced", label: "🧭 Balanced", blurb: "Auto-adapts from villain's action — safe default." },
+  { k: "tag",      label: "🎯 TAG",      blurb: "Tight-Aggressive — solid regs, value-heavy ranges." },
+  { k: "lag",      label: "🔥 LAG",      blurb: "Loose-Aggressive — wide opens, lots of barrels." },
+  { k: "nit",      label: "🪨 Nit",      blurb: "Super tight — premiums only, fold to pressure." },
+  { k: "station",  label: "🐟 Station",  blurb: "Calling fish — never folds, draws to anything." },
+  { k: "maniac",   label: "🌪 Maniac",   blurb: "Over-aggressive — random shoves, max bluff." },
+];
+type CogSeat = { uid: string | null; ai: string | null; chips: number; assisted?: boolean; recStyle?: import("../mp/firebase-adapter.js").RecStyle };
+function netCogSheetHtml(pub: Record<string, any>, seats: CogSeat[], uid: string | undefined): string {
+  if (!S.net.cog) return "";
+  const status = pub.status as string;
+  const mySeat = seats.find((s) => s.uid === uid);
+  const assistedOn = !!mySeat?.assisted;
+  const myStyle = (mySeat?.recStyle ?? "balanced") as import("../mp/firebase-adapter.js").RecStyle;
+  const isOwner = pub.ownerUid === uid;
+  const isPublic = pub.isPublic !== false;
+  const botSeats = seats.map((s, ti) => ({ s, ti })).filter((x) => x.s.ai);
+  const styleBlurb = COG_STYLE_OPTS.find((x) => x.k === myStyle)?.blurb ?? "";
+  return `
+    <div class="cog-backdrop" id="cog-close"></div>
+    <div class="cog-sheet">
+      <div class="cog-head"><span>Room settings</span><button class="hdr-btn" id="cog-x">✕</button></div>
+      <div class="cog-section"><div class="cog-label">Your seat</div>
+        <div class="cog-row"><span>MCE Strategy</span>
+          <button class="mce-toggle ${hasEdge() && assistedOn ? "on" : ""} ${!hasEdge() ? "locked" : ""}" id="cog-mce">${!hasEdge() ? "🔒 Edge Pass" : assistedOn ? "🧠 ON" : "OFF"}</button>
+        </div>
+        ${hasEdge() && assistedOn ? `<div class="cog-style-block">
+          <div class="cog-style-head"><span>Villain read</span><span class="cog-style-blurb">${esc(styleBlurb)}</span></div>
+          <div class="cog-style-grid">${COG_STYLE_OPTS.map((o) => `<button class="cog-style-btn ${myStyle === o.k ? "sel" : ""}" data-style="${o.k}"><span class="cs-lbl">${o.label}</span></button>`).join("")}</div>
+        </div>` : ""}
+      </div>
+      ${isOwner ? `<div class="cog-section"><div class="cog-label">Room (host)</div>
+        <div class="cog-row"><span>Visibility</span>
+          <button class="mce-toggle ${isPublic ? "on" : ""}" id="cog-priv">${isPublic ? "🌐 Public" : "🔒 Private"}</button>
+        </div>
+        ${botSeats.length > 0 && status === "waiting" ? `<div class="cog-row"><span>Kick a bot</span>
+          <div class="cog-kick-list">${botSeats.map(({ s, ti }) => `<button class="hdr-btn cog-kick" data-seat="${ti}">${COG_BOT_LABEL(s.ai!)}</button>`).join("")}</div>
+        </div>` : ""}
+      </div>` : ""}
+      <div class="cog-section"><div class="cog-label">Pace</div>
+        <div class="cog-row"><span>Bot speed</span>
+          <div class="seg cog-speed">${SPEED_TIERS.map((t) => `<button class="seg-btn ${trainingSpeed() === t ? "sel" : ""}" data-speed="${t}">${SPEED_LABEL[t]}</button>`).join("")}</div>
+        </div>
+        <span class="hint">How fast bots take their turns. Change it any time — even mid-hand.</span>
+      </div>
+      <div class="cog-section"><div class="cog-label">Buy-in</div>
+        <div class="cog-row"><span>Top up your stack</span><button class="hdr-btn" id="cog-rebuy">Rebuy →</button></div>
+        <span class="hint">Available when you bust or while the room is waiting.</span>
+      </div>
+      <div class="cog-section"><div class="cog-label">Audio</div>
+        <div class="cog-row"><span>Sound effects</span>
+          <button class="mce-toggle ${isSoundEnabled() ? "on" : ""}" id="cog-sound">${isSoundEnabled() ? "🔊 ON" : "🔇 OFF"}</button>
+        </div>
+      </div>
+    </div>`;
+}
+function wireNetCog(pub: Record<string, any>, seats: CogSeat[], uid: string | undefined): void {
+  const mySeat = seats.find((s) => s.uid === uid);
+  const assistedOn = !!mySeat?.assisted;
+  const isPublic = pub.isPublic !== false;
+  onId("net-cog", "click", () => { S.net.cog = true; render(); });
+  onId("cog-close", "click", () => { S.net.cog = false; render(); });
+  onId("cog-x", "click", () => { S.net.cog = false; render(); });
+  onId("cog-mce", "click", () => {
+    if (!hasEdge()) { S.net.cog = false; S.screen = "store"; render(); return; }
+    void netSetSeatPrefs({ assisted: !assistedOn });
+  });
+  onId("cog-priv", "click", () => { void netSetRoomPrefs({ isPublic: !isPublic }); });
+  onId("cog-rebuy", "click", () => { S.net.cog = false; openRebuySheet(); });
+  onId("cog-sound", "click", () => { setSoundEnabled(!isSoundEnabled()); render(); });
+  app.querySelectorAll(".cog-speed [data-speed]").forEach((b) => onEl(b, "click", () => { try { localStorage.setItem("mce-speed", (b as HTMLElement).dataset.speed!); } catch { /* */ } render(); }));
+  app.querySelectorAll(".cog-style-grid [data-style]").forEach((b) => onEl(b, "click", () => { void netSetSeatPrefs({ recStyle: (b as HTMLElement).dataset.style as import("../mp/firebase-adapter.js").RecStyle }); }));
+  app.querySelectorAll(".cog-kick").forEach((b) => onEl(b, "click", () => { void netKickBot(+(b as HTMLElement).dataset.seat!); }));
+}
+
 // FREE value layer (everyone, no Edge Pass): your win% + the nuts. The PAID MCE overlay
 // (rep read + recommended line) stays gated. Memoized per (hand, board) so the Monte-Carlo
 // only runs once per street, not every render.
@@ -4263,9 +4351,8 @@ function renderNetTable(): void {
   // bot never feels like the hand started. Roster, AI picker, share code, explicit START.
   if (lobby) {
     const botLabel = (a: string): string => (({ Station: "Fish 🐟", TAG: "Reg 🎯", LAG: "LAG 🔥", Nit: "Nit 🪨", Auto: "Auto 🧮" }) as Record<string, string>)[a] || a;
-    const mySeat = seats.find((s) => s.uid === uid) as { assisted?: boolean; recStyle?: import("../mp/firebase-adapter.js").RecStyle } | undefined;
+    const mySeat = seats.find((s) => s.uid === uid) as { assisted?: boolean } | undefined;
     const assistedOn = !!mySeat?.assisted;
-    const myStyle = mySeat?.recStyle ?? "balanced";
     const canAddAi = isOwner && currency === "play" && occupied.length < seats.length;
     const isPublic = pub.isPublic !== false;
     // Compact pills (2-3 per row) instead of one row per seat — 12 seats no longer overflow.
@@ -4274,53 +4361,7 @@ function renderNetTable(): void {
       if (s.uid) return `<span class="roster-pill${s.uid === uid ? " me" : ""}">${s.uid === uid ? "🧠" : "🙂"} ${esc(s.name)}${ti === 0 ? " 👑" : ""}<b>${mpc(s.chips)}</b></span>`;
       return `<span class="roster-pill bot">🤖 ${esc(s.name)} <i>${botLabel(s.ai!)}</i><b>${mpc(s.chips)}</b></span>`;
     }).join("")}</div>${openSeats > 0 ? `<div class="roster-open">＋ ${openSeats} open seat${openSeats > 1 ? "s" : ""} — share the code</div>` : ""}`;
-    const botSeats = seats.map((s, ti) => ({ s, ti })).filter((x) => x.s.ai);
-    const STYLE_OPTS: Array<{ k: import("../mp/firebase-adapter.js").RecStyle; label: string; blurb: string }> = [
-      { k: "balanced", label: "🧭 Balanced",       blurb: "Auto-adapts from villain's action — safe default." },
-      { k: "tag",      label: "🎯 TAG",             blurb: "Tight-Aggressive — solid regs, value-heavy ranges." },
-      { k: "lag",      label: "🔥 LAG",             blurb: "Loose-Aggressive — wide opens, lots of barrels." },
-      { k: "nit",      label: "🪨 Nit",             blurb: "Super tight — premiums only, fold to pressure." },
-      { k: "station",  label: "🐟 Station",         blurb: "Calling fish — never folds, draws to anything." },
-      { k: "maniac",   label: "🌪 Maniac",          blurb: "Over-aggressive — random shoves, max bluff." },
-    ];
-    const styleBlurb = STYLE_OPTS.find((x) => x.k === myStyle)?.blurb ?? "";
-    const cogSheet = S.net.cog ? `
-      <div class="cog-backdrop" id="cog-close"></div>
-      <div class="cog-sheet">
-        <div class="cog-head"><span>Room settings</span><button class="hdr-btn" id="cog-x">✕</button></div>
-        <div class="cog-section"><div class="cog-label">Your seat</div>
-          <div class="cog-row"><span>MCE Strategy</span>
-            <button class="mce-toggle ${hasEdge() && assistedOn ? "on" : ""} ${!hasEdge() ? "locked" : ""}" id="cog-mce">${!hasEdge() ? "🔒 Edge Pass" : assistedOn ? "🧠 ON" : "OFF"}</button>
-          </div>
-          ${hasEdge() && assistedOn ? `<div class="cog-style-block">
-            <div class="cog-style-head"><span>Villain read</span><span class="cog-style-blurb">${esc(styleBlurb)}</span></div>
-            <div class="cog-style-grid">${STYLE_OPTS.map((o) => `<button class="cog-style-btn ${myStyle === o.k ? "sel" : ""}" data-style="${o.k}"><span class="cs-lbl">${o.label}</span></button>`).join("")}</div>
-          </div>` : ""}
-        </div>
-        ${isOwner ? `<div class="cog-section"><div class="cog-label">Room (host)</div>
-          <div class="cog-row"><span>Visibility</span>
-            <button class="mce-toggle ${isPublic ? "on" : ""}" id="cog-priv">${isPublic ? "🌐 Public" : "🔒 Private"}</button>
-          </div>
-          ${botSeats.length > 0 ? `<div class="cog-row"><span>Kick a bot</span>
-            <div class="cog-kick-list">${botSeats.map(({ s, ti }) => `<button class="hdr-btn cog-kick" data-seat="${ti}">${botLabel(s.ai!)}</button>`).join("")}</div>
-          </div>` : ""}
-        </div>` : ""}
-        <div class="cog-section"><div class="cog-label">Buy-in</div>
-          <div class="cog-row"><span>Top up your stack</span><button class="hdr-btn" id="cog-rebuy">Rebuy →</button></div>
-          <span class="hint">Available when you bust or while the room is waiting.</span>
-        </div>
-        <div class="cog-section"><div class="cog-label">Pace</div>
-          <div class="cog-row"><span>Bot speed</span>
-            <div class="seg cog-speed">${SPEED_TIERS.map((t) => `<button class="seg-btn ${trainingSpeed() === t ? "sel" : ""}" data-speed="${t}">${SPEED_LABEL[t]}</button>`).join("")}</div>
-          </div>
-          <span class="hint">How fast bots take their turns. Stays with you across rooms.</span>
-        </div>
-        <div class="cog-section"><div class="cog-label">Audio</div>
-          <div class="cog-row"><span>Sound effects</span>
-            <button class="mce-toggle ${isSoundEnabled() ? "on" : ""}" id="cog-sound">${isSoundEnabled() ? "🔊 ON" : "🔇 OFF"}</button>
-          </div>
-        </div>
-      </div>` : "";
+    const cogSheet = netCogSheetHtml(pub, seats as CogSeat[], uid);
     app.innerHTML = `
       <div class="net-game lobby-screen">
         <div class="game-topbar"><span>Room <strong>${code}</strong> · ${sym} ${currency === "premium" ? "premium" : "play"} · ${isPublic ? "🌐" : "🔒"}</span><div class="topbar-btns"><button class="hdr-btn ch-toggle" id="net-chat" title="Chat">💬${unread > 0 ? `<span class="ch-badge">${unread}</span>` : ""}</button><button class="hdr-btn" id="net-cog" title="Settings">⚙</button><button class="hdr-btn" id="net-leave">Leave</button></div></div>
@@ -4352,22 +4393,10 @@ function renderNetTable(): void {
       </div>`;
     onId("net-leave", "click", () => void netLeave());
     onId("net-seat", "click", () => { if (S.net.code) void joinNetRoom(S.net.code); });
-    onId("net-cog", "click", () => { S.net.cog = true; render(); });
-    onId("cog-close", "click", () => { S.net.cog = false; render(); });
-    onId("cog-x", "click", () => { S.net.cog = false; render(); });
     onId("net-copy", "click", (e) => copyCodeWithFeedback(code, e));
     onId("net-deal", "click", () => void netDeal());
-    onId("cog-mce", "click", () => {
-      if (!hasEdge()) { S.net.cog = false; S.screen = "store"; render(); return; }
-      void netSetSeatPrefs({ assisted: !assistedOn });
-    });
-    onId("cog-priv", "click", () => { void netSetRoomPrefs({ isPublic: !isPublic }); });
-    onId("cog-rebuy", "click", () => { S.net.cog = false; openRebuySheet(); });
-    onId("cog-sound", "click", () => { setSoundEnabled(!isSoundEnabled()); render(); });
-    app.querySelectorAll(".cog-speed [data-speed]").forEach((b) => onEl(b, "click", () => { try { localStorage.setItem("mce-speed", (b as HTMLElement).dataset.speed!); } catch { /* */ } render(); }));
-    app.querySelectorAll("[data-style]").forEach((b) => onEl(b, "click", () => { void netSetSeatPrefs({ recStyle: (b as HTMLElement).dataset.style as import("../mp/firebase-adapter.js").RecStyle }); }));
-    app.querySelectorAll(".cog-kick").forEach((b) => onEl(b, "click", () => { void netKickBot(+(b as HTMLElement).dataset.seat!); }));
     app.querySelectorAll(".add-ai").forEach((b) => onEl(b, "click", () => void netAddBot((b as HTMLElement).dataset.arch!)));
+    wireNetCog(pub, seats as CogSeat[], uid);
     wireRebuyHandlers();
     wireChatHandlers();
     return;
@@ -4535,11 +4564,12 @@ function renderNetTable(): void {
     : "";
   app.innerHTML = `
     <div class="game net-game">
-      <div class="game-topbar"><span>Room <strong>${code}</strong> · ${sym} ${currency === "premium" ? "premium" : "play"}${spectators.length ? ` · 👁 ${spectators.length}` : ""}${sidelined.length ? ` · 💤 ${sidelined.length}` : ""}${isSpectator ? " · watching" : ""}</span><div class="topbar-btns"><button class="hdr-btn ch-toggle" id="net-chat" title="Chat">💬${unread > 0 ? `<span class="ch-badge">${unread}</span>` : ""}</button><button class="hdr-btn" id="net-leave">Leave</button></div></div>
+      <div class="game-topbar"><span>Room <strong>${code}</strong> · ${sym} ${currency === "premium" ? "premium" : "play"}${spectators.length ? ` · 👁 ${spectators.length}` : ""}${sidelined.length ? ` · 💤 ${sidelined.length}` : ""}${isSpectator ? " · watching" : ""}</span><div class="topbar-btns"><button class="hdr-btn ch-toggle" id="net-chat" title="Chat">💬${unread > 0 ? `<span class="ch-badge">${unread}</span>` : ""}</button><button class="hdr-btn" id="net-cog" title="Settings">⚙</button><button class="hdr-btn" id="net-leave">Leave</button></div></div>
       <div class="stage">
         <div class="table-wrap"><div class="poker-table"><div class="felt"></div>${seatHtml}<div class="board-center">${center}</div>${potHtml}</div></div>
         <div class="controls"><div class="controls-body">${upsellHtml}${controls}${S.net.err ? `<div class="room-broke" style="margin-top:8px">${esc(S.net.err)}</div>` : ""}</div></div>
       </div>
+      ${netCogSheetHtml(pub, seats as CogSeat[], uid)}
       ${rebuySheet}
       ${chatDrawer}
     </div>`;
@@ -4554,6 +4584,7 @@ function renderNetTable(): void {
   });
   onId("net-copy", "click", (e) => copyCodeWithFeedback(code, e));
   app.querySelectorAll(".add-ai").forEach((b) => onEl(b, "click", () => void netAddBot((b as HTMLElement).dataset.arch!)));
+  wireNetCog(pub, seats as CogSeat[], uid);
   wireRebuyHandlers();
   wireChatHandlers();
   onId("na-fold", "click", () => void netAct({ type: "fold" }));

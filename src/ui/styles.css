@@ -1535,6 +1535,36 @@ body::before {
 .join-btn:active { transform: scale(.97); }
 .join-divider { display: flex; align-items: center; gap: 10px; margin: 14px 0 10px; color: var(--muted); font-size: 11px; letter-spacing: .14em; text-transform: uppercase; font-weight: 800; }
 .join-divider::before, .join-divider::after { content: ""; flex: 1; height: 1px; background: var(--glass-edge); }
+
+/* ── "Create your own" collapsible (declutters the Play Online screen) ── */
+.create-toggle {
+  display: grid; grid-template-columns: 1fr auto; align-items: center; column-gap: 8px;
+  width: 100%; text-align: left; margin: 14px 0 0; padding: 14px 16px; border-radius: 14px; cursor: pointer;
+  background: var(--glass); border: 1px solid var(--glass-edge); color: var(--text);
+  transition: background .15s, border-color .15s, transform .09s;
+}
+.create-toggle:active { transform: scale(.99); }
+.create-toggle.open { border-color: rgba(66,133,244,.45); background: rgba(66,133,244,.08); border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+.create-toggle .ct-main { font-weight: 800; font-size: 15px; }
+.create-toggle .ct-sub { grid-column: 1; font-size: 11.5px; color: var(--muted); font-weight: 600; margin-top: 2px; }
+.create-toggle .ct-chev { grid-column: 2; grid-row: 1 / span 2; font-size: 13px; color: var(--muted); }
+.create-panel { border: 1px solid rgba(66,133,244,.45); border-top: 0; border-radius: 0 0 14px 14px; padding: 12px 14px 14px; margin-bottom: 12px; animation: cpDrop .2s ease-out; }
+@keyframes cpDrop { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
+
+/* Nested "Table options" toggle inside the create panel. */
+.opts-toggle {
+  display: flex; align-items: center; gap: 6px; width: 100%; text-align: left;
+  margin-top: 6px; padding: 11px 12px; border-radius: 11px; cursor: pointer;
+  background: var(--surface-2); border: 1px solid var(--glass-edge); color: var(--text);
+  font-weight: 800; font-size: 13px; transition: background .15s, transform .09s;
+}
+.opts-toggle:active { transform: scale(.99); }
+.opts-toggle .ot-peek { color: var(--muted); font-weight: 600; font-size: 11.5px; }
+.opts-toggle .ct-chev { margin-left: auto; color: var(--muted); font-size: 12px; }
+.opts-panel { padding: 4px 2px 0; animation: cpDrop .18s ease-out; }
+
+.online-foot { text-align: center; margin-top: 16px; font-size: 12px; color: var(--muted); font-weight: 700; letter-spacing: .3px; }
+.online-foot .online-dot { font-size: 9px; vertical-align: middle; margin-right: 4px; }
 .net-share { text-align: center; font-size: 14px; margin-bottom: 12px; color: var(--muted); }
 .net-copy { background: var(--glass); border: 1px solid var(--glass-edge); border-radius: 9px; color: var(--text); padding: 7px 13px; margin-left: 8px; cursor: pointer; font-size: 16px; }
 .net-copy strong { background: var(--gold-foil); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; letter-spacing: 1.5px; }
