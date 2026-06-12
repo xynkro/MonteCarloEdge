@@ -908,8 +908,8 @@ function renderSetup(): void {
       </div>
 
       <div class="brand">
-        <img class="brand-logo" src="${import.meta.env.BASE_URL}logo.png" alt="" onerror="this.style.display='none'" />
-        <h1>MonteCarloEdge<small>Poker Decision Assistant</small></h1>
+        <img class="brand-logo" src="${import.meta.env.BASE_URL}brand/emblem.svg" alt="" onerror="this.style.display='none'" />
+        <h1 class="brand-wordmark"><span>MONTECARLO</span><b>EDGE</b><small>Play the player. Own the table.</small></h1>
       </div>
 
       <div class="field-row">
@@ -4989,8 +4989,12 @@ const PRESET_AVATARS = [
   "🃏", "👑", "🎩", "<i class=ic-gem></i>", "🔥", "⚡", "🌟", "🍀", "🎰", "🎲",
   "🤠", "🥷", "🤖", "👾", "💀", "🤡", "😎", "🧠", "👽", "🦾"];
 function hashHue(s: string): number { let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0; return h % 360; }
+// Animal-emoji avatars that have a premium generated mascot — render the artwork instead.
+const MASCOT_EMOJI: Record<string, string> = { "🦈": "shark", "🦊": "fox", "🦉": "owl", "🐻": "bear", "🐅": "panther", "🦅": "eagle" };
 function avatarChip(av: string, seed: string, size = 40): string {
   const dim = `width:${size}px;height:${size}px;font-size:${Math.round(size * 0.5)}px`;
+  const mascot = MASCOT_EMOJI[av];
+  if (mascot) return `<span class="avatar mascot" style="${dim}"><img src="/avatars/${mascot}.webp" alt="" draggable="false"></span>`;
   if (av && av !== "auto") return `<span class="avatar" style="${dim}">${av}</span>`;
   const mono = (seed || "?").trim().charAt(0).toUpperCase() || "?";
   return `<span class="avatar identicon" style="${dim};background:hsl(${hashHue(seed || "x")} 55% 42%)">${mono}</span>`;
@@ -5169,7 +5173,7 @@ function renderHome(): void {
       <header class="mc-topbar">
         <button class="mc-profile" id="home-profile">
           <span class="mc-ring">${avatarChip(p.avatar, loggedIn ? p.nickname : "?", 36)}</span>
-          ${loggedIn ? `<span class="mc-pmeta2"><span class="mc-pname">${esc(S.mp.auth!.name)}</span><span class="mc-bal2"><i class=ic-coin></i> ${fmtBal(S.wallet.play)} · <i class=ic-gem></i> ${fmtBal(S.wallet.premium)}</span></span>` : `<span class="mc-pchips-big locked">🔒 Sign in</span>`}
+          ${loggedIn ? `<span class="mc-pmeta2"><span class="mc-pname">${esc(S.mp.auth!.name)}</span><span class="mc-bal2"><i class=ic-coin></i> ${fmtBal(S.wallet.play)}${(S.wallet.premium ?? 0) > 0 ? ` · <i class=ic-gem></i> ${fmtBal(S.wallet.premium)}` : ""}</span></span>` : `<span class="mc-pchips-big locked">🔒 Sign in</span>`}
         </button>
         <div class="mc-top-right">
           ${loggedIn ? `<button class="mc-gear" id="home-inbox" aria-label="Inbox">✉️${unreadCount() ? `<span class="ib-badge">${unreadCount()}</span>` : ""}</button>` : ""}

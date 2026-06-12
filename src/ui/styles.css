@@ -121,6 +121,11 @@ body::before {
   -webkit-text-fill-color: transparent;
 }
 .brand h1 small { text-align: left; }
+/* Wordmark matching the home screen identity (gold MONTECARLO over emerald EDGE). */
+.brand h1.brand-wordmark { font: 800 22px/0.94 var(--display); letter-spacing: -.8px; background: none; -webkit-text-fill-color: initial; }
+.brand-wordmark span { display: block; background: var(--gold-foil); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+.brand-wordmark b { display: block; color: var(--emerald); text-shadow: var(--glow-emerald); }
+.brand-wordmark small { display: block; margin-top: 4px; font: 600 10.5px/1.2 var(--ui, inherit); letter-spacing: .8px; text-transform: uppercase; color: var(--muted); -webkit-text-fill-color: var(--muted); }
 
 /* Two fields sharing one row */
 .field-row { display: flex; gap: 12px; }
@@ -1102,6 +1107,8 @@ body::before {
 
 .avatar { display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; background: var(--elevate); flex-shrink: 0; }
 .avatar.identicon { color: #fff; font-weight: 800; }
+.avatar.mascot { overflow: hidden; background: #161b24; padding: 0; }
+.avatar.mascot img { width: 100%; height: 100%; object-fit: cover; display: block; border-radius: 50%; }
 
 /* ════ "Monte Carlo Midnight" home ════ */
 .mc-home {
