@@ -257,6 +257,17 @@ body::before {
 .topbar-btns { display: flex; gap: 8px; align-items: center; }
 .hdr-btn.undo { background: rgba(245,158,11,.14); border-color: rgba(245,158,11,.45); color: #fbbf24; }
 
+/* ── Unified tactile press feedback (works on iOS, where vibrate isn't available) ── */
+.start-btn, .join-btn, .mce-toggle, .seg-btn, .pack-buy, .pr-row, .cog-style-btn, .rb-key, .avatar-pick { transition: transform .09s ease, background .15s ease, border-color .15s ease; }
+.start-btn:active:not(:disabled), .join-btn:active:not(:disabled), .mce-toggle:active:not(:disabled),
+.seg-btn:active, .pack-buy:active:not(:disabled), .pr-row:active, .cog-style-btn:active, .avatar-pick:active { transform: scale(.97); }
+.action-btn:active:not(:disabled) { transform: scale(.96); filter: brightness(1.08); }
+/* Copy-confirm flash on the room-code button. */
+.lc-hint.copied { color: var(--emerald); }
+.lobby-code.copied { box-shadow: 0 0 0 2px rgba(0,214,143,.5); }
+@keyframes copyPop { 0% { transform: scale(1); } 40% { transform: scale(1.04); } 100% { transform: scale(1); } }
+.lobby-code.copied { animation: copyPop .35s ease; }
+
 /* ── Currency glyphs (inline SVG, device-independent) ──
    The 🪙/💎 emoji rendered as a dull grey moon on some iOS builds. These inline-SVG
    chips render identically on every device and stay on-brand gold/cyan. Sized to 1em so

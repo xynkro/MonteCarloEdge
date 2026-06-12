@@ -1570,6 +1570,19 @@ function animateCoinShower(seat: number): void {
 // Stash winners for the highlight + queue the one-shot pot→winner travel.
 function markWinners(w: number[]): void { S.winnerSeat = w.slice(); S.potFlyPending = w.slice(); }
 
+// Copy a room code to the clipboard with a brief visual "Copied!" confirmation on the
+// tapped button (no silent copy — the user needs to know it worked).
+function copyCodeWithFeedback(code: string, e: unknown): void {
+  try { void navigator.clipboard?.writeText(code); } catch { /* */ }
+  const btn = (e as Event)?.currentTarget as HTMLElement | null;
+  if (!btn) return;
+  btn.classList.add("copied");
+  const hint = btn.querySelector(".lc-hint");
+  const prev = hint?.textContent;
+  if (hint) hint.textContent = "Copied! ✓";
+  setTimeout(() => { btn.classList.remove("copied"); if (hint && prev != null) hint.textContent = prev; }, 1300);
+}
+
 // Generated mascot avatar set (Higgsfield recraft). Hero is always the shark (the brand
 // mascot + Caspar's icon); other seats cycle through the 5 remaining personas by seat index
 // so each seat keeps a stable, distinct face.
@@ -4326,7 +4339,7 @@ function renderNetTable(): void {
     onId("net-cog", "click", () => { S.net.cog = true; render(); });
     onId("cog-close", "click", () => { S.net.cog = false; render(); });
     onId("cog-x", "click", () => { S.net.cog = false; render(); });
-    onId("net-copy", "click", () => { try { void navigator.clipboard?.writeText(code); } catch { /* */ } });
+    onId("net-copy", "click", (e) => copyCodeWithFeedback(code, e));
     onId("net-deal", "click", () => void netDeal());
     onId("cog-mce", "click", () => {
       if (!hasEdge()) { S.net.cog = false; S.screen = "store"; render(); return; }
@@ -4522,7 +4535,7 @@ function renderNetTable(): void {
     const cards = S.net.myHand ? S.net.myHand.map((c) => ({ t: cardDisplay(c), red: isRed(c) })) : undefined;
     void shareWin({ amount: iWonAmt, sym, cards });
   });
-  onId("net-copy", "click", () => { try { void navigator.clipboard?.writeText(code); } catch { /* */ } });
+  onId("net-copy", "click", (e) => copyCodeWithFeedback(code, e));
   app.querySelectorAll(".add-ai").forEach((b) => onEl(b, "click", () => void netAddBot((b as HTMLElement).dataset.arch!)));
   wireRebuyHandlers();
   wireChatHandlers();
