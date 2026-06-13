@@ -5227,6 +5227,7 @@ function renderHome(): void {
   app.innerHTML = `
     <div class="mc-home">
       <div class="mc-bg" aria-hidden="true">
+        <video class="mc-bg-video" autoplay muted loop playsinline preload="auto" poster="${import.meta.env.BASE_URL}textures/hero-bg.webp"><source src="${import.meta.env.BASE_URL}textures/hero-loop.mp4" type="video/mp4"></video>
         <span class="mc-glow g-emerald"></span><span class="mc-glow g-gold"></span>
         <span class="mc-suit s1">♠</span><span class="mc-suit s2">♥</span><span class="mc-suit s3">♦</span><span class="mc-suit s4">♣</span>
         <span class="mc-grain"></span>

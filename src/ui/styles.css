@@ -1131,14 +1131,27 @@ body::before {
 
 /* atmosphere */
 .mc-bg { position: absolute; inset: 0; z-index: 0; pointer-events: none; overflow: hidden; }
-/* Cinematic Higgsfield hero photo behind the home screen — dimmed hard so the wordmark,
-   mode tiles and text stay high-contrast. The existing glows/suits/grain layer on top. */
-.mc-bg::before {
-  content: ""; position: absolute; inset: 0;
-  background: url(/textures/hero-bg.webp) center/cover no-repeat;
-  opacity: .5;
+/* Cinematic Higgsfield hero behind the home screen — a muted, looping ambient VIDEO
+   (poster = the static hero photo, so there's no flash and it degrades gracefully if the
+   clip can't play). Dimmed hard so the wordmark, tiles + text stay high-contrast. */
+.mc-bg-video {
+  position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover;
+  opacity: .5; pointer-events: none;
   -webkit-mask-image: radial-gradient(125% 88% at 50% 36%, rgba(0,0,0,.4) 0%, #000 72%);
   mask-image: radial-gradient(125% 88% at 50% 36%, rgba(0,0,0,.4) 0%, #000 72%);
+}
+/* Normally hidden — the video element (with its poster) is the only bg layer, so no
+   double-dimming. Shown only under reduced-motion, where the video is suppressed. */
+.mc-bg::before { content: ""; position: absolute; inset: 0; display: none; }
+@media (prefers-reduced-motion: reduce) {
+  .mc-bg-video { display: none; }
+  .mc-bg::before {
+    display: block;
+    background: url(/textures/hero-bg.webp) center/cover no-repeat;
+    opacity: .5;
+    -webkit-mask-image: radial-gradient(125% 88% at 50% 36%, rgba(0,0,0,.4) 0%, #000 72%);
+    mask-image: radial-gradient(125% 88% at 50% 36%, rgba(0,0,0,.4) 0%, #000 72%);
+  }
 }
 .mc-bg::after {
   content: ""; position: absolute; inset: 0;
