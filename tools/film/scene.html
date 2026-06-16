@@ -1,0 +1,299 @@
+<!doctype html><html><head><meta charset="utf-8"><style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:1920px;height:1080px;overflow:hidden;background:#000}
+#stage{position:absolute;inset:0;width:1920px;height:1080px;perspective:1700px;
+  font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","Helvetica Neue",sans-serif;
+  background:radial-gradient(120% 120% at 50% 38%,#11151d 0%,#0a0d13 42%,#04050a 100%);}
+.bokeh{position:absolute;border-radius:50%;filter:blur(70px);will-change:transform,opacity}
+#bk1{width:780px;height:780px;background:radial-gradient(circle,rgba(231,197,105,.20),transparent 65%)}
+#bk2{width:680px;height:680px;background:radial-gradient(circle,rgba(96,150,231,.16),transparent 65%)}
+#bk3{width:520px;height:520px;background:radial-gradient(circle,rgba(231,197,105,.12),transparent 65%)}
+#bk4{width:600px;height:600px;background:radial-gradient(circle,rgba(70,200,170,.10),transparent 65%)}
+#vign{position:absolute;inset:0;pointer-events:none;
+  background:radial-gradient(125% 125% at 50% 46%,transparent 52%,rgba(0,0,0,.62) 100%)}
+#grain{position:absolute;inset:-50px;pointer-events:none;mix-blend-mode:overlay;opacity:.06;background-repeat:repeat}
+.scene{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  text-align:center;will-change:opacity,transform}
+.ln{display:block;line-height:.92;white-space:nowrap}
+.wd{display:inline-block;font-weight:800;letter-spacing:-.025em;color:#f4f6fa;will-change:transform,opacity,filter;
+  text-shadow:0 2px 40px rgba(0,0,0,.5)}
+.wd.g{color:#ecca6e;text-shadow:0 2px 50px rgba(231,197,105,.30)}
+.wd+.wd{margin-left:.34em}
+
+/* ---- product: phone + table ---- */
+#phone{position:absolute;left:50%;top:50%;width:392px;height:820px;margin:-410px 0 0 -196px;
+  border-radius:54px;background:linear-gradient(160deg,#23262d,#0c0d11);
+  box-shadow:0 60px 120px -30px rgba(0,0,0,.85),0 0 0 2px rgba(255,255,255,.04),inset 0 0 0 7px #050608;
+  will-change:transform,opacity;transform-style:preserve-3d}
+#screen{position:absolute;inset:13px;border-radius:42px;overflow:hidden;
+  background:radial-gradient(125% 100% at 50% 30%,#0f5340 0%,#0a3a2c 46%,#062018 100%)}
+#rail{position:absolute;inset:26px 22px auto 22px;height:300px;border-radius:160px/120px;
+  box-shadow:inset 0 0 0 3px rgba(255,255,255,.05),inset 0 14px 40px rgba(0,0,0,.35)}
+.glass{position:absolute;inset:0;border-radius:42px;pointer-events:none;
+  background:linear-gradient(115deg,rgba(255,255,255,.16) 0%,transparent 26%);opacity:.5;will-change:transform}
+.card{position:relative;width:52px;height:74px;border-radius:8px;background:linear-gradient(180deg,#fff,#eef1f6);
+  box-shadow:0 8px 16px rgba(0,0,0,.4);display:flex;flex-direction:column;align-items:center;justify-content:center;
+  will-change:transform,opacity;font-family:"SF Pro Display",-apple-system,sans-serif}
+.card .r{font-size:34px;font-weight:800;line-height:.9;letter-spacing:-.04em;color:#12161d}
+.card .s{font-size:21px;line-height:.9;margin-top:1px}
+.card.rd .r,.card.rd .s{color:#e0455a}
+.board{position:absolute;top:150px;left:50%;transform:translateX(-50%);display:flex;gap:9px}
+.hole{position:absolute;bottom:120px;left:50%;display:flex;gap:10px;transform:translateX(-50%)}
+.hole .card{width:62px;height:88px}
+.hole .card .r{font-size:40px}.hole .card .s{font-size:25px}
+#pot{position:absolute;top:248px;left:50%;transform:translateX(-50%);
+  background:rgba(4,12,9,.66);border:1px solid rgba(231,197,105,.32);border-radius:30px;
+  padding:7px 18px;color:#f0f3f6;font-size:18px;font-weight:700;letter-spacing:.02em;white-space:nowrap;
+  backdrop-filter:blur(3px);will-change:transform,opacity}
+#pot b{color:#ecca6e}
+#eq{position:absolute;top:392px;left:50%;transform:translateX(-50%);width:236px;
+  background:linear-gradient(180deg,rgba(14,18,24,.92),rgba(10,13,18,.92));
+  border:1px solid rgba(255,255,255,.08);border-radius:20px;padding:16px 18px 18px;
+  box-shadow:0 24px 50px -16px rgba(0,0,0,.7);will-change:transform,opacity}
+#eq .k{font-size:13px;letter-spacing:.18em;color:#9aa6b4;font-weight:700;text-transform:uppercase}
+#eq .v{font-size:54px;font-weight:800;letter-spacing:-.03em;color:#fff;line-height:1;margin-top:6px}
+#eq .v small{font-size:26px;color:#7fe0b6;font-weight:700;margin-left:2px}
+#eqbar{height:7px;border-radius:6px;background:rgba(255,255,255,.09);margin-top:13px;overflow:hidden}
+#eqfill{height:100%;width:0;border-radius:6px;background:linear-gradient(90deg,#3ea17a,#7fe0b6)}
+#gto{position:absolute;top:330px;left:50%;transform:translateX(-50%);
+  background:linear-gradient(180deg,#f3d27e,#e0b653);border-radius:18px;padding:13px 24px;
+  box-shadow:0 22px 46px -12px rgba(231,197,105,.5),0 0 0 1px rgba(255,255,255,.25) inset;
+  will-change:transform,opacity;text-align:center}
+#gto .a{font-size:30px;font-weight:800;color:#1a1206;letter-spacing:-.01em;line-height:1}
+#gto .c{font-size:12px;font-weight:700;letter-spacing:.12em;color:#5e4a16;margin-top:3px}
+.mc{position:absolute;bottom:0;width:9px;border-radius:5px 5px 0 0;
+  background:linear-gradient(180deg,#7fe0b6,#2f8e6a);will-change:transform,opacity;transform-origin:bottom}
+#cap{position:absolute;left:0;right:0;top:150px;text-align:center;will-change:opacity,transform}
+#cap span{display:inline-block;font-size:30px;font-weight:700;letter-spacing:.16em;color:#aeb9c6;
+  text-transform:uppercase;will-change:opacity,color,transform}
+#cap .dot{color:#566373;margin:0 14px}
+#lower{position:absolute;left:0;right:0;bottom:58px;text-align:center;will-change:opacity,transform}
+#lower span{font-size:37px;font-weight:700;letter-spacing:.16em;color:#d3dbe4;text-transform:uppercase;
+  text-shadow:0 2px 30px rgba(0,0,0,.6)}
+#ring{position:absolute;left:50%;top:50%;width:520px;height:520px;margin:-260px 0 0 -260px;will-change:opacity,transform}
+.seat{position:absolute;width:62px;height:62px;border-radius:50%;left:50%;top:50%;margin:-31px 0 0 -31px;
+  background:linear-gradient(160deg,#1c2128,#10141b);box-shadow:0 10px 24px rgba(0,0,0,.5);
+  border:2px solid rgba(231,197,105,.4);display:flex;align-items:center;justify-content:center;
+  font-size:24px;will-change:transform,opacity}
+
+/* ---- outro ---- */
+#outro{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;will-change:opacity}
+#wm{font-size:116px;font-weight:800;letter-spacing:-.02em;color:#f4f6fa;white-space:nowrap}
+#wm b{color:#ecca6e;font-weight:800}
+#wmrule{height:3px;width:520px;margin-top:26px;background:linear-gradient(90deg,transparent,#ecca6e,transparent);
+  transform:scaleX(0);transform-origin:center;will-change:transform,opacity}
+#tag{margin-top:24px;font-size:27px;font-weight:600;letter-spacing:.34em;color:#9aa6b4;text-transform:uppercase;will-change:opacity,transform}
+</style></head>
+<body><div id="stage">
+  <div class="bokeh" id="bk1"></div><div class="bokeh" id="bk2"></div>
+  <div class="bokeh" id="bk3"></div><div class="bokeh" id="bk4"></div>
+
+  <div id="phone"><div id="screen">
+    <div id="rail"></div>
+    <div class="board" id="board"></div>
+    <div id="pot">POT <b>$2,450</b> · TURN</div>
+    <div class="hole" id="hole"></div>
+    <div id="eq"><div class="k">Equity</div><div class="v"><span id="eqnum">0.0</span><small>%</small></div>
+      <div id="eqbar"><div id="eqfill"></div></div></div>
+    <div id="gto"><div class="a">RAISE 3.5×</div><div class="c">GTO · 92% CONFIDENCE</div></div>
+    <div class="glass"></div>
+  </div></div>
+
+  <div id="ring"></div>
+  <div id="cap"></div>
+  <div id="lower"><span></span></div>
+  <div id="scenes"></div>
+
+  <div id="outro"><div id="wm">MONTECARLO<b>&nbsp;EDGE</b></div>
+    <div id="wmrule"></div><div id="tag">Play the math.</div></div>
+
+  <div id="vign"></div><div id="grain"></div>
+</div>
+<script>
+const W=1920,H=1080;
+// ---------- easing ----------
+const E={
+  outExpo:p=>p>=1?1:1-Math.pow(2,-10*p),
+  outQuint:p=>1-Math.pow(1-p,5),
+  outBack:p=>{const c1=1.4,c3=c1+1;return 1+c3*Math.pow(p-1,3)+c1*Math.pow(p-1,2)},
+  inOutCubic:p=>p<.5?4*p*p*p:1-Math.pow(-2*p+2,3)/2,
+  inOutSine:p=>-(Math.cos(Math.PI*p)-1)/2,
+};
+const cl=v=>v<0?0:v>1?1:v;
+const seg=(t,s,d,e=E.outExpo)=>e(cl((t-s)/d));   // ramp 0..1
+const lerp=(a,b,p)=>a+(b-a)*p;
+const px=v=>v.toFixed(2)+'px';
+
+// ---------- grain tile (one-time) ----------
+(function(){const c=document.createElement('canvas');c.width=c.height=140;const x=c.getContext('2d');
+ const d=x.createImageData(140,140);for(let i=0;i<d.data.length;i+=4){const v=120+Math.random()*135|0;
+ d.data[i]=d.data[i+1]=d.data[i+2]=v;d.data[i+3]=255;}x.putImageData(d,0,0);
+ document.getElementById('grain').style.backgroundImage='url('+c.toDataURL()+')';
+ document.getElementById('grain').style.backgroundSize='140px 140px';})();
+
+// ---------- build cards ----------
+function mkCard(r,s,red){const el=document.createElement('div');el.className='card'+(red?' rd':'');
+ el.innerHTML='<div class="r">'+r+'</div><div class="s">'+s+'</div>';return el;}
+const BOARD=[['Q','♥',1],['7','♠',0],['2','♠',0],['9','♠',0],['A','♦',1]]; // flop+turn+river reveal staggered
+const boardEls=BOARD.map(c=>{const e=mkCard(c[0],c[1],c[2]);document.getElementById('board').appendChild(e);return e;});
+const HOLE=[['A','♠',0],['K','♠',0]];
+const holeEls=HOLE.map(c=>{const e=mkCard(c[0],c[1],c[2]);document.getElementById('hole').appendChild(e);return e;});
+// monte-carlo bars inside screen
+const mcEls=[];for(let i=0;i<22;i++){const b=document.createElement('div');b.className='mc';
+ b.style.left=(34+i*15)+'px';mcEls.push(b);document.getElementById('screen').appendChild(b);}
+// online ring seats
+const SEAT=['♠','♥','♦','♣','♠','♥'];
+const ringEls=SEAT.map((g,i)=>{const e=document.createElement('div');e.className='seat';e.textContent=g;
+ const ang=(-90+i*60)*Math.PI/180;e.dataset.x=Math.cos(ang)*230;e.dataset.y=Math.sin(ang)*230;
+ document.getElementById('ring').appendChild(e);return e;});
+
+// ---------- build text scenes ----------
+const TEXT=[
+ {s:0.30,o:2.30,sz:152,lines:[['SOMEONE','HAS'],['THE','EDGE']]},
+ {s:2.58,o:3.95,sz:150,g:1,lines:[['NOW.',"IT'S",'YOU.']]},
+ {s:15.50,o:16.80,sz:118,lines:[['TAKE','IT','ONLINE.']]},
+ {s:17.10,o:19.55,sz:132,lines:[['NO','CHARTS.'],['NO','GUESSING.']]},
+ {s:19.80,o:22.20,sz:170,g:1,lines:[['JUST','THE','EDGE.']]},
+];
+// lower-third captions during the product act (don't fight the phone)
+const LOWER=[{s:10.55,o:12.05,txt:'LIVE · IN YOUR HAND'},{s:13.55,o:15.25,txt:'PROVES ITS MATH'}];
+const sceneRoot=document.getElementById('scenes');
+TEXT.forEach(sc=>{const d=document.createElement('div');d.className='scene';
+ let wi=0;sc.words=[];
+ sc.lines.forEach(line=>{const ln=document.createElement('div');ln.className='ln';
+   line.forEach(w=>{const sp=document.createElement('span');sp.className='wd'+(sc.g?' g':'');
+     sp.textContent=w;sp.style.fontSize=sc.sz+'px';ln.appendChild(sp);sc.words.push(sp);wi++;});
+   d.appendChild(ln);});
+ sc.el=d;sceneRoot.appendChild(d);});
+
+// caption EQUITY · POT ODDS · RANGE
+const CAP=['EQUITY','POT ODDS','RANGE'];
+const capRoot=document.getElementById('cap');const capEls=[];
+CAP.forEach((w,i)=>{if(i){const dt=document.createElement('span');dt.className='dot';dt.textContent='·';capRoot.appendChild(dt);}
+ const sp=document.createElement('span');sp.textContent=w;capRoot.appendChild(sp);capEls.push(sp);});
+
+const $=id=>document.getElementById(id);
+const phone=$('phone'),eqnum=$('eqnum'),eqfill=$('eqfill'),gto=$('gto'),eq=$('eq'),pot=$('pot'),
+ ring=$('ring'),outro=$('outro'),wm=$('wm'),wmrule=$('wmrule'),tag=$('tag'),cap=$('cap');
+
+function setWord(el,o,y,sc,blur){el.style.opacity=o;
+ el.style.filter=blur>0.04?'blur('+blur.toFixed(2)+'px)':'none';
+ el.style.transform='translateY('+y.toFixed(2)+'px) scale('+sc.toFixed(4)+')';}
+
+// ===================== MASTER RENDER =====================
+window.render=function(t){
+ // ---- atmosphere ----
+ const dr=t/26.4;
+ $('bk1').style.transform='translate('+(160+Math.sin(t*.18)*70)+'px,'+(120+Math.cos(t*.15)*60)+'px)';
+ $('bk1').style.opacity=.9;
+ $('bk2').style.transform='translate('+(1180+Math.cos(t*.13)*80)+'px,'+(520+Math.sin(t*.17)*70)+'px)';
+ $('bk2').style.opacity=.85;
+ $('bk3').style.transform='translate('+(1320+Math.sin(t*.21+2)*60)+'px,'+(90+Math.cos(t*.19)*50)+'px)';
+ $('bk4').style.transform='translate('+(220+Math.cos(t*.16+1)*60)+'px,'+(640+Math.sin(t*.14)*60)+'px)';
+ const gp=(t*42)%140;$('grain').style.backgroundPosition=gp.toFixed(1)+'px '+((t*27)%140).toFixed(1)+'px';
+
+ // ---- text scenes ----
+ TEXT.forEach(sc=>{
+   const active=t>sc.s-0.3 && t<sc.o+0.6;
+   sc.el.style.opacity=active?1:0;
+   if(!active)return;
+   const dp=seg(t,sc.o,0.44,E.outQuint);          // group exit progress
+   sc.words.forEach((el,i)=>{
+     const ap=seg(t,sc.s+i*0.058,0.62,E.outExpo);  // staggered enter
+     const o=ap*(1-dp);
+     const y=lerp(34,0,ap) + dp*-16 + (t-sc.s)*0.6; // settle + slow drift + exit lift
+     const scv=lerp(1.07,1,ap)*(1+dp*0.04);
+     const blur=lerp(11,0,ap)+dp*7;
+     setWord(el,o,y,scv,blur);
+   });
+ });
+
+ // ---- product: phone reveal 3.9 ("reads the table"), exit 15.2 ("take it online") ----
+ const pin=seg(t,3.9,0.95,E.outExpo);
+ const pout=seg(t,15.2,0.7,E.inOutCubic);
+ const pVis=t>3.6 && t<16.2;
+ phone.style.opacity=pVis?(pin*(1-pout)):0;
+ if(pVis){
+   const ry=lerp(-11,-3.4,pin)+Math.sin(t*.5)*0.7;      // 3D settle + breathe
+   const rx=lerp(7,1.6,pin);
+   const push=seg(t,12.15,0.6,E.inOutSine)*(1-seg(t,13.7,0.5,E.inOutSine)); // GTO emphasis push-in
+   const py=lerp(150,0,pin)+pout*-90 + push*-10 + Math.sin(t*.45)*4;
+   const psc=lerp(.98,1.08,pin)*(1-pout*0.12)*(1+push*0.05);
+   const pblur=lerp(9,0,pin)+pout*8;
+   phone.style.filter=pblur>0.05?'blur('+pblur.toFixed(2)+'px)':'none';
+   phone.style.transform='translate(0,'+py.toFixed(1)+'px) rotateY('+ry.toFixed(2)+'deg) rotateX('+rx.toFixed(2)+'deg) scale('+psc.toFixed(4)+')';
+   document.querySelector('.glass').style.transform='translateX('+lerp(-420,420,cl((t-4.1)/2.6))+'px)';
+   // board deal (flop together 5.4, turn 6.3, river 7.0)
+   const dealT=[5.35,5.45,5.55,6.35,7.05];
+   boardEls.forEach((el,i)=>{const a=seg(t,dealT[i],0.5,E.outBack);
+     el.style.opacity=a;el.style.transform='translateY('+lerp(-18,0,a)+'px) rotateY('+lerp(90,0,a)+'deg) scale('+lerp(.8,1,a)+')';});
+   // hole cards
+   holeEls.forEach((el,i)=>{const a=seg(t,4.7+i*0.12,0.55,E.outBack);
+     el.style.opacity=a;el.style.transform='translateY('+lerp(26,0,a)+'px) rotateY('+lerp(80,0,a)+'deg) scale('+lerp(.8,1,a)+')';});
+   const potA=seg(t,5.0,0.5);pot.style.opacity=potA;pot.style.transform='translateX(-50%) translateY('+lerp(10,0,potA)+'px)';
+ }
+
+ // ---- caption EQUITY·POT ODDS·RANGE ("your equity, the pot odds, your opponent's range" 7.3–10) ----
+ const capVis=t>7.1 && t<10.5;cap.style.opacity=capVis?1:0;
+ if(capVis){const cdp=seg(t,10.0,0.4,E.outQuint);
+   capEls.forEach((el,i)=>{const a=seg(t,7.35+i*0.85,0.5,E.outExpo);
+     el.style.opacity=a*(1-cdp);el.style.color=a>0.6?'#ecca6e':'#aeb9c6';
+     el.style.transform='translateY('+lerp(14,0,a)+'px)';});
+   cap.querySelectorAll('.dot').forEach(d=>d.style.opacity=(1-cdp));
+ }
+ // equity card+count (7.3 in; number 7.5–9.0; exit with phone)
+ if(pVis){
+   const ea=seg(t,7.3,0.55,E.outExpo);
+   eq.style.opacity=ea;eq.style.transform='translateX(-50%) translateY('+lerp(16,0,ea)+'px) scale('+lerp(.94,1,ea)+')';
+   const cnt=seg(t,7.55,1.5,E.outQuint);const val=lerp(0,73.4,cnt);
+   eqnum.textContent=val.toFixed(1);eqfill.style.width=(val/100*100).toFixed(1)+'%';
+   // hide equity card once GTO takes over (12.1)
+   if(t>12.05){const h=seg(t,12.05,0.4,E.outQuint);eq.style.opacity=ea*(1-h);}
+ }
+ // GTO pill punch-in 12.15 ("train against an engine")
+ const gVis=t>12.05 && t<13.95;gto.style.opacity=gVis?1:0;
+ if(gVis){const ga=seg(t,12.15,0.5,E.outBack);const go=seg(t,13.5,0.4,E.outQuint);
+   gto.style.opacity=ga*(1-go);
+   gto.style.transform='translateX(-50%) translateY('+lerp(18,0,ga)+'px) scale('+(lerp(1.18,1,ga)*(1-go*0.06)).toFixed(3)+')';
+ }
+ // monte-carlo bars resolve ("proves its own math" 13.6–15.3) inside screen
+ mcEls.forEach((el,i)=>{const mv=t>13.55&&t<15.4;el.style.opacity=mv?1:0;
+   if(mv){const a=seg(t,13.65+i*0.02,0.6,E.outQuint);
+     const hgt=lerp(6,30+ ( (i*53)%70 ),a);   // pseudo-random heights
+     const mo=seg(t,15.0,0.4);
+     el.style.opacity=a*(1-mo);el.style.transform='scaleY('+(a).toFixed(3)+')';el.style.height=hgt.toFixed(0)+'px';
+     el.style.bottom='150px';}
+ });
+
+ // ---- lower-third caption (LIVE / PROVES) ----
+ let lw=null;LOWER.forEach(L=>{if(t>L.s-0.2&&t<L.o+0.5)lw=L;});
+ const lowerEl=$('lower');
+ if(lw){const a=seg(t,lw.s,0.6,E.outExpo),o=seg(t,lw.o,0.42,E.outQuint);
+   lowerEl.querySelector('span').textContent=lw.txt;
+   lowerEl.style.opacity=a*(1-o);
+   lowerEl.style.transform='translateY('+lerp(18,0,a).toFixed(1)+'px)';
+ }else lowerEl.style.opacity=0;
+
+ // ---- online ring ("then take it online" 15.3–17.0) ----
+ const rVis=t>15.3 && t<17.1;ring.style.opacity=rVis?1:0;
+ if(rVis){const ro=seg(t,16.7,0.4,E.outQuint);
+   ringEls.forEach((el,i)=>{const a=seg(t,15.5+i*0.06,0.5,E.outBack);
+     el.style.opacity=a*(1-ro);
+     el.style.transform='translate('+(el.dataset.x*a).toFixed(1)+'px,'+(el.dataset.y*a).toFixed(1)+'px) scale('+lerp(.4,1,a)+')';});
+   ring.style.transform='scale('+lerp(.9,1,seg(t,15.4,0.6))+')';
+ }
+
+ // ---- outro ("MonteCarlo Edge, play the player, own the table" 22.3–26.4) ----
+ const oVis=t>22.3;outro.style.opacity=oVis?1:0;
+ if(oVis){const oa=seg(t,22.45,0.7,E.outExpo);const ofade=seg(t,25.9,0.5,E.inOutSine);
+   outro.style.opacity=oa*(1-ofade);
+   wm.style.transform='scale('+lerp(1.06,1,oa).toFixed(4)+')';
+   wm.style.filter=lerp(8,0,oa)>0.05?'blur('+lerp(8,0,oa).toFixed(2)+'px)':'none';
+   wm.style.opacity=oa;
+   wmrule.style.transform='scaleX('+seg(t,22.95,0.8,E.outExpo).toFixed(3)+')';
+   const ta=seg(t,23.6,0.6,E.outExpo);tag.style.opacity=ta;tag.style.transform='translateY('+lerp(12,0,ta)+'px)';
+ }
+};
+window.render(0);
+document.body.dataset.ready='1';
+</script></body></html>
