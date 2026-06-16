@@ -244,9 +244,19 @@ export const joinTable = onCall(async (req) => {
       persist(tx, code, t, version + 1, baseline, false, currency);
       return { code, spectator: true };
     }
-    if (t.status === "in_hand") throw new HttpsError("failed-precondition", "Hand in progress — try again in a moment.");
+    // WSOP-style: joining or REJOINING mid-hand is allowed — you take an open seat but are
+    // dealt in on the NEXT hand (this hand's liveSeats are fixed at deal, so you just watch it
+    // finish). No "try again" reject. If the room is full right now, fall back to spectating.
+    const midHand = t.status === "in_hand";
     let seatIdx = t.seats.findIndex((s) => !s.uid && !s.ai);
-    if (seatIdx < 0) throw new HttpsError("failed-precondition", "Room is full.");
+    if (seatIdx < 0) {
+      if (midHand) {
+        const list = (t.spectators ?? []).filter((s) => s.uid !== uid); list.push({ uid, name });
+        t.spectators = list; persist(tx, code, t, version + 1, baseline, false, currency);
+        return { code, spectator: true, full: true };
+      }
+      throw new HttpsError("failed-precondition", "Room is full.");
+    }
     // Leaving the spectators list when taking a seat (so the same user isn't double-listed).
     if ((t.spectators ?? []).some((s) => s.uid === uid)) {
       t.spectators = (t.spectators ?? []).filter((s) => s.uid !== uid);
@@ -269,8 +279,10 @@ export const joinTable = onCall(async (req) => {
     sit(t, uid, name, seatIdx);
     if (t.seats[seatIdx]) t.seats[seatIdx]!.assisted = (u.exists ? u.data()?.edgePass : undefined) === true;
     tx.set(userRef(uid), { name, [balField(currency)]: bal - t.startingStack }, { merge: true });
-    persist(tx, code, t, version + 1, baseline, false, currency);
-    return { code, seatIdx, currency };
+    // Seated mid-hand → the table total just grew by the buy-in; bump the conservation
+    // baseline so THIS hand's settle still balances (the next startHand recomputes it fresh).
+    persist(tx, code, t, version + 1, midHand ? baseline + t.startingStack : baseline, false, currency);
+    return { code, seatIdx, currency, nextHand: midHand };
   });
 });
 
@@ -329,14 +341,15 @@ export const startHand = onCall(async (req) => {
 /** A human acts. Actor derived from the verified token; version-locked; bots chain. */
 export const act = onCall(async (req) => {
   const uid = uidOf(req);
-  const { code, action, expectedVersion } = (req.data ?? {}) as
-    { code?: string; action?: MPAction; expectedVersion?: number };
+  const { code, action } = (req.data ?? {}) as { code?: string; action?: MPAction };
   if (!code || !action) throw new HttpsError("invalid-argument", "code + action required.");
   return db.runTransaction(async (tx) => {
     const { t, version, baseline, currency } = await loadState(tx, code);
-    if (typeof expectedVersion === "number" && expectedVersion !== version) {
-      throw new HttpsError("aborted", "stale"); // client retries with fresh snapshot
-    }
+    // No optimistic stale-reject: engineAct below validates turn (from the verified uid) +
+    // action legality, so a version bump from a bot/opponent acting elsewhere never blocks a
+    // still-legal action. (The old expectedVersion check surfaced to the player as a "stale"
+    // hang even though their action was fine — the Firestore transaction already serializes
+    // concurrent writes, and an out-of-turn/illegal retry is caught by engineAct.)
     const r = engineAct(t, uid, action); // validates turn (from uid) + legality + min-raise
     if (!r.ok) throw new HttpsError("failed-precondition", r.err ?? "illegal action");
     runBots(t); // resolve any bots up to the next human / hand end

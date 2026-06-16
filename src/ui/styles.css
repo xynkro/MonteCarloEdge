@@ -508,8 +508,14 @@ body::after {
   animation: dealCard .3s cubic-bezier(.2,.8,.3,1.1) both;
 }
 .seat-hole.red { color: var(--card-red); }
-/* Showdown reveal: opponents' cards turn face-up (rotateY flip), staggered. */
-.seat-hole.reveal { animation: holeReveal .42s cubic-bezier(.2,.8,.3,1.1) both; transform-origin: center; }
+/* Showdown reveal: opponents' cards turn face-up (rotateY flip), staggered. Enlarged well
+   beyond the in-hand 26×36 so the hand you're shown is unmissable — the whole point of a
+   showdown (paired with .win gold-glow / .lose dim below). */
+.seat-hole.reveal {
+  width: 42px; height: 58px; font-size: 24px; border-radius: 7px;
+  box-shadow: 0 4px 12px rgba(0,0,0,.6);
+  animation: holeReveal .42s cubic-bezier(.2,.8,.3,1.1) both; transform-origin: center;
+}
 @keyframes holeReveal { from { transform: rotateY(85deg) scale(.92); opacity: 0; } to { transform: rotateY(0) scale(1); opacity: 1; } }
 .chip-dot {
   width: 9px; height: 9px; border-radius: 50%;

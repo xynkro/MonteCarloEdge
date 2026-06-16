@@ -3870,7 +3870,10 @@ let _autoDealAt = 0; // epoch ms when the auto-deal fires (drives the countdown 
 function stopAutoDeal(): void { if (_autoDealT) { clearInterval(_autoDealT); _autoDealT = null; } _autoDealAt = 0; }
 function startAutoDeal(code: string): void {
   if (_autoDealT) return;
-  _autoDealAt = Date.now() + 5000;
+  // Linger on a SHOWDOWN (revealed cards present) so you can actually read the opponent's
+  // hand before the next deal; stay snappy on a fold-out (nothing was shown).
+  const showdown = !!S.net.pub && Object.keys((S.net.pub as { revealedHoles?: Record<string, unknown> }).revealedHoles || {}).length > 0;
+  _autoDealAt = Date.now() + (showdown ? 9000 : 4500);
   _autoDealT = setInterval(() => {
     const pub = S.net.pub;
     if (S.screen !== "mp-net" || S.net.code !== code || !pub || pub.status !== "hand_over") { stopAutoDeal(); return; }
@@ -5851,6 +5854,8 @@ if (FB.DEV_EMU) {
     passkeySupported: () => FB.passkeySupported(),
     passkeyRegister: () => FB.passkeyRegister("caspar"),
     passkeySignIn: () => FB.passkeySignIn(),
+    mp: FB,        // raw MP adapter (createRoom/addBot/dealHand/actRoom/joinRoom…) for the test harness
+    enterRoom,     // subscribe to a room so S.net.pub tracks the authoritative snapshot
   };
   // eslint-disable-next-line no-console
   console.log("%c🔧 __MCE_DEV ready — call __MCE_DEV.signIn('caspar')", "color:#1f9d6b;font-weight:bold");
