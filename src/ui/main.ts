@@ -3841,6 +3841,7 @@ async function joinNetRoom(code: string): Promise<void> {
 
 let _fomoDismissed = false; // user closed the "unlock MCE" upsell this session
 let _netActing = false; // optimistic: true between tapping an action and the next snapshot
+let _netResyncing = false; // true while a stale-frame recovery re-subscribe is in flight (loop guard)
 let _netActingSince = 0; // timestamp the in-flight action started (drives the "still loading…" escalation)
 let _netBetOpen = false; // bet-sizing keypad panel open
 let _netBetAmt = 0; // current keypad value = total bet / raise-to
@@ -3869,8 +3870,24 @@ async function netAct(action: { type: string; amount?: number }): Promise<void> 
     else if (action.type === "bet" || action.type === "raise") { const add = Math.max(0, Math.min((action.amount ?? 0) - s.bet, s.chips)); s.chips -= add; s.bet += add; pub.pot = ((pub.pot as number) || 0) + add; pub.currentBet = Math.max(cur, s.bet); }
   }
   if (S.screen === "mp-net") render();
-  try { await FB.actRoom(code, action, pub.version as number); }
-  catch (e) { clearTimeout(_actSafety); clearTimeout(_actEscalate); _netActing = false; S.net.err = friendlyErr(e); if (S.screen === "mp-net") render(); }
+  try { await FB.actRoom(code, action, pub.version as number); _netResyncing = false; }
+  catch (e) {
+    clearTimeout(_actSafety); clearTimeout(_actEscalate); _netActing = false;
+    const msg = friendlyErr(e);
+    // STALE/COALESCED-FRAME RECOVERY: the server rejects with "no hand in progress" / "not your
+    // turn" precisely when our S.net.pub is frozen on a dead in_hand frame (the hand-over/next
+    // frame was coalesced away by onSnapshot). Don't strand the user on the stale error + stale
+    // controls — drop the stale snapshot and re-subscribe so a fresh onSnapshot delivers the
+    // authoritative state. _netResyncing gates this to ONE resync per failed act so a genuinely
+    // out-of-turn tap (state already correct) can't spin an infinite refetch loop; the flag clears
+    // on the next successful act (and on room entry/leave).
+    if (/no hand in progress|not your turn/i.test(msg) && !_netResyncing && S.net.code) {
+      _netResyncing = true; S.net.err = "";
+      void enterRoom(S.net.code); // clearNetSubs + fresh subscribeRoom → immediate authoritative frame
+      return;
+    }
+    S.net.err = msg; if (S.screen === "mp-net") render();
+  }
 }
 async function netDeal(silent = false): Promise<void> {
   const code = S.net.code; if (!code) return;
@@ -4077,7 +4094,7 @@ function stopNetClock(): void { if (_netClock != null) { clearInterval(_netClock
 async function netLeave(): Promise<void> {
   const code = S.net.code; clearNetSubs(); stopNetClock(); stopAutoDeal();
   if (code) { try { await FB.leaveRoom(code); } catch { /* */ } }
-  S.net.code = null; S.net.pub = null; S.net.myHand = null; S.net.myRec = null; S.net.err = "";
+  S.net.code = null; S.net.pub = null; S.net.myHand = null; S.net.myRec = null; S.net.err = ""; _netResyncing = false;
   S.screen = "mp-setup"; render();
 }
 
@@ -4338,7 +4355,7 @@ function renderNetBetPad(): void {
   overlay.innerHTML = `
     <div class="modal-content">
       <h3>${label}</h3>
-      <div class="betpad-display" id="nbp-display">${sym} ${mpc(amt0)}<span class="betpad-bb">${(amt0 / bb).toFixed(1)} bb${toCall > 0 ? ` · to call ${mpc(toCall)}` : ""}</span></div>
+      <div class="betpad-display${_netBetTyped ? "" : " suggested"}" id="nbp-display">${sym} ${mpc(amt0)}<span class="betpad-bb">${(amt0 / bb).toFixed(1)} bb${toCall > 0 ? ` · to call ${mpc(toCall)}` : ""}</span></div>
       <div class="betpad-presets">
         <button class="preset-btn" data-bp="min">Min<br><span>${sym} ${mpc(minTo)}</span></button>
         <button class="preset-btn" data-bp="half">½ Pot<br><span>${sym} ${mpc(half)}</span></button>
@@ -4355,7 +4372,7 @@ function renderNetBetPad(): void {
   const refresh = (): void => {
     const a = clamp(_netBetAmt || minTo);
     const disp = document.getElementById("nbp-display");
-    if (disp) disp.innerHTML = `${sym} ${mpc(_netBetAmt || 0)}<span class="betpad-bb">${((_netBetAmt || 0) / bb).toFixed(1)} bb${toCall > 0 ? ` · to call ${mpc(toCall)}` : ""}</span>`;
+    if (disp) { disp.innerHTML = `${sym} ${mpc(_netBetAmt || 0)}<span class="betpad-bb">${((_netBetAmt || 0) / bb).toFixed(1)} bb${toCall > 0 ? ` · to call ${mpc(toCall)}` : ""}</span>`; disp.classList.toggle("suggested", !_netBetTyped); }
     const conf = document.getElementById("nbp-confirm");
     if (conf) conf.innerHTML = `${label} ${sym} ${mpc(a)}`;
   };
@@ -4586,7 +4603,15 @@ function renderNetTable(): void {
   // the hero seat and the board) so online and training read the same.
   const potHtml = `<div class="pot-line"><span class="table-pot">${mpc((pub.pot as number) || 0)}</span><span class="pot-street">${capWord(pub.street || "preflop")}</span></div>`;
 
-  const myTurn = status === "in_hand" && pub.toAct >= 0 && seats[pub.toAct]?.uid === uid;
+  // STALE/COALESCED-FRAME GUARD: a folded seat can never legitimately be to-act. If toAct points
+  // at MY own seat and that seat reads folded, we are either (a) on a dropped hand-over frame, or
+  // (b) on the ~300ms optimistic re-render right after I tapped Fold (the client sets s.folded=true
+  // at netAct but does NOT advance pub.toAct, so toAct still == my seat). In BOTH cases we want to
+  // leave the `else if (myTurn)` branch — but case (b) is the normal happy path and must keep
+  // showing the in-flight "Sending…" view, NOT the "…to act…" wait. So suppress only when we are
+  // NOT mid-send: _netActing distinguishes the optimistic-fold frame (true) from a genuinely stale
+  // frozen frame (false, because the send already completed/failed).
+  const myTurn = status === "in_hand" && pub.toAct >= 0 && seats[pub.toAct]?.uid === uid && !(seats[pub.toAct]?.folded && !_netActing);
   // Did I win the hand that just ended? Server tells us directly (pub.lastWinners), so it's
   // robust even when an instant fold-out skips the in_hand frame. Drives the Share-win CTA.
   const mySeatIdx = seats.findIndex((s) => s.uid === uid);
@@ -4619,11 +4644,15 @@ function renderNetTable(): void {
   } else if (status === "hand_over") {
     const shareBtn = iWonAmt > 0 ? `<button class="share-win-btn" id="net-share-win">📸 Share this win · +${mpc(iWonAmt)}</button>` : "";
     const mySeated = occupied.some((x) => x.s.uid === uid && x.s.chips > 0);
-    // Last-man-standing detection: I'm seated with chips AND every other occupied seat
-    // is busted (chips=0). Without this we'd auto-deal into a server-side "need 2+ players
-    // with chips" error and the table would silently stall instead of celebrating the win.
-    const liveOpponents = occupied.filter((x) => !(x.s.uid === uid) && x.s.chips > 0).length;
-    const wonTheRoom = mySeated && occupied.length >= 2 && liveOpponents === 0;
+    // Last-man-standing detection: I'm seated with chips AND every other seat that ever
+    // took a seat is busted (chips=0). We count opponents over allOccupied — NOT occupied —
+    // because the instant a bot busts it's SIDELINED out of `occupied` (chips=0 && !inHand,
+    // see ~4404), so by hand_over `occupied` is just me. Gating on `occupied.length >= 2`
+    // would therefore never fire, and we'd auto-deal into a server-side "Need 2+ players
+    // with chips" error and stall instead of celebrating the win.
+    const totalOpponents = allOccupied.filter((x) => !(x.s.uid === uid)).length;
+    const liveOpponents = allOccupied.filter((x) => !(x.s.uid === uid) && x.s.chips > 0).length;
+    const wonTheRoom = mySeated && totalOpponents >= 1 && liveOpponents === 0;
     if (wonTheRoom) {
       stopAutoDeal();
       const myFinal = (seats.find((s) => s.uid === uid)?.chips ?? 0);
@@ -4634,7 +4663,7 @@ function renderNetTable(): void {
           ${confettiHtml()}
           <div class="wr-trophy">🏆</div>
           <div class="wr-title">YOU WIN THE ROOM</div>
-          <div class="wr-sub">Last player standing${liveOpponents === 0 && occupied.length === 2 ? " · heads-up" : ""}</div>
+          <div class="wr-sub">Last player standing${totalOpponents === 1 ? " · heads-up" : ""}</div>
           <div class="wr-stack"><span class="wr-final">${sym} ${mpc(myFinal)}</span>${profit > 0 ? `<span class="wr-profit">+${mpc(profit)}</span>` : ""}</div>
           ${shareBtn}
           <div class="wr-actions">
@@ -4675,7 +4704,7 @@ function renderNetTable(): void {
       // via the keypad's All-in preset (no standalone button).
       controls = `${hero}${mceCard}
       <div class="action-bar">
-        <button class="action-btn fold" id="na-fold">Fold</button>
+        ${toCall > 0 ? `<button class="action-btn fold" id="na-fold">Fold</button>` : ""}
         ${toCall > 0 ? `<button class="action-btn call" id="na-call">Call ${mpc(toCall)}</button>` : `<button class="action-btn check" id="na-check">Check</button>`}
         <button class="action-btn ${cur > 0 ? "raise" : "bet"}" id="na-bet">${cur > 0 ? "Raise" : "Bet"}</button>
       </div>`;
@@ -4726,6 +4755,9 @@ function renderNetTable(): void {
     if (myMax <= minTo) { void netAct(myMax <= cur ? { type: "call" } : { type: cur > 0 ? "raise" : "bet", amount: myMax }); return; } // short stack → all-in call or all-in raise
     _netBetTyped = ""; // start the keypad showing the suggested default
     _netBetAmt = Math.max(minTo, Math.min(myMax, cur > 0 ? cur + (pub.pot as number) : (pub.pot as number) || bb)); // default = pot
+    // If MCE recommends a sized action, seed THAT as the greyed default (overridable by typing) —
+    // parity with the trainer keypad. Non-sized recs (fold/check/call) keep the pot default.
+    if (S.net.myRec && S.net.myRec.amount > 0 && (S.net.myRec.action === "bet" || S.net.myRec.action === "raise")) _netBetAmt = Math.max(minTo, Math.min(myMax, Math.round(S.net.myRec.amount)));
     _netBetOpen = true; render();
   });
   // Bet/raise keypad is a bottom-sheet MODAL (same as the training table) — appended to
