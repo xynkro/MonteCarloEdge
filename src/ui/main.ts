@@ -3473,7 +3473,8 @@ function renderMpSetup(): void {
   const noPrem = premium && bal <= 0;
   app.innerHTML = `
     <div class="setup">
-      <div class="doc-top"><button class="hdr-btn" id="mp-back">← Back</button><h1>🌐 Play Online</h1><span style="width:54px"></span></div>
+      <div class="doc-top"><button class="hdr-btn" id="mp-back">← Back</button><h1>🌐 Play Online</h1>${online.length ? `<button class="online-pill ${_onlineOpen ? "open" : ""}" id="online-pill" title="Who's online">🟢 ${online.length}</button>` : `<span style="width:54px"></span>`}</div>
+      ${_onlineOpen && online.length ? `<div class="online-list">${online.map((p) => `<span class="ol-chip">🟢 ${esc(p.name)}</span>`).join("")}</div>` : ""}
 
       <div class="room-bal"><span>Balance <strong><i class=ic-coin></i> ${fmtBal(S.wallet.play)}</strong> · <strong><i class=ic-gem></i> ${fmtBal(S.wallet.premium)}</strong></span><button class="hdr-btn" id="room-buychips">＋ Buy chips</button></div>
 
@@ -3483,6 +3484,11 @@ function renderMpSetup(): void {
         <span class="hint">Ask the host for their 4-letter code — Watch to spectate without paying a buy-in.</span>
       </div>
       ${S.net.err ? `<div class="room-broke" style="margin:8px 0">${esc(S.net.err)}</div>` : ""}
+
+      ${myRooms().length ? `<div class="your-games">
+        <div class="pr-head"><label>↩ Your games · resume</label></div>
+        <div class="pr-list">${myRooms().map((r) => `<div class="pr-row yg" data-resume="${r.code}"><span class="pr-code">${r.code}</span><span class="pr-meta">${esc(r.label)}</span><button class="yg-x" data-forget="${r.code}" title="Forget this room">✕</button></div>`).join("")}</div>
+      </div>` : ""}
 
       <div class="public-rooms">
         <div class="pr-head"><label>Online games${S.net.publicRooms ? ` · ${S.net.publicRooms.length}` : ""}</label><button class="hdr-btn pr-refresh" id="pr-refresh" title="Refresh">${S.net.publicRoomsBusy ? '<span class="spin"></span>' : "↻"}</button></div>
@@ -3543,9 +3549,11 @@ function renderMpSetup(): void {
         </div>
       </div>` : ""}
 
-      ${online.length ? `<div class="online-foot"><span class="online-dot">🟢</span> ${online.length} player${online.length === 1 ? "" : "s"} online</div>` : ""}
     </div>`;
   onId("mp-back", "click", () => { S.screen = "home"; render(); });
+  onId("online-pill", "click", () => { _onlineOpen = !_onlineOpen; render(); });
+  app.querySelectorAll("[data-resume]").forEach((b) => onEl(b, "click", () => void joinNetRoom((b as HTMLElement).dataset.resume!)));
+  app.querySelectorAll("[data-forget]").forEach((b) => onEl(b, "click", (e) => { e.stopPropagation(); removeMyRoom((b as HTMLElement).dataset.forget!); render(); }));
   onId("create-toggle", "click", () => { _createOpen = !_createOpen; render(); });
   onId("opts-toggle", "click", () => { _createOptsOpen = !_createOptsOpen; render(); });
   onId("room-buychips", "click", () => { S.screen = "store"; render(); });
@@ -3720,6 +3728,16 @@ let _roomAssisted = false; // MCE Strategy overlay toggle (Edge Pass only)
 let _roomPublic = true;    // public-by-default — listed in Online Games when waiting
 let _createOpen = false;   // Play Online: "Create your own" config collapsed by default (declutter)
 let _createOptsOpen = false; // …and the secondary table-options (MCE/privacy/bot speed) nested under it
+let _onlineOpen = false;   // Play Online: the "who's online" name list expanded
+// "Your games": a LOCAL bookmark of rooms you created. The room persists server-side, but
+// listPublicRooms only returns WAITING rooms — so once you've dealt a hand it drops off the
+// public list and a bot game you leave looks "gone". This list lets you jump back into it.
+type MyRoom = { code: string; label: string; ts: number };
+function myRooms(): MyRoom[] { try { return JSON.parse(localStorage.getItem("mce-myrooms") || "[]") as MyRoom[]; } catch { return []; } }
+function addMyRoom(code: string, label: string): void {
+  try { const list = myRooms().filter((r) => r.code !== code); list.unshift({ code, label, ts: Date.now() }); localStorage.setItem("mce-myrooms", JSON.stringify(list.slice(0, 6))); } catch { /* */ }
+}
+function removeMyRoom(code: string): void { try { localStorage.setItem("mce-myrooms", JSON.stringify(myRooms().filter((r) => r.code !== code))); } catch { /* */ } }
 function clearNetSubs(): void {
   if (_netTableUnsub) { _netTableUnsub(); _netTableUnsub = null; }
   if (_netHandUnsub) { _netHandUnsub(); _netHandUnsub = null; }
@@ -3785,6 +3803,7 @@ async function createNetRoom(): Promise<void> {
   try {
     // Create EMPTY (no AI) — bots are added in the lobby. MCE overlay only if entitled.
     const { code } = await FB.createRoom({ tier: tier.name, buyIn: su.buyIn, name: S.profile.nickname, bots: [], currency: _roomCurrency, assisted: hasEdge() && _roomAssisted, isPublic: _roomPublic });
+    addMyRoom(code, `${tier.name} · ${su.buyIn.toLocaleString()} ${_roomCurrency === "premium" ? "premium" : "chips"}`);
     S.net.busy = false; await enterRoom(code);
   } catch (e) { S.net.busy = false; S.net.err = friendlyErr(e); render(); }
 }
