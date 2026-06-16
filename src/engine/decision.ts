@@ -93,10 +93,13 @@ export function recommend(
   profiles?: ProfileMap,
   icm?: IcmConfig,
   style: HeroStyle = STYLE_GTO,
+  // Optional Monte-Carlo iteration override. Omitting it preserves the trainer's full
+  // precision; the server bots pass a small value so the per-action tick stays fast.
+  equityIters?: number,
 ): Recommendation {
   const r = state.street === "preflop"
     ? preflopRecommend(state, villainProfile ?? TAG, profiles, icm, style)
-    : postflopRecommend(state, villainProfile ?? TAG, rng ?? mulberry32(0xdec1de), profiles, style);
+    : postflopRecommend(state, villainProfile ?? TAG, rng ?? mulberry32(0xdec1de), profiles, style, equityIters);
   // Tag provenance: preflop is the Nash push/fold chart when short (its reasoning
   // says "jam"/"all-in") else a hand-authored chart; postflop is MC-equity
   // heuristics (the live CFR solver is layered on in the UI for solvable spots).
@@ -580,6 +583,7 @@ function postflopRecommend(
   rng: Rng,
   profiles?: ProfileMap,
   style: HeroStyle = STYLE_GTO,
+  equityIters?: number,
 ): Recommendation {
   const hero = state.heroCards;
   const seat = state.heroSeat;
@@ -590,7 +594,7 @@ function postflopRecommend(
   const small = state.tableSize <= 4;
   const VALUE_BET = hu ? 0.48 : small ? 0.53 : 0.60;
   const THIN_VALUE = hu ? 0.33 : small ? 0.36 : 0.40;
-  const RAISE_EDGE = hu ? 0.07 : 0.10;
+  const RAISE_EDGE = hu ? 0.05 : 0.07;
 
   // Collect ALL active villains for multiway equity.
   const villainSeats: number[] = [];
@@ -616,8 +620,8 @@ function postflopRecommend(
   }
 
   const eqResult = ranges.length === 1
-    ? monteCarloEquityVsRange({ hero, villainRange: ranges[0]!, board: state.board, iterations: 6000, rng })
-    : monteCarloEquityMultiway({ hero, villainRanges: ranges, board: state.board, iterations: 8000, rng });
+    ? monteCarloEquityVsRange({ hero, villainRange: ranges[0]!, board: state.board, iterations: equityIters ?? 6000, rng })
+    : monteCarloEquityMultiway({ hero, villainRanges: ranges, board: state.board, iterations: equityIters ?? 8000, rng });
   const eq = eqResult.equity; // raw all-in equity (displayed)
 
   // Hand context.
@@ -734,13 +738,18 @@ function postflopRecommend(
     }
   }
   const callBar = odds + callCushion + bluffCatchAdj;
+  const tex = analyzeBoard(state.board); // board texture — also drives the bet-sizing tiers below
 
   if (tc > 0) {
     const evCall = eq * state.potAfterCall(seat) - tc;
     const canRaise = state.stacks[seat]! > tc;
 
-    if (dq > odds + RAISE_EDGE && canRaise) {
-      const raiseMult = dq > 0.75 ? 3.5 : dq > 0.60 ? 3.0 : 2.5;
+    // Draw-heavy boards → raise to DENY equity (protect made hands before villain
+    // completes a flush/straight): lower the edge needed and size up to charge draws.
+    const protect = tex.wet || tex.monotone;
+    const raiseEdge = protect ? Math.max(0.03, RAISE_EDGE - 0.04) : RAISE_EDGE;
+    if (dq > odds + raiseEdge && canRaise) {
+      const raiseMult = (dq > 0.75 ? 3.5 : dq > 0.60 ? 3.0 : 2.5) * (protect ? 1.12 : 1.0);
       const amt = Math.min(
         Math.max(state.currentBet * raiseMult, state.pot + tc),
         state.stacks[seat]! + state.streetInvested[seat]!,
@@ -748,7 +757,7 @@ function postflopRecommend(
       return fin({
         action: "raise", amount: amt, equity: eq, potOdds: odds,
         ev: { fold: 0, call: evCall, raise: evCall * 1.3 },
-        reasoning: `Raise — ${handLabel} (${posTag}), ${pct(eq)} equity vs ${pct(odds)} pot odds${wayTag}`,
+        reasoning: `Raise — ${handLabel} (${posTag}), ${pct(eq)} equity vs ${pct(odds)} pot odds${protect ? " · protect vs draws" : ""}${wayTag}`,
       });
     }
 
@@ -840,7 +849,6 @@ function postflopRecommend(
   for (const vs of villainSeats) maxVilRem = Math.max(maxVilRem, state.stacks[vs]!);
   const betCap = Math.max(0, Math.min(heroStack, maxVilRem));
   const pot = state.pot;
-  const tex = analyzeBoard(state.board);
   const conn = heroConnection(hero, state.board);
   // For polarized BETS (bluffs/semi-bluffs), a dry board lets you size up. For
   // made-VALUE bets it's the opposite: size up on WET/dynamic boards to charge
@@ -965,7 +973,7 @@ function postflopRecommend(
     const barrelCredit = wasAggressor ? 0.05 : 0;
     // Each extra caller steeply raises the bar (someone always has it multiway);
     // hero aggression lowers it (bluff more often).
-    const need = breakeven + 0.05 + 0.14 * (nVil - 1) - blockerCredit - barrelCredit
+    const need = breakeven + 0.02 + 0.14 * (nVil - 1) - blockerCredit - barrelCredit
       - (style.aggression - 1) * 0.12;
     if (foldy > need && heroStack > pot * frac) {
       const size = Math.min(pot * frac, betCap);

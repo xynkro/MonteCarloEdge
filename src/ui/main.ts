@@ -43,6 +43,16 @@ import * as Hist from "./history.js";
 const RANKS = "23456789TJQKA";
 const SUITS = ["♣", "♦", "♥", "♠"];
 const SUIT_RED = [false, true, true, false];
+
+// Refined line-icons (currentColor) — replace cartoony emoji on home tiles.
+const _svg = (b: string): string =>
+  `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round">${b}</svg>`;
+const ICON_TARGET = _svg(`<circle cx="12" cy="12" r="8.3"/><circle cx="12" cy="12" r="3.7"/><path d="M12 1.4v3.1M12 19.4v3.2M1.4 12h3.1M19.4 12h3.2"/><circle cx="12" cy="12" r="1.05" fill="currentColor" stroke="none"/>`);
+const ICON_GLOBE = _svg(`<circle cx="12" cy="12" r="8.4"/><path d="M3.6 12h16.8"/><path d="M12 3.6c2.7 2.4 2.7 14.4 0 16.8c-2.7-2.4-2.7-14.4 0-16.8z"/><path d="M5.4 6.5c1.9 1.2 11.3 1.2 13.2 0M5.4 17.5c1.9-1.2 11.3-1.2 13.2 0"/>`);
+const ICON_BAG = _svg(`<path d="M5.6 7.8h12.8l-.85 11.1a1.7 1.7 0 0 1-1.7 1.6H8.15a1.7 1.7 0 0 1-1.7-1.6z"/><path d="M8.7 7.8V6.3a3.3 3.3 0 0 1 6.6 0v1.5"/>`);
+const ICON_USER = _svg(`<circle cx="12" cy="8" r="3.9"/><path d="M4.6 20a7.4 7.4 0 0 1 14.8 0"/>`);
+const ICON_BOLT = _svg(`<path d="M12.8 2.4 4.7 13.3h6l-1.4 8.3 8.1-10.9h-6z" fill="currentColor" fill-opacity=".14"/>`);
+const ICON_CHART = _svg(`<path d="M4 20h16"/><rect x="5.3" y="11.5" width="3.2" height="6.5" rx=".7"/><rect x="10.4" y="7" width="3.2" height="11" rx=".7"/><rect x="15.5" y="13.5" width="3.2" height="4.5" rx=".7"/>`);
 const PROFILES: Record<string, OpponentProfile> = { Auto: AUTO, TAG, LAG, Station: STATION, Nit: NIT };
 
 // A reversible snapshot of mid-hand state (live mode). Pushed before each
@@ -62,7 +72,7 @@ interface UndoSnapshot {
 }
 
 interface AppState {
-  screen: "home" | "setup" | "game" | "stats" | "leaks" | "mp-setup" | "mp-table" | "mp-lobby" | "mp-net" | "profile" | "settings" | "legal" | "explainer" | "store" | "signin" | "inbox" | "compose" | "admin" | "onboard" | "history";
+  screen: "home" | "landing" | "setup" | "game" | "stats" | "leaks" | "mp-setup" | "mp-table" | "mp-lobby" | "mp-net" | "profile" | "settings" | "legal" | "explainer" | "store" | "signin" | "inbox" | "compose" | "admin" | "onboard" | "history";
   // Player profile (local-first; syncs name/avatar to Firestore when signed in).
   profile: { nickname: string; avatar: string; chips: number };
   // Multiplayer / benchmark (Phase 0 hot-seat + Phase 1 online lobby).
@@ -388,11 +398,12 @@ function flipFaces(content: string): string {
 function cardDisplay(c: Card): string {
   return RANKS[rankOf(c)] + SUITS[suitOf(c)];
 }
-// Card face for the big cards (board + hero). Reverted to the clean single centred rank+suit
-// glyph — the earlier corner-index version read as a "pill" rather than a card. (cardDisplay
-// is identical but kept separate for the share-card canvas / plain-text uses.)
+// Card face: a BIG rank centred with the suit directly below it — rank-dominant so the
+// number/letter is easy to read at a glance. The face fills the card (.flip-front fix).
+// cardDisplay stays the bare glyph for the share-card canvas / tiny seat cards.
 function cardFace(c: Card): string {
-  return RANKS[rankOf(c)] + SUITS[suitOf(c)];
+  const r = RANKS[rankOf(c)], s = SUITS[suitOf(c)];
+  return `<span class="cf-r">${r}</span><span class="cf-s">${s}</span>`;
 }
 function isRed(c: Card): boolean {
   return SUIT_RED[suitOf(c)]!;
@@ -425,6 +436,7 @@ function render(): void {
   // readable from the gate itself before confirming.
   if (!ageConfirmed() && S.screen !== "legal" && S.screen !== "explainer") { renderAgeGate(); return; }
   if (S.screen === "home") renderHome();
+  else if (S.screen === "landing") renderLanding();
   else if (S.screen === "profile") renderProfile();
   else if (S.screen === "settings") renderSettings();
   else if (S.screen === "legal") renderLegal();
@@ -1901,6 +1913,7 @@ function renderGame(): void {
           <div class="felt"></div>
           ${seats}
           <div class="board-center" id="board-area">${boardHtml}</div>
+          ${gs ? `<div class="pot-line"><span class="table-pot">${chips(gs.pot)}</span><span class="pot-street">${gs.street.toUpperCase()}</span></div>` : ""}
         </div>
       </div>
 
@@ -1920,10 +1933,8 @@ function renderGame(): void {
           <div class="hero-area">
             ${handSummaryHtml}
             <div class="hero-read-row">${beatsFlank}<div class="hero-cards">${heroHtml}</div>${drawsFlank}</div>
-            ${gs ? `<div class="pot-line"><span class="table-pot">${chips(gs.pot)}</span><span class="pot-street">${gs.street.toUpperCase()}</span></div>` : ""}
             ${storyLinesHtml}
-            ${recHtml}
-            ${canSolveGto() ? `<button class="gto-btn" id="gto-solve">${S.gtoSolving ? "Solving…" : "🧠 Solve this spot"}</button>` : ""}
+            <div class="rec-row">${recHtml}${canSolveGto() ? `<button class="gto-btn" id="gto-solve">${S.gtoSolving ? "Solving…" : "🧠 Solve"}</button>` : ""}</div>
           </div>
         </div>
 
@@ -3474,9 +3485,9 @@ function renderMpSetup(): void {
       ${S.net.err ? `<div class="room-broke" style="margin:8px 0">${esc(S.net.err)}</div>` : ""}
 
       <div class="public-rooms">
-        <div class="pr-head"><label>Online games${S.net.publicRooms ? ` · ${S.net.publicRooms.length}` : ""}</label><button class="hdr-btn pr-refresh" id="pr-refresh" title="Refresh">${S.net.publicRoomsBusy ? "…" : "↻"}</button></div>
+        <div class="pr-head"><label>Online games${S.net.publicRooms ? ` · ${S.net.publicRooms.length}` : ""}</label><button class="hdr-btn pr-refresh" id="pr-refresh" title="Refresh">${S.net.publicRoomsBusy ? '<span class="spin"></span>' : "↻"}</button></div>
         ${S.net.publicRooms === null
-          ? `<span class="hint">${S.net.publicRoomsBusy ? "Loading open rooms…" : "Tap ↻ to find open public rooms."}</span>`
+          ? (S.net.publicRoomsBusy ? `<div class="net-wait"><span class="spin"></span><span>Finding open rooms…</span></div>` : `<span class="hint">Tap ↻ to find open public rooms.</span>`)
           : (S.net.publicRooms.length === 0
             ? `<span class="hint">No open public rooms right now — be the first to create one.</span>`
             : `<div class="pr-list">${S.net.publicRooms.map((r) => `<button class="pr-row" data-code="${r.code}"><span class="pr-code">${r.code}</span><span class="pr-meta">${r.currency === "premium" ? "<i class=ic-gem></i>" : "<i class=ic-coin></i>"} ${r.sb}/${r.bb}</span><span class="pr-seats">${r.occupied}/${r.max} seats</span></button>`).join("")}</div>`)}
@@ -3528,7 +3539,7 @@ function renderMpSetup(): void {
             </div>
           </div>` : ""}
 
-          ${canAfford && !noPrem ? `<button class="start-btn" id="net-create" style="background:linear-gradient(135deg,#4285F4,#1a73e8);color:#fff;margin-top:10px">${S.net.busy ? "…" : `🌐 Create ${premium ? "<i class=ic-gem></i> Premium" : "<i class=ic-coin></i> Play"} Room`}</button>` : ""}
+          ${canAfford && !noPrem ? `<button class="start-btn" id="net-create" style="background:linear-gradient(135deg,#4285F4,#1a73e8);color:#fff;margin-top:10px">${S.net.busy ? '<span class="spin dark"></span>' : `🌐 Create ${premium ? "<i class=ic-gem></i> Premium" : "<i class=ic-coin></i> Play"} Room`}</button>` : ""}
         </div>
       </div>` : ""}
 
@@ -3624,7 +3635,7 @@ function renderMpTable(): void {
     const aiArch = S.mp.setup.players[ps.toAct]?.ai;
     if (aiArch) {
       const label = AI_SKILLS.find((s) => s.key === aiArch)?.label ?? "AI";
-      panel = `<div class="mp-turn"><strong>${seat.name}</strong> · ${label}</div><div class="mp-thinking">thinking<span>.</span><span>.</span><span>.</span></div>`;
+      panel = `<div class="mp-turn"><strong>${seat.name}</strong> · ${label}</div><div class="net-wait"><span class="spin"></span><span>thinking…</span></div>`;
     } else if (!S.mp.reveal) {
       panel = `<div class="mp-turn"><strong>${seat.name}</strong>'s turn</div>
         <button class="start-btn" id="mp-reveal">👁 Reveal cards & act</button>
@@ -3757,7 +3768,7 @@ async function enterRoom(code: string): Promise<void> {
 
 async function netRefreshPublic(): Promise<void> {
   if (S.net.publicRoomsBusy) return;
-  S.net.publicRoomsBusy = true; render();
+  S.net.publicRoomsBusy = true; if (S.screen === "mp-setup") render(); // silent when prefetching from home
   try {
     const { rooms } = await FB.listPublicRooms();
     S.net.publicRooms = rooms;
@@ -3811,17 +3822,22 @@ async function joinNetRoom(code: string): Promise<void> {
 
 let _fomoDismissed = false; // user closed the "unlock MCE" upsell this session
 let _netActing = false; // optimistic: true between tapping an action and the next snapshot
-let _netBetOpen = false; // bet-sizing slider panel open
-let _netBetAmt = 0; // current slider value = total bet / raise-to
+let _netActingSince = 0; // timestamp the in-flight action started (drives the "still loading…" escalation)
+let _netBetOpen = false; // bet-sizing keypad panel open
+let _netBetAmt = 0; // current keypad value = total bet / raise-to
+let _netBetTyped = ""; // raw digits the user has keyed (empty = showing the suggested default)
 async function netAct(action: { type: string; amount?: number }): Promise<void> {
   const code = S.net.code, pub = S.net.pub;
   if (!code || !pub || _netActing) return;
-  _netActing = true;
+  _netActing = true; _netActingSince = Date.now();
   // Local action SFX (server replay also plays bot SFX via the snapshot-diff hook).
   playSound(action.type === "fold" ? "fold" : action.type === "check" ? "check" : action.type === "call" ? "chip" : "bet");
+  // Escalate the spinner copy if the round-trip is slow (cold start / heavy bot tick) so it
+  // reads "still loading…" instead of looking stuck. A single re-render at ~1.6s is enough.
+  const _actEscalate = setTimeout(() => { if (_netActing && S.screen === "mp-net") render(); }, 1600);
   // Safety: a dropped/slow snapshot or a hung call must NEVER freeze the table. Release the
   // lock after 6s so the player can retry instead of being stuck on "sending…" forever.
-  const _actSafety = setTimeout(() => { if (_netActing) { _netActing = false; if (S.screen === "mp-net") render(); } }, 6000);
+  const _actSafety = setTimeout(() => { clearTimeout(_actEscalate); if (_netActing) { _netActing = false; if (S.screen === "mp-net") render(); } }, 6000);
   // OPTIMISTIC LOCAL APPLY — reflect MY action instantly (chips + bet slide, pot grows)
   // before the server round-trips. The authoritative snapshot replaces this ~300ms later.
   const uid = S.mp.auth?.uid;
@@ -3835,7 +3851,7 @@ async function netAct(action: { type: string; amount?: number }): Promise<void> 
   }
   if (S.screen === "mp-net") render();
   try { await FB.actRoom(code, action, pub.version as number); }
-  catch (e) { clearTimeout(_actSafety); _netActing = false; S.net.err = friendlyErr(e); if (S.screen === "mp-net") render(); }
+  catch (e) { clearTimeout(_actSafety); clearTimeout(_actEscalate); _netActing = false; S.net.err = friendlyErr(e); if (S.screen === "mp-net") render(); }
 }
 async function netDeal(silent = false): Promise<void> {
   const code = S.net.code; if (!code) return;
@@ -3890,7 +3906,10 @@ function flashActionCallout(seat: number, type: string, amount: number): void {
     if (!seatEl) return;
     const label = type === "fold" ? "FOLD" : type === "check" ? "CHECK" : type === "call" ? "CALL" : `${type.toUpperCase()} ${mpc(amount)}`;
     const seatTop = parseFloat((seatEl as HTMLElement).style.top || "50");
-    const placement = seatTop < 50 ? "below" : "above";
+    // Place the callout on the OUTWARD side of the seat (away from the board centre) so it
+    // never drifts over the community cards. The very top seat hugs the top edge, so it
+    // shows just below itself instead (still clear of the board).
+    const placement = seatTop <= 20 ? "below" : seatTop < 50 ? "above" : "below";
     const el = document.createElement("div");
     el.className = `action-call ${type} ${placement} bot-replay`;
     el.textContent = label;
@@ -4244,13 +4263,102 @@ function netHandRead(): { eqPct: number; label: string; nuts: string } | null {
   return _netRead;
 }
 
+// Full training-style read pills for an MCE-on (Edge Pass) online seat: hand label + win%,
+// the BEATS-YOU / DRAWING flanks, and the hero "rep → bet" story line. Reuses the SAME pure
+// engine reads as the trainer (describeHand / readThreats / credibleRep), so the values match
+// the training table exactly. The cards keep the .net-hero look, flanked like the trainer.
+function netReadBlock(board: readonly Card[], myHand: readonly Card[], eqPct: number, potOdds: number, pot: number, bb: number, sym: string): string {
+  const cards = `<div class="net-hero">${myHand.map((c) => `<span class="hero-card ${isRed(c) ? "red" : ""}">${cardFace(c)}</span>`).join("")}</div>`;
+  const hero2: [Card, Card] = [myHand[0]!, myHand[1]!];
+  const d = describeHand(hero2, board);
+  const nuts = board.length >= 3 ? `<span class="hand-odds">🥜 ${esc(computeNuts([...board]))}</span>` : "";
+  const summary = `<div class="hand-summary"><span class="hand-label ${d.strong ? "strong" : ""}">${esc(d.label)}${d.draws.length ? ` + ${esc(d.draws.join(" + "))}` : ""}</span>${eqPct > 0 ? `<span class="hand-strength"><strong>${eqPct}%</strong> win</span>` : ""}${potOdds > 0 ? `<span class="hand-odds"><strong>${Math.round(potOdds * 100)}%</strong> to call</span>` : ""}${nuts}</div>`;
+  if (board.length < 3) return `${summary}<div class="hero-read-row">${cards}</div>`;
+  const threats = readThreats(hero2, board, allCombos().combos);
+  const tag = (t: Threat) => `<span class="flank-chip">${esc(t.label)}</span>`;
+  const made = threats.made.slice(0, 2), draws = threats.draws.slice(0, 2);
+  const beatsFlank = made.length
+    ? `<div class="read-flank beats"><span class="flank-lead">Beats you</span>${made.map(tag).join("")}</div>`
+    : `<div class="read-flank ahead"><span class="flank-lead">Beats you</span><span class="flank-chip ok">none yet</span></div>`;
+  const drawsFlank = draws.length
+    ? `<div class="read-flank draws"><span class="flank-lead">Drawing</span>${draws.map(tag).join("")}</div>`
+    : `<div class="read-flank draws dim"><span class="flank-lead">Drawing</span><span class="flank-chip">—</span></div>`;
+  const rep = credibleRep(board);
+  const betToRep = Math.round((repIsPolar(rep.rep) ? 1.0 : 0.55) * Math.max(bb, pot));
+  const heroLine = `<div class="story-lines"><div class="story-line you">🂠 Rep <b>${esc(rep.label)}</b> → bet <b>${sym} ${mpc(betToRep)}</b></div></div>`;
+  return `${summary}<div class="hero-read-row">${beatsFlank}${cards}${drawsFlank}</div>${heroLine}`;
+}
+
+// Online bet/raise keypad as a bottom-sheet MODAL — mirrors the training renderBetPad
+// (presets + numpad), appended to <body> so it sits over the dimmed table. Re-synced on
+// every render; removed when the pad is closed / it's no longer my turn.
+function renderNetBetPad(): void {
+  document.getElementById("netbetpad-modal")?.remove();
+  const pub = S.net.pub; const uid = S.mp.auth?.uid;
+  if (!_netBetOpen || _netActing || !pub || pub.status !== "in_hand") return;
+  const seats = (pub.seats || []) as Array<{ uid: string | null; chips: number; bet: number }>;
+  const me = seats.find((s) => s.uid === uid);
+  if (!me || seats[pub.toAct as number]?.uid !== uid) return;
+  const cur = (pub.currentBet as number) || 0;
+  const bb = ((pub.blinds as { bb?: number })?.bb) || 2;
+  const myMax = me.chips + me.bet;
+  const minTo = cur > 0 ? Math.min(myMax, cur * 2) : Math.min(myMax, bb);
+  const toCall = cur - me.bet;
+  const potNow = (pub.pot as number) || 0;
+  const sym = ((pub.currency as string) || "play") === "premium" ? "<i class=ic-gem></i>" : "<i class=ic-coin></i>";
+  const clamp = (v: number) => Math.max(minTo, Math.min(myMax, Math.round(v)));
+  const label = cur > 0 ? "Raise to" : "Bet";
+  const half = clamp(cur + (potNow + Math.max(0, toCall)) / 2);
+  const pot = clamp(cur + potNow + Math.max(0, toCall));
+  const amt0 = clamp(_netBetAmt || minTo);
+  const overlay = document.createElement("div");
+  overlay.className = "modal-backdrop"; overlay.id = "netbetpad-modal";
+  overlay.innerHTML = `
+    <div class="modal-content">
+      <h3>${label}</h3>
+      <div class="betpad-display" id="nbp-display">${sym} ${mpc(amt0)}<span class="betpad-bb">${(amt0 / bb).toFixed(1)} bb${toCall > 0 ? ` · to call ${mpc(toCall)}` : ""}</span></div>
+      <div class="betpad-presets">
+        <button class="preset-btn" data-bp="min">Min<br><span>${sym} ${mpc(minTo)}</span></button>
+        <button class="preset-btn" data-bp="half">½ Pot<br><span>${sym} ${mpc(half)}</span></button>
+        <button class="preset-btn" data-bp="pot">Pot<br><span>${sym} ${mpc(pot)}</span></button>
+        <button class="preset-btn" data-bp="max">All-in<br><span>${sym} ${mpc(myMax)}</span></button>
+      </div>
+      <div class="betpad-grid">${["1", "2", "3", "4", "5", "6", "7", "8", "9", "", "0", "⌫"].map((k) => k ? `<button class="numpad-btn" data-key="${k}">${k}</button>` : "<div></div>").join("")}</div>
+      <div class="modal-actions">
+        <button class="cancel-btn" id="nbp-cancel">Cancel</button>
+        <button class="confirm-btn" id="nbp-confirm">${label} ${sym} ${mpc(amt0)}</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  const refresh = (): void => {
+    const a = clamp(_netBetAmt || minTo);
+    const disp = document.getElementById("nbp-display");
+    if (disp) disp.innerHTML = `${sym} ${mpc(_netBetAmt || 0)}<span class="betpad-bb">${((_netBetAmt || 0) / bb).toFixed(1)} bb${toCall > 0 ? ` · to call ${mpc(toCall)}` : ""}</span>`;
+    const conf = document.getElementById("nbp-confirm");
+    if (conf) conf.innerHTML = `${label} ${sym} ${mpc(a)}`;
+  };
+  overlay.querySelectorAll(".numpad-btn").forEach((b) => onEl(b, "click", () => {
+    const k = (b as HTMLElement).dataset.key!;
+    if (k === "⌫") _netBetTyped = _netBetTyped.slice(0, -1);
+    else if (_netBetTyped.length < 7) _netBetTyped += k;
+    _netBetAmt = +_netBetTyped || 0; refresh();
+  }));
+  overlay.querySelectorAll(".preset-btn").forEach((b) => onEl(b, "click", () => {
+    const k = (b as HTMLElement).dataset.bp;
+    _netBetAmt = k === "min" ? minTo : k === "half" ? half : k === "pot" ? pot : myMax;
+    _netBetTyped = String(_netBetAmt); refresh();
+  }));
+  onId("nbp-cancel", "click", () => { _netBetOpen = false; overlay.remove(); });
+  onId("nbp-confirm", "click", () => { _netBetOpen = false; overlay.remove(); void netAct({ type: cur > 0 ? "raise" : "bet", amount: clamp(_netBetAmt || minTo) }); });
+}
+
 function renderNetTable(): void {
   cancelVillainTimer();
   const code = S.net.code, uid = S.mp.auth?.uid;
   if (!code) { S.screen = "mp-setup"; render(); return; }
   const pub = S.net.pub;
   if (!pub) {
-    app.innerHTML = `<div class="setup"><div class="doc-top"><span style="width:54px"></span><h1>🌐 ${code}</h1><button class="hdr-btn" id="net-leave">Leave</button></div><div class="mp-thinking">connecting<span>.</span><span>.</span><span>.</span></div>${S.net.err ? `<div class="room-broke">${esc(S.net.err)}</div>` : ""}</div>`;
+    app.innerHTML = `<div class="setup"><div class="doc-top"><span style="width:54px"></span><h1>🌐 ${code}</h1><button class="hdr-btn" id="net-leave">Leave</button></div><div class="net-wait"><span class="spin"></span><span>Connecting…</span></div>${S.net.err ? `<div class="room-broke">${esc(S.net.err)}</div>` : ""}</div>`;
     onId("net-leave", "click", () => void netLeave());
     return;
   }
@@ -4381,9 +4489,9 @@ function renderNetTable(): void {
           ${assistedOn ? `<div class="lobby-mce">💡 <strong>MCE Strategy is ON</strong> — you'll get live GTO advice on your turn.</div>` : ""}
           ${isSpectator
             ? (openSeats > 0
-              ? `<button class="start-btn lobby-start" id="net-seat"${S.net.busy ? " disabled" : ""}>${S.net.busy ? "…" : "Take a seat"}</button>`
+              ? `<button class="start-btn lobby-start" id="net-seat"${S.net.busy ? " disabled" : ""}>${S.net.busy ? '<span class="spin dark"></span>' : "Take a seat"}</button>`
               : `<div class="lobby-note">👁 Watching · room is full.</div>`)
-            : `<button class="start-btn lobby-start" id="net-deal"${occupied.length < 2 ? " disabled" : ""}>${S.net.busy ? "…" : occupied.length < 2 ? "Waiting for players…" : "▶ START GAME"}</button>`}
+            : `<button class="start-btn lobby-start" id="net-deal"${occupied.length < 2 ? " disabled" : ""}>${S.net.busy ? '<span class="spin dark"></span>' : occupied.length < 2 ? "Waiting for players…" : "▶ START GAME"}</button>`}
           <p class="lobby-foot">${occupied.length < 2 ? (isOwner ? "Add a bot or wait for a friend to join." : "Waiting for more players…") : "Anyone can start — everyone in?"}</p>
           ${S.net.err ? `<div class="room-broke">${esc(S.net.err)}</div>` : ""}
         </div>
@@ -4430,7 +4538,7 @@ function renderNetTable(): void {
     const la = pub.lastAction as { seat: number; type: string; amount: number } | null | undefined;
     const showCallout = la && la.seat === ti && status === "in_hand";
     const calloutLabel = showCallout ? (la.type === "fold" ? "FOLD" : la.type === "check" ? "CHECK" : la.type === "call" ? "CALL" : `${la.type.toUpperCase()} ${mpc(la.amount)}`) : "";
-    const calloutHtml = showCallout ? `<div class="action-call ${la.type} ${top < 50 ? "below" : "above"}" data-k="${la.seat}-${la.type}-${la.amount}">${calloutLabel}</div>` : "";
+    const calloutHtml = showCallout ? `<div class="action-call ${la.type} ${top <= 20 ? "below" : top < 50 ? "above" : "below"}" data-k="${la.seat}-${la.type}-${la.amount}">${calloutLabel}</div>` : "";
     return `<div class="${cls}" data-seat="${ti}" style="left:${left.toFixed(1)}%;top:${top.toFixed(1)}%">
       ${ti === pub.dealerSeat ? '<div class="dealer-btn">D</div>' : ti === sbSeat ? '<div class="dealer-btn sb">SB</div>' : ti === bbSeat ? '<div class="dealer-btn bb">BB</div>' : ""}
       ${mceBadge}
@@ -4452,7 +4560,9 @@ function renderNetTable(): void {
   const center = [0, 1, 2, 3, 4].map((i) => board[i] != null
     ? `<div class="board-card dealt deal-in ${isRed(board[i]!) ? "red" : ""}">${flipFaces(cardFace(board[i]!))}</div>`
     : `<div class="board-card empty"></div>`).join("");
-  const potHtml = `<div class="net-pot"><span class="np-amt"><span class="np-tag">POT</span> ${mpc((pub.pot as number) || 0)}</span><span class="np-street">${capWord(pub.street || "preflop")}</span></div>`;
+  // Pot: identical pill + felt position as the training table (.pot-line at 67%, between
+  // the hero seat and the board) so online and training read the same.
+  const potHtml = `<div class="pot-line"><span class="table-pot">${mpc((pub.pot as number) || 0)}</span><span class="pot-street">${capWord(pub.street || "preflop")}</span></div>`;
 
   const myTurn = status === "in_hand" && pub.toAct >= 0 && seats[pub.toAct]?.uid === uid;
   // Did I win the hand that just ended? Server tells us directly (pub.lastWinners), so it's
@@ -4468,6 +4578,14 @@ function renderNetTable(): void {
   const _recEq = (S.net.myRec && typeof (S.net.myRec as { equity?: number }).equity === "number") ? Math.round((S.net.myRec as { equity: number }).equity * 100) : null;
   const eqShown = _recEq ?? (_r ? _r.eqPct : 0);
   const freeRead = _r ? `<div class="net-read"><span class="nr-hand">${esc(_r.label)}</span><span class="nr-eq"><b>${eqShown}%</b> win</span>${_r.nuts ? `<span class="nr-nuts">🥜 ${esc(_r.nuts)}</span>` : ""}</div>` : "";
+  // MCE on for my seat → the FULL training read pills (label + win% + BEATS-YOU/DRAWING +
+  // rep→bet); otherwise the free single-line hook. Same component for the turn + waiting views.
+  const myAssisted = !!(seats.find((s) => s.uid === uid) as { assisted?: boolean } | undefined)?.assisted;
+  const heroRead = S.net.myHand
+    ? (myAssisted && S.net.myHand.length === 2
+        ? netReadBlock((pub.board as Card[]) || [], S.net.myHand, eqShown, (S.net.myRec as { potOdds?: number } | null)?.potOdds ?? 0, (pub.pot as number) || 0, ((pub.blinds as { bb?: number })?.bb) || 2, sym)
+        : `<div class="net-hero">${S.net.myHand.map((c) => `<span class="hero-card ${isRed(c) ? "red" : ""}">${cardFace(c)}</span>`).join("")}</div>${freeRead}`)
+    : freeRead;
   let controls = "";
   if (lobby) {
     const canAddAi = isOwner && currency === "play" && occupied.length < seats.length;
@@ -4475,7 +4593,7 @@ function renderNetTable(): void {
     controls = `
       <div class="net-share">Share code <button class="net-copy" id="net-copy"><strong>${code}</strong> 📋</button></div>
       ${canAddAi ? `<div class="lobby-ai"><span class="hint">＋ AI:</span>${aiBtns.map(([a, l]) => `<button class="hdr-btn add-ai" data-arch="${a}">${l}</button>`).join("")}</div>` : currency === "premium" ? `<div class="hint" style="text-align:center">Premium room — humans only. Share the code.</div>` : ""}
-      ${isOwner ? `<button class="start-btn" id="net-deal" ${occupied.length < 2 ? "disabled style=opacity:.5" : ""}>${S.net.busy ? "…" : occupied.length < 2 ? "Waiting for players…" : "DEAL"}</button>` : `<div class="hint" style="text-align:center">Waiting for the host to deal…</div>`}`;
+      ${isOwner ? `<button class="start-btn" id="net-deal" ${occupied.length < 2 ? "disabled style=opacity:.5" : ""}>${S.net.busy ? '<span class="spin dark"></span>' : occupied.length < 2 ? "Waiting for players…" : "DEAL"}</button>` : `<div class="hint" style="text-align:center">Waiting for the host to deal…</div>`}`;
   } else if (status === "hand_over") {
     const shareBtn = iWonAmt > 0 ? `<button class="share-win-btn" id="net-share-win">📸 Share this win · +${mpc(iWonAmt)}</button>` : "";
     const mySeated = occupied.some((x) => x.s.uid === uid && x.s.chips > 0);
@@ -4506,15 +4624,14 @@ function renderNetTable(): void {
       // AUTO-DEAL: any seated human can deal, and the table deals itself in 5s anyway.
       if (mySeated) startAutoDeal(code);
       const secs = _autoDealAt ? Math.max(0, Math.ceil((_autoDealAt - Date.now()) / 1000)) : 5;
-      controls = `<div class="mp-result">${esc(pub.lastResult || "Hand over")}</div>${shareBtn}${mySeated ? `<button class="start-btn" id="net-deal">${S.net.busy ? "…" : `▶ NEXT HAND · ${secs}s`}</button>` : `<div class="hint" style="text-align:center">Next hand starting…</div>`}`;
+      controls = `<div class="mp-result">${esc(pub.lastResult || "Hand over")}</div>${shareBtn}${mySeated ? `<button class="start-btn" id="net-deal">${S.net.busy ? '<span class="spin dark"></span>' : `▶ NEXT HAND · ${secs}s`}</button>` : `<div class="hint" style="text-align:center">Next hand starting…</div>`}`;
     }
   } else if (myTurn) {
     const seat = seats[pub.toAct]!; const cur = (pub.currentBet as number) || 0;
     const toCall = cur - seat.bet; const bb = ((pub.blinds as { bb?: number })?.bb) || 2;
     const myMax = seat.chips + seat.bet; // all-in total (stack behind + already-in bet)
     const minTo = cur > 0 ? Math.min(myMax, cur * 2) : Math.min(myMax, bb);
-    const canSlide = myMax > minTo; // false = short stack, only legal aggression is all-in
-    const hero = (S.net.myHand ? `<div class="net-hero">${S.net.myHand.map((c) => `<span class="hero-card ${isRed(c) ? "red" : ""}">${cardFace(c)}</span>`).join("")}</div>` : "") + freeRead;
+    const hero = heroRead;
     // MCE Strategy overlay — live GTO advice for assisted (Edge Pass) seats.
     const rec = S.net.myRec;
     const mceCard = rec ? `<div class="net-mce">
@@ -4523,36 +4640,19 @@ function renderNetTable(): void {
       ${rec.reasoning ? `<div class="nm-why">${esc(rec.reasoning)}</div>` : ""}
     </div>` : "";
     if (_netActing) {
-      controls = `${hero}<div class="action-bar pending"><button class="action-btn" disabled>sending<span class="dots">…</span></button></div>`;
-    } else if (_netBetOpen && canSlide) {
-      const amt = Math.max(minTo, Math.min(myMax, _netBetAmt || minTo));
-      const step = Math.max(1, Math.round(bb / 2));
-      controls = `${hero}${mceCard}
-      <div class="bet-panel">
-        <div class="bet-amt-row"><span class="bet-amt">${sym} ${mpc(amt)}</span><span class="bet-amt-bb">${(amt / bb).toFixed(1)} bb${toCall > 0 ? ` · to call ${mpc(toCall)}` : ""}</span></div>
-        <input class="bet-slider" id="nb-slider" type="range" min="${minTo}" max="${myMax}" step="${step}" value="${amt}" />
-        <div class="bet-presets">
-          <button class="bp" data-bp="min">Min</button>
-          <button class="bp" data-bp="half">½ Pot</button>
-          <button class="bp" data-bp="pot">Pot</button>
-          <button class="bp" data-bp="max">All-in</button>
-        </div>
-        <div class="action-bar">
-          <button class="action-btn ghost" id="nb-cancel">← Back</button>
-          <button class="action-btn ${cur > 0 ? "raise" : "bet"}" id="nb-confirm">${cur > 0 ? "Raise to" : "Bet"} ${sym} ${mpc(amt)}</button>
-        </div>
-      </div>`;
+      controls = `${hero}<div class="net-wait sending"><span class="spin"></span><span>${Date.now() - _netActingSince > 1500 ? "Still loading… warming up the table" : "Sending…"}</span></div>`;
     } else {
+      // Matches the training table: Fold / Check-or-Call / Bet-or-Raise. All-in is reached
+      // via the keypad's All-in preset (no standalone button).
       controls = `${hero}${mceCard}
       <div class="action-bar">
         <button class="action-btn fold" id="na-fold">Fold</button>
         ${toCall > 0 ? `<button class="action-btn call" id="na-call">Call ${mpc(toCall)}</button>` : `<button class="action-btn check" id="na-check">Check</button>`}
         <button class="action-btn ${cur > 0 ? "raise" : "bet"}" id="na-bet">${cur > 0 ? "Raise" : "Bet"}</button>
-        <button class="action-btn allin" id="na-allin">All-in</button>
       </div>`;
     }
   } else {
-    controls = `${S.net.myHand ? `<div class="net-hero">${S.net.myHand.map((c) => `<span class="hero-card ${isRed(c) ? "red" : ""}">${cardFace(c)}</span>`).join("")}</div>` : ""}${freeRead}<div class="mp-turn">${esc(seats[pub.toAct]?.name || "…")}'s turn</div><div class="mp-thinking">waiting<span>.</span><span>.</span><span>.</span></div>`;
+    controls = `${heroRead}<div class="net-wait"><span class="spin"></span><span>${esc(seats[pub.toAct]?.name || "Opponent")} to act…</span></div>`;
   }
 
   // FOMO upsell: a non-entitled player at a table where others run MCE Strategy. The
@@ -4595,28 +4695,13 @@ function renderNetTable(): void {
     const myMax = seat.chips + seat.bet; const bb = ((pub.blinds as { bb?: number })?.bb) || 2;
     const minTo = cur > 0 ? Math.min(myMax, cur * 2) : Math.min(myMax, bb);
     if (myMax <= minTo) { void netAct(myMax <= cur ? { type: "call" } : { type: cur > 0 ? "raise" : "bet", amount: myMax }); return; } // short stack → all-in call or all-in raise
+    _netBetTyped = ""; // start the keypad showing the suggested default
     _netBetAmt = Math.max(minTo, Math.min(myMax, cur > 0 ? cur + (pub.pot as number) : (pub.pot as number) || bb)); // default = pot
     _netBetOpen = true; render();
   });
-  onId("na-allin", "click", () => { const seat = seats[pub.toAct]!; const cur = (pub.currentBet as number) || 0; const total = seat.chips + seat.bet; void netAct(total <= cur ? { type: "call" } : { type: cur > 0 ? "raise" : "bet", amount: total }); });
-  onId("nb-cancel", "click", () => { _netBetOpen = false; render(); });
-  onId("nb-confirm", "click", () => { _netBetOpen = false; void netAct({ type: (pub.currentBet as number) > 0 ? "raise" : "bet", amount: _netBetAmt }); });
-  const _sl = document.getElementById("nb-slider") as HTMLInputElement | null;
-  if (_sl) onEl(_sl, "input", () => { // live-update labels without a full re-render (keeps the drag smooth)
-    _netBetAmt = +_sl.value; const cur = (pub.currentBet as number) || 0; const bb = ((pub.blinds as { bb?: number })?.bb) || 2;
-    const a = document.querySelector(".bet-amt"); if (a) a.innerHTML = `${sym} ${mpc(_netBetAmt)}`; // sym is inline-SVG HTML → innerHTML
-    const b = document.querySelector(".bet-amt-bb"); if (b) b.textContent = `${(_netBetAmt / bb).toFixed(1)} bb`;
-    const c = document.getElementById("nb-confirm"); if (c) c.innerHTML = `${cur > 0 ? "Raise to" : "Bet"} ${sym} ${mpc(_netBetAmt)}`;
-  });
-  app.querySelectorAll(".bp").forEach((b) => onEl(b, "click", () => {
-    const k = (b as HTMLElement).dataset.bp; const seat = seats[pub.toAct]!; const cur = (pub.currentBet as number) || 0;
-    const myMax = seat.chips + seat.bet; const bb = ((pub.blinds as { bb?: number })?.bb) || 2;
-    const potNow = (pub.pot as number) || 0; const toCall = cur - seat.bet;
-    const minTo = cur > 0 ? Math.min(myMax, cur * 2) : Math.min(myMax, bb);
-    const cl = (v: number) => Math.max(minTo, Math.min(myMax, Math.round(v)));
-    _netBetAmt = k === "min" ? minTo : k === "half" ? cl(cur + (potNow + Math.max(0, toCall)) / 2) : k === "pot" ? cl(cur + potNow + Math.max(0, toCall)) : myMax;
-    render();
-  }));
+  // Bet/raise keypad is a bottom-sheet MODAL (same as the training table) — appended to
+  // <body> so morphdom never wipes it; re-synced on every render.
+  renderNetBetPad();
   if (status === "in_hand") startNetClock(); else stopNetClock();
 }
 
@@ -4705,6 +4790,27 @@ async function doSignIn(fn: () => Promise<MPUser>, regName?: string): Promise<vo
     render();
   } catch (e) { S.net.busy = false; S.net.err = friendlyErr(e); render(); }
 }
+// ── Passkey / Face ID helpers (WebAuthn). Platform support is probed once + cached;
+// "enrolled" is a local hint — the real passkey lives in the device / iCloud keychain. ──
+let _passkeyOk: boolean | null = null;
+let _passkeyMsg = "";
+function passkeyEnrolled(): boolean { try { return localStorage.getItem("mce-passkey") === "1"; } catch { return false; } }
+function ensurePasskeyProbe(): void {
+  if (_passkeyOk !== null) return;
+  _passkeyOk = false; // settle to false while the async probe is in flight
+  void FB.passkeySupported().then((ok) => { if (ok && _passkeyOk !== true) { _passkeyOk = true; render(); } });
+}
+async function doPasskeyRegister(): Promise<void> {
+  if (S.net.busy) return;
+  S.net.busy = true; _passkeyMsg = ""; render();
+  try {
+    await FB.passkeyRegister(S.profile.nickname);
+    try { localStorage.setItem("mce-passkey", "1"); } catch { /* */ }
+    _passkeyMsg = "✓ Face ID enabled — you can sign back in with it.";
+  } catch { _passkeyMsg = "Couldn't set up Face ID — try again."; }
+  S.net.busy = false; render();
+}
+
 function renderSignIn(): void {
   cancelVillainTimer();
   const reg = _signinMode === "register";
@@ -4715,6 +4821,7 @@ function renderSignIn(): void {
         <h1 class="si-word"><span>MONTECARLO</span><b>EDGE</b></h1></div>
       <p class="si-sub">${reg ? "Create your account" : "Sign in to continue"} — your chips save to your account &amp; you can play online.</p>
 
+      ${_passkeyOk ? `<button class="si-btn passkey" id="si-passkey">Sign in with Face ID</button>` : ""}
       <button class="si-btn apple" id="si-apple"> Continue with Apple</button>
       <button class="si-btn google" id="si-google"> Continue with Google</button>
       <div class="si-or"><span>or with email</span></div>
@@ -4722,13 +4829,14 @@ function renderSignIn(): void {
       <input class="si-input" id="si-email" type="email" autocomplete="email" placeholder="Email address"/>
       <input class="si-input" id="si-pw" type="password" autocomplete="${reg ? "new-password" : "current-password"}" placeholder="${reg ? "Password (min 6)" : "Password"}"/>
       ${S.net.err ? `<div class="room-broke">${S.net.err}</div>` : ""}
-      <button class="si-btn primary" id="si-submit">${S.net.busy ? "…" : reg ? "Create account" : "Sign in"}</button>
+      <button class="si-btn primary" id="si-submit">${S.net.busy ? '<span class="spin dark"></span>' : reg ? "Create account" : "Sign in"}</button>
       <div class="si-links">
         <button class="mc-foot-link" id="si-toggle">${reg ? "Have an account? Sign in" : "New? Create account"}</button>
         ${!reg ? `<button class="mc-foot-link" id="si-reset">Forgot password?</button>` : ""}
       </div>
       <button class="si-skip" id="si-back">Skip — Poker Training only</button>
     </div>`;
+  onId("si-passkey", "click", () => void doSignIn(async () => { const u = await FB.passkeySignIn(); try { localStorage.setItem("mce-passkey", "1"); } catch { /* */ } return u; }));
   onId("si-apple", "click", () => void startOAuth("apple"));
   onId("si-google", "click", () => void startOAuth("google"));
   onId("si-submit", "click", () => {
@@ -4745,6 +4853,7 @@ function renderSignIn(): void {
     void FB.sendReset(email).then(() => { S.net.err = "Reset email sent — check your inbox."; render(); }).catch((e) => { S.net.err = friendlyErr(e); render(); });
   });
   onId("si-back", "click", () => { S.net.err = ""; S.screen = "home"; render(); });
+  ensurePasskeyProbe();
 }
 
 /* ═══════════════════ FIRST-TIME ONBOARDING ═══════════════════ */
@@ -5093,7 +5202,7 @@ function renderAgeGate(): void {
         <p class="age-agree">By entering you confirm you're 18+ and agree to the <button class="age-link" id="age-terms">Terms</button> &amp; <button class="age-link" id="age-explain">How it works</button>.</p>
       </div>
     </div>`;
-  onId("age-yes", "click", () => { try { localStorage.setItem("mce-age-ok", "1"); } catch { /* */ } S.screen = "home"; render(); });
+  onId("age-yes", "click", () => { try { localStorage.setItem("mce-age-ok", "1"); } catch { /* */ } S.screen = introSeen() ? "home" : "landing"; render(); });
   onId("age-no", "click", () => { app.innerHTML = `<div class="age-gate"><div class="age-card"><div class="age-mark">🚫</div><p class="age-lead">Come back when you're 18.</p></div></div>`; });
   onId("age-terms", "click", () => { _docReturn = "home"; S.screen = "legal"; render(); }); // readable pre-confirm; Back → gate
   onId("age-explain", "click", () => { _docReturn = "home"; S.screen = "explainer"; render(); });
@@ -5161,7 +5270,7 @@ function renderStore(): void {
         ${!hasEdge() ? `<div class="edge-banner"><div class="eb-copy"><span class="eb-eyebrow">⚡ Edge Pass</span><span class="eb-title">Read every villain's range — live</span><span class="eb-sub">Equity · pot odds · the line, at your seat</span></div></div>` : ""}
         <div class="set-note" style="margin-bottom:9px">The real-time MCE overlay in online play + hand-history review + leak report. <strong>Solo Train stays 100% free, forever.</strong></div>
         ${hasEdge() ? `<div class="se-active">✓ Edge Pass active${S.isAdmin && !S.edgePass ? " (admin)" : ""}</div>${S.edgePass && !S.isAdmin ? `<button class="hdr-btn" id="edge-manage" style="width:100%;margin-top:8px">Manage subscription</button>` : ""}`
-          : `${EDGE_TIERS.map((t) => `<div class="edge-tier ${t.best ? "best" : ""}"><div class="et-main"><div class="et-price">${t.price}</div><div class="et-sub">${t.sub}</div></div><button class="et-buy" id="edge-buy">${S.net.busy ? "…" : "Get"}</button></div>`).join("")}
+          : `${EDGE_TIERS.map((t) => `<div class="edge-tier ${t.best ? "best" : ""}"><div class="et-main"><div class="et-price">${t.price}</div><div class="et-sub">${t.sub}</div></div><button class="et-buy" id="edge-buy">${S.net.busy ? '<span class="spin dark"></span>' : "Get"}</button></div>`).join("")}
           <span class="hint">7-day free trial · cancel anytime in one tap.</span>`}
       </div>
 
@@ -5219,11 +5328,80 @@ async function manageEdgePass(): Promise<void> {
   catch (e) { S.net.err = friendlyErr(e); render(); }
 }
 
+// Fullscreen welcome-film player — a self-contained overlay (no morphdom state) so it
+// survives re-renders. Tap-initiated, so audio is allowed to autoplay.
+function openIntroFilm(): void {
+  if (document.getElementById("intro-overlay")) return;
+  const B = import.meta.env.BASE_URL;
+  const ov = document.createElement("div");
+  ov.id = "intro-overlay"; ov.className = "intro-overlay";
+  ov.innerHTML = `<button class="intro-close" aria-label="Close">✕ Close</button>
+    <video class="intro-video" src="${B}textures/welcome.mp4" poster="${B}textures/welcome.jpg" playsinline autoplay controls></video>`;
+  document.body.appendChild(ov);
+  const v = ov.querySelector("video") as HTMLVideoElement | null;
+  v?.play?.().catch(() => { /* user can hit play */ });
+  const close = (): void => { try { v?.pause(); } catch { /* */ } ov.remove(); };
+  ov.querySelector(".intro-close")?.addEventListener("click", close);
+  ov.addEventListener("click", (e) => { if (e.target === ov) close(); });
+  v?.addEventListener("ended", close);
+}
+
+// First-visit gate for the cinematic landing. Once a new user picks any path off the
+// landing (train / sign in / enter), it's marked seen and never shown again.
+function introSeen(): boolean { try { return localStorage.getItem("mce-intro-seen") === "1"; } catch { return true; } }
+function markIntroSeen(): void { try { localStorage.setItem("mce-intro-seen", "1"); } catch { /* */ } }
+
+// New-user landing — a focused, cinematic first screen built around the welcome film.
+// Shown once after the age gate; funnels to the free trainer (online play needs sign-in).
+function renderLanding(): void {
+  const B = import.meta.env.BASE_URL;
+  const loggedIn = !!S.mp.auth;
+  app.innerHTML = `
+    <div class="mc-home lp">
+      <div class="mc-bg" aria-hidden="true">
+        <span class="mc-glow g-emerald"></span><span class="mc-glow g-gold"></span>
+        <span class="mc-suit s1">♠</span><span class="mc-suit s2">♥</span><span class="mc-suit s3">♦</span><span class="mc-suit s4">♣</span>
+        <span class="mc-grain"></span>
+      </div>
+      <div class="lp-wrap">
+        <div class="lp-hero">
+          <h1 class="mc-wordmark"><span>MONTECARLO</span><b>EDGE</b></h1>
+          <p class="lp-sub">The GTO poker trainer that reads the table with you — live equity, pot odds, and the exact line, right in your hand.</p>
+        </div>
+        <button class="lp-film" id="lp-watch" aria-label="Play the welcome film">
+          <img class="lp-poster" src="${B}textures/welcome.jpg" alt="">
+          <span class="lp-play"><span class="lp-play-tri">▶</span></span>
+          <span class="lp-film-cap">Watch the 30-second film</span>
+        </button>
+        <div class="lp-vps">
+          <div class="lp-vp"><span class="lp-vp-i">${ICON_TARGET}</span><b>Train the math</b><span>Solo vs a validated CFR / Monte-Carlo engine.</span></div>
+          <div class="lp-vp"><span class="lp-vp-i">${ICON_BOLT}</span><b>Live GTO reads</b><span>Equity · pot odds · the recommended line, every hand.</span></div>
+          <div class="lp-vp"><span class="lp-vp-i">${ICON_GLOBE}</span><b>Play online</b><span>Rooms with friends for play-money chips.</span></div>
+        </div>
+        <div class="lp-cta">
+          <button class="lp-primary" id="lp-train">Start Training — Free <span>→</span></button>
+          ${loggedIn ? "" : `<button class="lp-secondary" id="lp-signin">Sign in to play online</button>`}
+          <button class="lp-skip" id="lp-skip">Enter the app →</button>
+        </div>
+        <p class="lp-legal">Play-money only · 18+ · not real-money gambling.</p>
+      </div>
+    </div>`;
+  onId("lp-watch", "click", () => openIntroFilm());
+  onId("lp-train", "click", () => { markIntroSeen(); S.screen = "setup"; render(); });
+  onId("lp-signin", "click", () => { markIntroSeen(); S.screen = "signin"; render(); });
+  onId("lp-skip", "click", () => { markIntroSeen(); S.screen = "home"; render(); });
+}
+
 function renderHome(): void {
   cancelVillainTimer();
   bustRescue(); // never broke at the hub
   const p = S.profile;
   const loggedIn = !!S.mp.auth;
+  // PREFETCH + WARM the public-rooms function while the user is reading the home screen, so
+  // tapping "Play Online" lands on a ready lobby instead of a cold-start "Loading…" wait.
+  if (loggedIn && S.net.publicRooms === null && !S.net.publicRoomsBusy) {
+    setTimeout(() => { if (S.mp.auth && S.net.publicRooms === null && !S.net.publicRoomsBusy) void netRefreshPublic(); }, 0);
+  }
   app.innerHTML = `
     <div class="mc-home">
       <div class="mc-bg" aria-hidden="true">
@@ -5253,6 +5431,7 @@ function renderHome(): void {
         </div>
         <h1 class="mc-wordmark"><span>MONTECARLO</span><b>EDGE</b></h1>
         <p class="mc-tag">Play the player. Own the table.</p>
+        <button class="mc-watch" id="home-watch">▶ Watch the film</button>
       </div>
 
       ${loggedIn ? "" : `<button class="mc-login-banner" id="home-signin-banner">🔒 <strong>Not logged in</strong> — sign in to save your chips &amp; play online. <span>Train is free →</span></button>`}
@@ -5260,7 +5439,7 @@ function renderHome(): void {
 
       <button class="mce-card" id="home-mce">
         <span class="mce-shimmer" aria-hidden="true"></span>
-        <span class="mce-icon">⚡</span>
+        <span class="mce-icon">${ICON_BOLT}</span>
         <span class="mce-body">
           <span class="mce-eyebrow">What is MCE Strategy?</span>
           <span class="mce-title">Your edge at every table</span>
@@ -5270,13 +5449,13 @@ function renderHome(): void {
       </button>
 
       <div class="mc-modes">
-        <button class="mc-mode train" id="home-train" style="--d:.05s"><span class="mc-mi">🎯</span><span class="mc-mtext"><span class="mc-mt">Train</span><span class="mc-md">Solo vs the MCE Engine · free</span></span><span class="mc-arrow">→</span></button>
-        <button class="mc-mode online ${loggedIn ? "" : "locked"}" id="home-pass" style="--d:.12s"><span class="mc-mi">🌐</span><span class="mc-mtext"><span class="mc-mt">Play Online</span><span class="mc-md">${loggedIn ? "Create a room · play for chips" : "Sign in to play"}</span></span><span class="mc-arrow">${loggedIn ? "→" : "🔒"}</span></button>
-        <button class="mc-mode pass ${loggedIn ? "" : "locked"}" id="home-store-tile" style="--d:.19s"><span class="mc-mi">🛍</span><span class="mc-mtext"><span class="mc-mt">Store</span><span class="mc-md">${loggedIn ? "Chips · cosmetics · Edge Pass" : "Sign in to shop"}</span></span><span class="mc-arrow">${loggedIn ? "→" : "🔒"}</span></button>
-        <button class="mc-mode profile" id="home-profile2" style="--d:.26s"><span class="mc-mi">👤</span><span class="mc-mtext"><span class="mc-mt">Profile</span><span class="mc-md">Avatar · name · chips</span></span><span class="mc-arrow">→</span></button>
+        <button class="mc-mode train" id="home-train" style="--d:.05s"><span class="mc-mi">${ICON_TARGET}</span><span class="mc-mtext"><span class="mc-mt">Train</span><span class="mc-md">Solo vs the MCE Engine · free</span></span><span class="mc-arrow">→</span></button>
+        <button class="mc-mode online ${loggedIn ? "" : "locked"}" id="home-pass" style="--d:.12s"><span class="mc-mi">${ICON_GLOBE}</span><span class="mc-mtext"><span class="mc-mt">Play Online</span><span class="mc-md">${loggedIn ? "Create a room · play for chips" : "Sign in to play"}</span></span><span class="mc-arrow">${loggedIn ? "→" : "🔒"}</span></button>
+        <button class="mc-mode pass ${loggedIn ? "" : "locked"}" id="home-store-tile" style="--d:.19s"><span class="mc-mi">${ICON_BAG}</span><span class="mc-mtext"><span class="mc-mt">Store</span><span class="mc-md">${loggedIn ? "Chips · cosmetics · Edge Pass" : "Sign in to shop"}</span></span><span class="mc-arrow">${loggedIn ? "→" : "🔒"}</span></button>
+        <button class="mc-mode profile" id="home-profile2" style="--d:.26s"><span class="mc-mi">${ICON_USER}</span><span class="mc-mtext"><span class="mc-mt">Profile</span><span class="mc-md">Avatar · name · chips</span></span><span class="mc-arrow">→</span></button>
       </div>
 
-      <button class="mc-stats" id="home-stats" style="--d:.33s">📊 Stats &amp; Leak Report</button>
+      <button class="mc-stats" id="home-stats" style="--d:.33s">${ICON_CHART} Stats &amp; Leak Report</button>
       <div class="mc-foot">
         <button class="mc-foot-link" id="home-proof">The Proof</button><span>·</span>
         <button class="mc-foot-link" id="home-explainer">How it works</button><span>·</span>
@@ -5293,6 +5472,7 @@ function renderHome(): void {
   onId("home-proof", "click", () => { try { window.open("/proof.html", "_blank", "noopener"); } catch { location.assign("/proof.html"); } });
   onId("home-explainer", "click", () => { _docReturn = "home"; S.screen = "explainer"; render(); });
   onId("home-mce", "click", () => { _docReturn = "home"; S.screen = "explainer"; render(); });
+  onId("home-watch", "click", () => openIntroFilm());
   onId("home-legal", "click", () => { _docReturn = "home"; S.screen = "legal"; render(); });
   onId("home-profile", "click", () => { S.screen = loggedIn ? "profile" : "signin"; render(); });
   onId("home-profile2", "click", () => { S.screen = "profile"; render(); });
@@ -5307,6 +5487,19 @@ function renderHome(): void {
     S.screen = "mp-setup"; render();
   });
   onId("home-stats", "click", () => { S.screen = "stats"; render(); });
+  // iOS WebKit won't autoplay a muted inline <video> inserted via innerHTML on the strength
+  // of the `autoplay` attribute alone (esp. in a standalone PWA) — nudge it: set muted as a
+  // PROPERTY + call play(); retry once on the first tap if it was blocked. (Low Power Mode
+  // blocks autoplay entirely → the poster image shows, which is the intended fallback.)
+  const bgv = app.querySelector(".mc-bg-video") as HTMLVideoElement | null;
+  if (bgv) {
+    bgv.muted = true; bgv.playsInline = true;
+    const tryPlay = (): void => { void bgv.play().catch(() => { /* blocked → poster shows */ }); };
+    tryPlay();
+    const once = (): void => { tryPlay(); document.removeEventListener("touchend", once); document.removeEventListener("click", once); };
+    document.addEventListener("touchend", once, { once: true, passive: true });
+    document.addEventListener("click", once, { once: true });
+  }
   maybeShowWeekly(); // Monday dopamine pop, if a free claim is waiting
 }
 
@@ -5414,10 +5607,10 @@ const motionPref = (): "auto" | "on" | "off" => {
   return v === "on" || v === "off" ? v : "auto";
 };
 
-function docPage(title: string, intro: string, sections: Section[], extra = ""): void {
+function docPage(title: string, intro: string, sections: Section[], extra = "", media = ""): void {
   const body = `<p class="doc-intro">${intro}</p>` + sections.map((s) =>
     `<section class="doc-section"><h2>${s.heading}</h2><div class="doc-body">${s.body}</div></section>`).join("");
-  app.innerHTML = `<div class="setup doc"><h1>${title}</h1>${body}${extra}
+  app.innerHTML = `<div class="setup doc"><h1>${title}</h1>${media}${body}${extra}
     <button class="hdr-btn" id="doc-back" style="width:100%;padding:12px;margin-top:10px">Back</button></div>`;
   onId("doc-back", "click", () => { S.screen = _docReturn; render(); });
 }
@@ -5425,8 +5618,13 @@ function docPage(title: string, intro: string, sections: Section[], extra = ""):
 function renderLegal(): void { cancelVillainTimer(); docPage("Terms &amp; Legal", LEGAL_INTRO, LEGAL_SECTIONS); }
 function renderExplainer(): void {
   cancelVillainTimer();
+  const B = import.meta.env.BASE_URL;
+  const media = `<figure class="howto-video">
+      <video class="howto-vid" autoplay muted loop playsinline preload="metadata" poster="${B}textures/howto-mce.webp"><source src="${B}textures/howto-mce.mp4" type="video/mp4"></video>
+      <figcaption class="howto-cap"><span class="howto-eyebrow">How it works</span><span class="howto-title">Watch the Edge read the table</span></figcaption>
+    </figure>`;
   docPage("How it works", EXPLAINER_INTRO, EXPLAINER_SECTIONS,
-    `<button class="start-btn" id="doc-train" style="margin-top:10px">🎯 Start Training</button>`);
+    `<button class="start-btn" id="doc-train" style="margin-top:10px">${ICON_TARGET} Start Training</button>`, media);
   onId("doc-train", "click", () => { S.screen = "setup"; render(); });
 }
 
@@ -5452,6 +5650,7 @@ function renderSettings(): void {
       <div class="set-group"><div class="set-head">Account</div>
         ${auth
           ? row("Signed in", `<button class="hdr-btn" id="set-signout">Sign out</button>`, `${auth.name} · Google. Sign-out keeps your local data.`)
+            + (_passkeyOk ? row("Face ID sign-in", `<button class="hdr-btn" id="set-passkey">${passkeyEnrolled() ? "Re-enroll" : "Set up"}</button>`, _passkeyMsg || "One Face ID tap restores online play — even after iOS signs you out. Uses your device passkey.") : "")
           : row("Online play", `<button class="hdr-btn" id="set-signin">Sign in</button>`, "Sign in with Google for presence &amp; sync. No ads, no data selling.")}
       </div>
       <div class="set-group"><div class="set-head">Your data</div>
@@ -5494,6 +5693,8 @@ function renderSettings(): void {
   });
   onId("set-explainer", "click", () => { _docReturn = "settings"; S.screen = "explainer"; render(); });
   onId("set-legal", "click", () => { _docReturn = "settings"; S.screen = "legal"; render(); });
+  onId("set-passkey", "click", () => void doPasskeyRegister());
+  ensurePasskeyProbe();
   onId("set-back", "click", () => { S.screen = "home"; render(); });
 }
 
@@ -5579,6 +5780,14 @@ if ("serviceWorker" in navigator) {
 
 loadProfile();
 loadPlayerStats();
+// New visitors (never seen the intro, no prior/active sign-in) get the cinematic landing
+// after the age gate; returning & signed-in users go straight to home.
+try {
+  const seen = localStorage.getItem("mce-intro-seen") === "1";
+  const known = localStorage.getItem("mce-signed-in") === "1" || localStorage.getItem("mce-auth-pending") != null;
+  const everUsed = localStorage.getItem("mce-age-ok") === "1"; // already past the age gate before → returning visitor
+  if (!seen && !known && !everUsed) S.screen = "landing";
+} catch { /* */ }
 render();
 initCardTilt();
 
@@ -5639,6 +5848,9 @@ if (FB.DEV_EMU) {
       document.body.appendChild(cv);
     },
     claimWeekly: () => FB.claimWeekly(),
+    passkeySupported: () => FB.passkeySupported(),
+    passkeyRegister: () => FB.passkeyRegister("caspar"),
+    passkeySignIn: () => FB.passkeySignIn(),
   };
   // eslint-disable-next-line no-console
   console.log("%c🔧 __MCE_DEV ready — call __MCE_DEV.signIn('caspar')", "color:#1f9d6b;font-weight:bold");

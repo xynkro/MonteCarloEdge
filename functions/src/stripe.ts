@@ -19,7 +19,7 @@ const FALLBACK_ORIGIN = "https://xynkro.github.io/MonteCarloEdge";
 
 /** Create a Stripe Checkout Session for the Edge Pass subscription; returns its URL. */
 export const createCheckoutSession = onCall(
-  { secrets: [STRIPE_SECRET, EDGE_PASS_PRICE] },
+  { region: "asia-southeast1", secrets: [STRIPE_SECRET, EDGE_PASS_PRICE] },
   async (req) => {
     const uid = req.auth?.uid;
     if (!uid) throw new HttpsError("unauthenticated", "Sign in first.");
@@ -54,7 +54,7 @@ export const createCheckoutSession = onCall(
 
 /** Open the Stripe customer billing portal so a subscriber can manage/cancel. */
 export const createBillingPortal = onCall(
-  { secrets: [STRIPE_SECRET] },
+  { region: "asia-southeast1", secrets: [STRIPE_SECRET] },
   async (req) => {
     const uid = req.auth?.uid;
     if (!uid) throw new HttpsError("unauthenticated", "Sign in first.");

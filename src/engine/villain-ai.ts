@@ -47,8 +47,10 @@ export function villainDecision(
   rng: Rng,
 ): ActionInput {
   const ps = flipPerspective(state, seat, cards);
-  // The villain assumes its opponents are solid (TAG) when reading their range.
-  const rec = recommend(ps, TAG, rng);
+  // The villain assumes its opponents are solid (TAG) when reading their range. Bots run on
+  // the server every action tick, so use a LOW Monte-Carlo iteration count (vs the trainer's
+  // 6000/8000) — the archetype layer dominates anyway, and this keeps the online tick fast.
+  const rec = recommend(ps, TAG, rng, undefined, undefined, undefined, 1500);
 
   let type: ActionType = rec.action;
   let amount = rec.amount;
@@ -84,12 +86,12 @@ export function villainDecision(
       // Continues only with strong hands; value-bets, almost never bluffs.
       if (type === "call" && facing && eq < 0.58) { type = "fold"; amount = 0; }
       else if (type === "bet" && eq < 0.62) { type = "check"; amount = 0; }
-      else if (type === "raise" && eq < 0.78) { type = facing ? "call" : "check"; amount = 0; }
+      else if (type === "raise" && eq < 0.74) { type = facing ? "call" : "check"; amount = 0; }
     } else if (n === "LAG") {
       // Heavy aggression: barrels when checked to, bluff-raises, floats.
       if (!facing && type === "check" && roll < profile.betWhenCheckedTo && canRaise) {
         type = "bet"; amount = clampBetTarget(0.7, state, seat);
-      } else if (facing && type === "call" && roll < 0.22 && canRaise) {
+      } else if (facing && type === "call" && roll < 0.30 && canRaise) {
         type = "raise"; amount = clampRaiseTo(2.6, state, seat);
       } else if (facing && type === "fold" && roll < 0.12) {
         type = "call"; amount = 0; // float to bluff later
@@ -99,7 +101,7 @@ export function villainDecision(
       if (!facing && type === "check" && roll < profile.cbetPct * 0.55 &&
           lastAggressor(state) === seat && canRaise) {
         type = "bet"; amount = clampBetTarget(0.55, state, seat);
-      } else if (facing && type === "call" && roll < 0.09 && eq > 0.45 && canRaise) {
+      } else if (facing && type === "call" && roll < 0.18 && eq > 0.45 && canRaise) {
         type = "raise"; amount = clampRaiseTo(2.5, state, seat);
       }
     }

@@ -25,12 +25,18 @@ import { recommend } from "../../src/engine/decision.js";
 import { AUTO, TAG, LAG, STATION, NIT, MANIAC, type OpponentProfile } from "../../src/engine/opponent.js";
 import { cryptoRng } from "./crypto-rng.js";
 
-setGlobalOptions({ region: "asia-southeast1", maxInstances: 10 });
+// memory 1GiB → ~0.58 vCPU (the default 256MiB is only ~0.17 vCPU, which made the per-action
+// bot Monte-Carlo tick slow). Higher CPU finishes the tick faster, so it roughly offsets the
+// per-ms cost — net cost stays low at this (friends-app) volume. Cold starts still happen (no
+// minInstances — that's an always-on bill, pending owner OK).
+setGlobalOptions({ region: "asia-southeast1", maxInstances: 10, memory: "1GiB" });
 initializeApp();
 const db = getFirestore();
 
 // Stripe Edge Pass paywall (createCheckoutSession / createBillingPortal / stripeWebhook).
 export * from "./stripe.js";
+// Passkey / Face ID auth (register + authenticate → Firebase custom token).
+export * from "./passkey.js";
 
 const PROFILES: Record<string, OpponentProfile> = { Auto: AUTO, TAG, LAG, Station: STATION, Nit: NIT, Maniac: MANIAC };
 const TURN_SECONDS = 40;

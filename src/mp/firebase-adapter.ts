@@ -287,6 +287,43 @@ export async function changePassword(newPassword: string): Promise<void> {
   await updatePassword(u, newPassword);
 }
 
+// ── Passkey / Face ID (WebAuthn) ──
+// The RP id + origin are derived from where we're actually running; the server
+// validates them against its allowlist (it never trusts these values blindly).
+const rpInfo = (): { rpID: string; origin: string } => ({ rpID: location.hostname, origin: location.origin });
+
+/** True only if this device can do a platform passkey (Face ID / Touch ID). */
+export async function passkeySupported(): Promise<boolean> {
+  try {
+    const { browserSupportsWebAuthn, platformAuthenticatorIsAvailable } = await import("@simplewebauthn/browser");
+    return browserSupportsWebAuthn() && (await platformAuthenticatorIsAvailable());
+  } catch { return false; }
+}
+
+/** Enrol a passkey for the CURRENT signed-in user (one-time). Triggers Face ID. */
+export async function passkeyRegister(name?: string): Promise<{ ok: boolean }> {
+  const { rpID, origin } = rpInfo();
+  const { startRegistration } = await import("@simplewebauthn/browser");
+  const options = await callFn<Parameters<typeof startRegistration>[0]>("passkeyRegisterStart", { rpID, origin });
+  const response = await startRegistration(options);
+  return callFn<{ ok: boolean }>("passkeyRegisterFinish", { rpID, origin, response, name });
+}
+
+/** Sign IN with a passkey (no existing session) → Firebase custom token → MPUser. */
+export async function passkeySignIn(): Promise<MPUser> {
+  const { rpID, origin } = rpInfo();
+  const { startAuthentication } = await import("@simplewebauthn/browser");
+  const start = await callFn<{ flowId: string; options: Parameters<typeof startAuthentication>[0] }>("passkeyAuthStart", { rpID, origin });
+  const response = await startAuthentication(start.options);
+  const { token } = await callFn<{ token: string }>("passkeyAuthFinish", { rpID, origin, flowId: start.flowId, response });
+  const app = await getFirebaseApp();
+  const { getAuth, signInWithCustomToken } = await import("firebase/auth");
+  const res = await signInWithCustomToken(getAuth(app), token);
+  const user = toUser(res.user);
+  try { const { m, db } = await firestore(); await m.setDoc(m.doc(db, "users", user.uid), { name: user.name }, { merge: true }); } catch { /* signed in regardless */ }
+  return user;
+}
+
 export async function signOutUser(): Promise<void> {
   const app = await getFirebaseApp();
   const { getAuth, signOut } = await import("firebase/auth");
