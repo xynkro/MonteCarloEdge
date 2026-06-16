@@ -665,17 +665,20 @@ body::after {
 }
 .controls-body { } /* contents flow naturally; .controls scrolls if they overflow */
 
-/* ── Landscape (short screens, i.e. phones): table left, controls right ── */
+/* ── Landscape (short screens, i.e. phones): WSOP-style wide felt left, MCE panel right ── */
 @media (orientation: landscape) and (max-height: 600px) {
   #app { max-width: none; } /* use the full landscape width, not the 480px cap */
   .stage { flex-direction: row; align-items: stretch; }
   .table-wrap {
-    flex: 1 1 56%; min-width: 0; height: 100%; padding: 14px 30px;
+    flex: 1 1 auto; min-width: 0; height: 100%; padding: 4px 38px;
   }
-  /* Smaller + centered so the top/side seats clear the header and screen edges. */
-  .poker-table { height: 78%; width: auto; max-width: 100%; }
+  /* WSOP-style WIDE oval: a flatter, wider felt than portrait's near-circle. The JS seat
+     %s ride this wider box, so players ring a true broadcast oval instead of a cramped
+     circle. height-driven, then aspect derives the width; the side padding keeps the
+     far-left/right seat cards (centred ±33px past the rail) clear of the screen edge. */
+  .poker-table { height: 96%; width: auto; max-width: 100%; aspect-ratio: 1.4 / 1; }
   .controls {
-    flex: 1 1 44%; min-width: 280px; height: 100%; padding: 0 4px;
+    flex: 0 0 clamp(300px, 36%, 430px); min-width: 300px; height: 100%; padding: 0 4px;
     border-left: 1px solid var(--line); overflow-y: auto;
   }
   .controls .hero-area { padding: 8px 12px 4px; }
