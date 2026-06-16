@@ -30,7 +30,7 @@ const ORIGINS: Record<string, string> = {
 };
 function rpConfig(data: any): { rpID: string; origin: string } {
   const rpID = String(data?.rpID || "montecarloedge.web.app");
-  if (rpID === "localhost") { // emulator/dev: any localhost port
+  if (rpID === "localhost" && process.env.FUNCTIONS_EMULATOR === "true") { // emulator/dev ONLY — never trust a localhost RP in prod
     const origin = String(data?.origin || "http://localhost:5173");
     if (!/^http:\/\/localhost(:\d+)?$/.test(origin)) throw new HttpsError("invalid-argument", "Bad origin.");
     return { rpID, origin };

@@ -4624,10 +4624,17 @@ function renderNetTable(): void {
           </div>
         </div>`;
     } else {
-      // AUTO-DEAL: any seated human can deal, and the table deals itself in 5s anyway.
-      if (mySeated) startAutoDeal(code);
+      // SINGLE-DRIVER AUTO-DEAL: only ONE client (the lowest-seat human) auto-deals the next
+      // hand. When EVERY seated human auto-deals (the old behaviour) the two deals race, and the
+      // loser's Firestore listener COALESCES the hand_over frame into the following in_hand frame
+      // — silently dropping the showdown reveal. That's the human-vs-human "opponent cards never
+      // show" bug; me-vs-bot was immune because the lone human is always the sole dealer. Everyone
+      // keeps a manual NEXT HAND button as the fallback if the driver lags or leaves.
+      const iAutoDeal = mySeated && seats.find((s) => s.uid)?.uid === uid;
+      if (iAutoDeal) startAutoDeal(code); else if (mySeated) stopAutoDeal();
       const secs = _autoDealAt ? Math.max(0, Math.ceil((_autoDealAt - Date.now()) / 1000)) : 5;
-      controls = `<div class="mp-result">${esc(pub.lastResult || "Hand over")}</div>${shareBtn}${mySeated ? `<button class="start-btn" id="net-deal">${S.net.busy ? '<span class="spin dark"></span>' : `▶ NEXT HAND · ${secs}s`}</button>` : `<div class="hint" style="text-align:center">Next hand starting…</div>`}`;
+      const dealLabel = S.net.busy ? '<span class="spin dark"></span>' : iAutoDeal ? `▶ NEXT HAND · ${secs}s` : "▶ NEXT HAND";
+      controls = `<div class="mp-result">${esc(pub.lastResult || "Hand over")}</div>${shareBtn}${mySeated ? `<button class="start-btn" id="net-deal">${dealLabel}</button>` : `<div class="hint" style="text-align:center">Next hand starting…</div>`}`;
     }
   } else if (myTurn) {
     const seat = seats[pub.toAct]!; const cur = (pub.currentBet as number) || 0;

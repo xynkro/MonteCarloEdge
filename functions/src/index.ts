@@ -530,7 +530,12 @@ export const leaveTable = onCall(async (req) => {
     // Make sure they're not lingering in the spectator list either.
     t.spectators = (t.spectators ?? []).filter((s) => s.uid !== uid);
     tx.set(userRef(uid), { [balField(currency)]: bal + back }, { merge: true });
-    persist(tx, code, t, version + 1, baseline, false, currency);
+    // Leaving MID-HAND removes this (non-live) seat's stack from the table, so drop the
+    // conservation baseline by the same amount — the symmetric counterpart to joinTable's
+    // mid-hand baseline bump. Without it THIS hand's settle tripwire would brick (banked <
+    // baseline). Between hands startHand recomputes the baseline fresh, so only in_hand needs it.
+    const newBase = t.status === "in_hand" ? baseline - back : baseline;
+    persist(tx, code, t, version + 1, newBase, false, currency);
     return { ok: true, banked: back };
   });
 });
