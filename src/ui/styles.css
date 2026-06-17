@@ -693,21 +693,40 @@ body::after {
     background: linear-gradient(to top, #060a12 70%, rgba(6,10,18,0));
     border-top: 1px solid var(--line); overflow: visible;
   }
-  .controls-body { display: flex; flex-direction: row; align-items: center; gap: 14px; height: 100%; width: 100%; min-width: 0; }
+  .controls-body { display: flex; flex-direction: row; align-items: center; gap: 14px; height: 100%; flex: 1 1 auto; min-width: 0; }
+  .controls { gap: 12px; }
   .status-bar.your-turn { display: none; } /* turn is conveyed by the live action buttons */
   /* Trainer: flatten hero-area's vertical stack into a row. */
-  .hero-area { display: flex; flex-direction: row; align-items: center; gap: 14px; flex: 1 1 auto; min-width: 0; padding: 0; }
+  .controls .hero-area { display: flex; flex-direction: row; align-items: center; gap: 12px; flex: 1 1 auto; min-width: 0; padding: 0; }
   .hand-summary { flex-direction: column; align-items: flex-start; gap: 1px; flex: 0 0 auto; }
   .hero-read-row { flex: 0 0 auto; margin: 0; }
   .rec-row { flex: 1 1 auto; min-width: 0; margin: 0; }
-  .rec-panel, .net-mce { max-height: 80px; max-width: 280px; overflow: hidden; }
+  .rec-panel, .net-mce { max-height: 74px; max-width: 210px; overflow: hidden; }
   /* Net table: its hero/read/mce/wait blocks flow inline too. */
   .net-hero, .net-read, .net-wait { flex: 0 0 auto; margin: 0; }
   .hero-cards { margin: 0; }
-  .hero-card { width: 40px; height: 56px; font-size: 16px; }
+  .hero-card { width: 36px; height: 50px; font-size: 15px; }
   .action-dock { margin-left: auto; flex: 0 0 auto; align-self: center; }
   .action-bar { display: flex; gap: 10px; margin-left: auto; padding: 0; }
-  .action-btn { padding: 14px 0; font-size: 15px; min-width: 108px; }
+  .action-btn { padding: 13px 0; font-size: 15px; min-width: 100px; }
+  /* Bet pad → compact 2-column modal so the numpad never runs off a short screen.
+     Left column stacks display + presets + confirm; the numpad sits in the right
+     column, halving the height vs the portrait bottom-sheet. */
+  .modal-backdrop { align-items: center; }
+  .modal-content:has(.betpad-grid) {
+    width: min(94vw, 660px); max-width: 660px; max-height: 94dvh; border-radius: 20px;
+    border-bottom: 1px solid var(--line-2); padding: 14px 16px;
+    display: grid; gap: 7px 16px; align-items: start;
+    grid-template-columns: minmax(170px, 1fr) minmax(220px, 1.05fr);
+    grid-template-areas: "title title" "display pad" "presets pad" "actions pad";
+  }
+  .modal-content:has(.betpad-grid) > h3 { grid-area: title; margin: 0 0 2px; }
+  .modal-content:has(.betpad-grid) .betpad-display { grid-area: display; margin: 0; }
+  .modal-content:has(.betpad-grid) .betpad-presets { grid-area: presets; margin: 0; grid-template-columns: repeat(2, 1fr); }
+  .modal-content:has(.betpad-grid) .betpad-grid { grid-area: pad; margin: 0; align-self: stretch; }
+  .modal-content:has(.betpad-grid) .modal-actions { grid-area: actions; margin: 0; }
+  .modal-content:has(.betpad-grid) .numpad-btn { padding: 9px 0; font-size: 18px; }
+  .modal-content:has(.betpad-grid) .preset-btn { padding: 7px 4px; }
 }
 .controls .hero-area { flex: 0 0 auto; }
 /* Action/result block sits directly under the cards/recommendation — contiguous

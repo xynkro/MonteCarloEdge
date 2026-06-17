@@ -362,8 +362,10 @@ export const act = onCall(async (req) => {
  *  gated by Edge Pass — silently false if not entitled. */
 export const setSeatPrefs = onCall(async (req) => {
   const uid = uidOf(req);
-  const { code, assisted, recStyle } = (req.data ?? {}) as
-    { code?: string; assisted?: boolean; recStyle?: "balanced" | "tag" | "lag" | "nit" | "station" | "maniac" };
+  const { code, assisted, recStyle, heroStyle } = (req.data ?? {}) as
+    { code?: string; assisted?: boolean;
+      recStyle?: "balanced" | "tag" | "lag" | "nit" | "station" | "maniac";
+      heroStyle?: "gto" | "tag" | "lag" | "nit" | "maniac" };
   if (!code) throw new HttpsError("invalid-argument", "Room code required.");
   return db.runTransaction(async (tx) => {
     const { t, version, baseline, currency } = await loadState(tx, code);
@@ -377,8 +379,18 @@ export const setSeatPrefs = onCall(async (req) => {
     if (recStyle === "balanced" || recStyle === "tag" || recStyle === "lag" || recStyle === "nit" || recStyle === "station" || recStyle === "maniac") {
       t.seats[seatIdx]!.recStyle = recStyle;
     }
+    // Hero play-style (Bluff Lab) — validated against the closed set so a hostile client
+    // can't push arbitrary strings into the table doc.
+    if (heroStyle === "gto" || heroStyle === "tag" || heroStyle === "lag" || heroStyle === "nit" || heroStyle === "maniac") {
+      t.seats[seatIdx]!.heroStyle = heroStyle;
+    }
     persist(tx, code, t, version + 1, baseline, false, currency);
-    return { ok: true, assisted: t.seats[seatIdx]!.assisted, recStyle: t.seats[seatIdx]!.recStyle ?? "balanced" };
+    return {
+      ok: true,
+      assisted: t.seats[seatIdx]!.assisted,
+      recStyle: t.seats[seatIdx]!.recStyle ?? "balanced",
+      heroStyle: t.seats[seatIdx]!.heroStyle ?? "gto",
+    };
   });
 });
 

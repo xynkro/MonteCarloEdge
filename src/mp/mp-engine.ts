@@ -31,6 +31,10 @@ export interface AuthSeat {
   // Per-seat MCE villain model — the OPPONENT'S assumed playstyle, drives recommend().
   // "balanced" → AUTO (auto-adapts to observed action); the others lock the assumption.
   recStyle?: "balanced" | "tag" | "lag" | "nit" | "station" | "maniac";
+  // Per-seat HERO style — the USER'S OWN play style, drives recommend()'s `style` arg.
+  // Mirrors the trainer's Bluff Lab: gto/tag/lag/nit/maniac (default gto = Balanced).
+  // Server-side only (not in MPSeat public projection — opponents don't need to see it).
+  heroStyle?: "gto" | "tag" | "lag" | "nit" | "maniac";
 }
 
 export interface AuthTable {
@@ -351,6 +355,16 @@ export function publicState(t: AuthTable): PublicTableState {
  * Short-stack override: preflop with effective stack ≤ 10bb skips the heuristic engine
  * and consults the Nash push/fold chart instead — at sub-10bb stacks a 3-bet bluff line
  * is pure EV-loss, and the chart is solver-grade for this regime. */
+// HERO style aggression+looseness knobs. Mirrors the trainer's HERO_STYLES so the online
+// recommendation tilts the same way as Training when the seat has `heroStyle` set.
+const HERO_STYLE_MAP = {
+  gto: { aggression: 1.0, looseness: 1.0 },
+  tag: { aggression: 1.15, looseness: 0.82 },
+  lag: { aggression: 1.35, looseness: 1.28 },
+  nit: { aggression: 0.75, looseness: 0.7 },
+  maniac: { aggression: 1.6, looseness: 1.5 },
+} as const;
+
 export function recommendForSeat(
   t: AuthTable,
   tableSeat: number,
@@ -404,7 +418,10 @@ export function recommendForSeat(
       }
     }
   }
-  return recommend(gs, profile);
+  // Apply the seat owner's chosen play style (Bluff Lab). Defaults to Balanced/GTO.
+  const heroKey = t.seats[tableSeat]?.heroStyle ?? "gto";
+  const heroStyle = HERO_STYLE_MAP[heroKey] ?? HERO_STYLE_MAP.gto;
+  return recommend(gs, profile, undefined, undefined, undefined, heroStyle);
 }
 
 /** A single player's own hole cards — the ONLY secret a client ever receives. */

@@ -1466,7 +1466,10 @@ function landscapeTable(): boolean {
 // the felt, so no seat is ever covered.
 function tableSeatPos(vis: number, n: number): { left: number; top: number } {
   const a = (vis * 2 * Math.PI) / n;
-  if (landscapeTable()) return { left: 50 - 47 * Math.sin(a), top: 50 + 45 * Math.cos(a) };
+  if (landscapeTable()) {
+    if (vis === 0) return { left: 50, top: 84 }; // hero lifted so its stack clears the bottom action bar
+    return { left: 50 - 47 * Math.sin(a), top: 50 + 45 * Math.cos(a) };
+  }
   return { left: 50 - 41 * Math.sin(a), top: 50 + 38 * Math.cos(a) };
 }
 function seatCoord(seatIdx: number): { left: number; top: number } {
@@ -1990,7 +1993,13 @@ function renderGame(): void {
     const i = HERO_STYLE_ORDER.indexOf(S.heroStyle as typeof HERO_STYLE_ORDER[number]);
     S.heroStyle = HERO_STYLE_ORDER[(i + 1) % HERO_STYLE_ORDER.length]!;
     try { localStorage.setItem("mce-hero-style", S.heroStyle); } catch { /* */ }
-    updateRec(); // refresh the recommendation under the new style on the spot
+    // If we're at an online table, push the new style to the server so the next MCE rec
+    // tilts the same way as Training. Fire-and-forget (no UI block).
+    if (S.net.code) {
+      const hs = S.heroStyle as "gto" | "tag" | "lag" | "nit" | "maniac";
+      void FB.setSeatPrefs(S.net.code, { heroStyle: hs }).catch(() => { /* */ });
+    }
+    updateRec(); // refresh the trainer recommendation under the new style on the spot
     render();
   });
   onId("quiz-btn", "click", () => { toggleQuiz(); render(); });
@@ -3800,6 +3809,13 @@ async function enterRoom(code: string): Promise<void> {
   clearNetSubs();
   S.net.code = code; S.net.pub = null; S.net.myHand = null; S.net.myRec = null; S.net.err = "";
   S.screen = "mp-net"; render();
+  // Push the user's chosen Bluff-Lab style to the server seat so the MCE rec for THIS player
+  // tilts the same way as their Training table. Fire-and-forget — failure is silent (the
+  // server falls back to GTO/Balanced). The callable also no-ops cleanly for spectators.
+  if (S.heroStyle && S.heroStyle !== "gto") {
+    const hs = S.heroStyle as "gto" | "tag" | "lag" | "nit" | "maniac";
+    void FB.setSeatPrefs(code, { heroStyle: hs }).catch(() => { /* spectator / not seated yet */ });
+  }
   try {
     _netTableUnsub = await FB.subscribeRoom(code, (pub) => {
       const prev = S.net.pub;
@@ -4754,7 +4770,7 @@ function renderNetTable(): void {
     : "";
   app.innerHTML = `
     <div class="game net-game">
-      <div class="game-topbar"><span>Room <strong>${code}</strong> · ${sym} ${currency === "premium" ? "premium" : "play"}${spectators.length ? ` · 👁 ${spectators.length}` : ""}${sidelined.length ? ` · 💤 ${sidelined.length}` : ""}${isSpectator ? " · watching" : ""}</span><div class="topbar-btns"><button class="hdr-btn ch-toggle" id="net-chat" title="Chat">💬${unread > 0 ? `<span class="ch-badge">${unread}</span>` : ""}</button><button class="hdr-btn" id="net-cog" title="Settings">⚙</button><button class="hdr-btn" id="net-leave">Leave</button></div></div>
+      <div class="game-topbar"><span>Room <strong>${code}</strong> · ${sym} ${currency === "premium" ? "premium" : "play"}${spectators.length ? ` · 👁 ${spectators.length}` : ""}${sidelined.length ? ` · 💤 ${sidelined.length}` : ""}${isSpectator ? " · watching" : ""}</span><div class="topbar-btns">${!isSpectator ? `<button class="hdr-btn style-pill style-${S.heroStyle}" id="net-style-btn" title="Your play style — tap to cycle. LAG/Maniac bluff more, Nit bluffs less.">${HERO_STYLE_SHORT[S.heroStyle] ?? "Bal"}</button>` : ""}<button class="hdr-btn ch-toggle" id="net-chat" title="Chat">💬${unread > 0 ? `<span class="ch-badge">${unread}</span>` : ""}</button><button class="hdr-btn" id="net-cog" title="Settings">⚙</button><button class="hdr-btn" id="net-leave">Leave</button></div></div>
       <div class="stage">
         <div class="table-wrap"><div class="poker-table"><div class="felt"></div>${seatHtml}<div class="board-center">${center}</div>${potHtml}</div></div>
         <div class="controls"><div class="controls-body">${upsellHtml}${controls}${S.net.err ? `<div class="room-broke" style="margin-top:8px">${esc(S.net.err)}</div>` : ""}</div></div>
@@ -4768,6 +4784,18 @@ function renderNetTable(): void {
   onId("net-leave", "click", () => void netLeave());
   onId("net-leave-win", "click", () => void netLeave());
   onId("net-deal", "click", () => void netDeal());
+  // Online Bluff-Lab pill — same cycle as the trainer's style-btn, plus push to the server
+  // so the server-computed MCE recommendation tilts to the new style on the next hand.
+  onId("net-style-btn", "click", () => {
+    const i = HERO_STYLE_ORDER.indexOf(S.heroStyle as typeof HERO_STYLE_ORDER[number]);
+    S.heroStyle = HERO_STYLE_ORDER[(i + 1) % HERO_STYLE_ORDER.length]!;
+    try { localStorage.setItem("mce-hero-style", S.heroStyle); } catch { /* */ }
+    if (S.net.code) {
+      const hs = S.heroStyle as "gto" | "tag" | "lag" | "nit" | "maniac";
+      void FB.setSeatPrefs(S.net.code, { heroStyle: hs }).catch(() => { /* */ });
+    }
+    render();
+  });
   onId("net-share-win", "click", () => {
     const cards = S.net.myHand ? S.net.myHand.map((c) => ({ t: cardDisplay(c), red: isRed(c) })) : undefined;
     void shareWin({ amount: iWonAmt, sym, cards });
