@@ -114,6 +114,12 @@ body::after {
   flex-direction: column;
   position: relative;
 }
+/* iOS-style screen-in transition. Applied to #app by _markScreenTransition() whenever the
+   screen changes — except into the game tables (NO_TRANSITION_SCREENS) where the animation
+   would flicker the card-flip render path. Compositor-only (transform + opacity). */
+#app.screen-in { animation: screenIn .26s cubic-bezier(.2,.8,.3,1) both; }
+@keyframes screenIn { from { transform: translateX(28px); opacity: .55; } to { transform: translateX(0); opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { #app.screen-in { animation: none; } }
 
 /* ═══════ Setup ═══════ */
 

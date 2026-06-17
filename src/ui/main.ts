@@ -434,10 +434,28 @@ function fmtMoney(v: number): string {
 
 type NumpadTarget = "sb" | "bb" | "stack" | "seatstack";
 
+// Last rendered screen — drives the iOS-style slide-in transition on screen change.
+let _lastRenderedScreen: typeof S.screen | null = null;
+// Screens to NOT animate into (the game tables — animation flicker on the card render path).
+const NO_TRANSITION_SCREENS = new Set<typeof S.screen>(["game", "mp-net", "mp-table"]);
+function _markScreenTransition(): void {
+  if (typeof document === "undefined") return;
+  const app = document.getElementById("app"); if (!app) return;
+  // Only mark a transition when the screen actually changed.
+  if (_lastRenderedScreen === S.screen) return;
+  const prev = _lastRenderedScreen; _lastRenderedScreen = S.screen;
+  if (prev == null) return; // first render — no animation
+  if (NO_TRANSITION_SCREENS.has(S.screen)) return;
+  // Trigger a one-shot slide-in by re-adding the class (drop the class first to restart the CSS animation).
+  app.classList.remove("screen-in");
+  void app.offsetWidth; // force reflow so the animation restarts
+  app.classList.add("screen-in");
+}
 function render(): void {
   // Age gate blocks everything EXCEPT the Terms/How-it-works docs, so they're
   // readable from the gate itself before confirming.
   if (!ageConfirmed() && S.screen !== "legal" && S.screen !== "explainer") { renderAgeGate(); return; }
+  _markScreenTransition();
   if (S.screen === "home") renderHome();
   else if (S.screen === "landing") renderLanding();
   else if (S.screen === "profile") renderProfile();
@@ -3783,6 +3801,7 @@ function clearNetSubs(): void {
   if (_netTableUnsub) { _netTableUnsub(); _netTableUnsub = null; }
   if (_netHandUnsub) { _netHandUnsub(); _netHandUnsub = null; }
   if (_netChatUnsub) { _netChatUnsub(); _netChatUnsub = null; }
+  if (_pendingNetApply) { clearTimeout(_pendingNetApply.t); _pendingNetApply = null; }
 }
 
 function friendlyErr(e: unknown): string {
@@ -3818,11 +3837,28 @@ async function enterRoom(code: string): Promise<void> {
   }
   try {
     _netTableUnsub = await FB.subscribeRoom(code, (pub) => {
+      // If a previous apply was deferred for stagger, flush it first so we never lose state.
+      if (_pendingNetApply) { clearTimeout(_pendingNetApply.t); _pendingNetApply.run(); _pendingNetApply = null; }
       const prev = S.net.pub;
-      // Chip-to-pot must fire on the OLD DOM (this street's bets are still visible) BEFORE re-render.
-      if (S.screen === "mp-net" && prev) netPreAnims(prev as Record<string, any>, pub as Record<string, any>);
-      S.net.pub = pub; _netActing = false; _netBetOpen = false; S.net.err = "";
-      if (S.screen === "mp-net") { render(); if (prev) netPostAnims(prev as Record<string, any>, pub as Record<string, any>); }
+      // The actual snapshot apply (renders the new state + post-anim callouts).
+      const apply = (): void => {
+        if (S.screen === "mp-net" && prev) netPreAnims(prev as Record<string, any>, pub as Record<string, any>);
+        S.net.pub = pub; _netActing = false; _netBetOpen = false; S.net.err = "";
+        if (S.screen === "mp-net") { render(); if (prev) netPostAnims(prev as Record<string, any>, pub as Record<string, any>); }
+      };
+      // Multi-bot trace → DEFER applying the new snapshot so the chip totals + pot + street
+      // don't all snap to the final values at once. While we wait, the OLD displayed snapshot
+      // stays (with the user's optimistic apply for THEIR action), making slow really feel slow.
+      // Callouts/SFX still fire staggered on the new snapshot's apply at the end.
+      const trace = (pub.botTrace as Array<unknown> | undefined) ?? [];
+      const tracedHand = prev && (prev as Record<string, any>).status === "in_hand" && trace.length >= 2;
+      if (tracedHand) {
+        const delay = Math.max(0, (trace.length - 1) * botStaggerMs());
+        const t = setTimeout(() => { _pendingNetApply = null; apply(); }, delay) as unknown as number;
+        _pendingNetApply = { run: apply, t };
+      } else {
+        apply();
+      }
     });
     const uid = S.mp.auth?.uid;
     if (uid) _netHandUnsub = await FB.subscribeMyHand(code, uid, (h) => { S.net.myHand = h?.holeCards ?? null; S.net.myRec = (h as { rec?: typeof S.net.myRec })?.rec ?? null; if (S.screen === "mp-net") render(); });
@@ -3979,10 +4015,15 @@ function netPreAnims(prev: Record<string, any>, pub: Record<string, any>): void 
 let _histStartChips: number | null = null;
 // Bot stagger driven by the same speed tier as the trainer (saved to localStorage). Lets
 // the user dial the per-action delay so a 5-handed pot doesn't feel like a slot machine.
-const BOT_STAGGER_BY_TIER: Record<SpeedTier, number> = { slow: 1100, normal: 650, fast: 350, instant: 90 };
+// Per-tier bot stagger. Slow is genuinely deliberate (~2s/action) so a multi-bot pot doesn't
+// blast through — used by both the visual callout stagger AND the snapshot-apply deferral.
+const BOT_STAGGER_BY_TIER: Record<SpeedTier, number> = { slow: 2000, normal: 850, fast: 380, instant: 90 };
 const botStaggerMs = (): number => BOT_STAGGER_BY_TIER[trainingSpeed()];
 // Replay-key memo so a re-render doesn't double-fire the same staggered trace.
 let _lastBotTraceKey = "";
+// When a snapshot's apply is deferred (multi-bot stagger), this holds the pending run + timer
+// so a NEW snapshot can flush it immediately instead of dropping state.
+let _pendingNetApply: { run: () => void; t: number } | null = null;
 // Visual-only floating callout at a seat. Sound is the caller's responsibility so
 // trainer can reuse this without double-firing the SFX that's already played at action time.
 // Deferred via queueMicrotask + RAF so it survives any synchronous render() in the same tick
@@ -5341,34 +5382,15 @@ const PLAY_PACKS = [
   { chips: "16,000", price: "$99" },
   { chips: "40,000", price: "$199", badge: "Best value" },
 ];
-const PREMIUM_PACKS = [
-  { chips: "400", price: "$4.99" },
-  { chips: "850", price: "$9.90" },
-  { chips: "2,300", price: "$24.90", bonus: "+8%" },
-  { chips: "5,000", price: "$49" },
-  { chips: "11,000", price: "$99", bonus: "+10%" },
-];
 const EDGE_TIERS = [
   { label: "1 month · online", price: "$9.99", sub: "one-time · does not renew" },
   { label: "Monthly", price: "$6.99/mo", sub: "Most flexible" },
   { label: "Annual", price: "$49.99/yr", sub: "$4.17/mo · save 40%", best: true },
 ];
-const COSMETICS = [
-  { id: "squid", emoji: "🦑", name: "Squid Mascot", desc: "Collectible table mascot", chips: 2500 },
-  { id: "squiddigital", emoji: "🦑", name: "Squid · Digital", desc: "Limited digital Squid — account-bound flair", chips: 2000 },
-  { id: "goldback", emoji: "🟡", name: "Gold Card Back", desc: "Gilded deck", chips: 1200 },
-  { id: "emerald", emoji: "🟢", name: "Emerald Felt", desc: "Premium table felt", chips: 1500 },
-  { id: "crown", emoji: "👑", name: "Crown Flair", desc: "Profile crown", chips: 3000 },
-];
-function ownedCosmetics(): string[] { try { return JSON.parse(localStorage.getItem("mce-cosmetics") || "[]"); } catch { return []; } }
-function addCosmetic(id: string): void { const o = ownedCosmetics(); if (!o.includes(id)) { o.push(id); try { localStorage.setItem("mce-cosmetics", JSON.stringify(o)); } catch { /* */ } } }
-
 function renderStore(): void {
   cancelVillainTimer();
   const loggedIn = !!S.mp.auth;
-  const owned = loggedIn ? S.collectibles : ownedCosmetics();
   const playBal = loggedIn ? S.wallet.play : S.profile.chips;
-  const premBal = loggedIn ? S.wallet.premium : 0;
   const claimReady = canClaimWeekly();
   const daysLeft = loggedIn && S.lastWeekly ? Math.max(0, Math.ceil((WEEK_MS - (Date.now() - S.lastWeekly)) / 86_400_000)) : 0;
   const pack = (pk: { chips: string; price: string; badge?: string; bonus?: string }, sym: string) => `
@@ -5379,7 +5401,7 @@ function renderStore(): void {
   app.innerHTML = `
     <div class="setup doc">
       <div class="doc-top"><button class="hdr-btn" id="store-back">← Back</button><h1>🛍 Store</h1><span style="width:54px"></span></div>
-      <div class="store-bal">Balance <strong><i class=ic-coin></i> ${fmtBal(playBal)}</strong> · <strong><i class=ic-gem></i> ${fmtBal(premBal)}</strong></div>
+      <div class="store-bal">Balance <strong><i class=ic-coin></i> ${fmtBal(playBal)}</strong></div>
 
       <div class="set-group"><div class="set-head">🎁 Weekly free chips</div>
         ${!loggedIn ? `<div class="set-note">Sign in to claim free play chips every week — the streak grows your reward (500 › 600 › 750 › 1,000).</div>`
@@ -5400,35 +5422,13 @@ function renderStore(): void {
         <div class="pack-grid">${PLAY_PACKS.map((pk) => pack(pk, "<i class=ic-coin></i>")).join("")}</div>
       </div>
 
-      <div class="set-group"><div class="set-head"><i class=ic-gem></i> Premium chips</div>
-        <div class="set-note" style="margin-bottom:9px">Competitive currency · won and lost against real players · buys Collectibles. Never given free (except admin events).</div>
-        <div class="pack-grid">${PREMIUM_PACKS.map((pk) => pack(pk, "<i class=ic-gem></i>")).join("")}</div>
-      </div>
-
-      <div class="set-group"><div class="set-head">Collectibles</div>
-        <div class="set-note" style="margin-bottom:9px">Cosmetic only — card-backs, felts, frames. <strong>Account-bound: cannot be sold, traded, or transferred for value.</strong> The flashiest ones unlock by beating the trainer.</div>
-        <div class="store-grid">${COSMETICS.map((c) => {
-          const own = owned.includes(c.id);
-          return `<div class="store-item ${own ? "owned" : ""}"><div class="si-emoji">${c.emoji}</div><div class="si-name">${c.name}</div><div class="si-desc">${c.desc}</div>${own ? `<div class="si-own">Owned ✓</div>` : (loggedIn ? `<button class="hdr-btn buy-col" data-col="${c.id}" ${(S.wallet.premium ?? 0) < c.chips ? "disabled" : ""}><i class=ic-gem></i> ${c.chips.toLocaleString()}</button>` : `<button class="hdr-btn" disabled><i class=ic-gem></i> ${c.chips.toLocaleString()}</button>`)}</div>`;
-        }).join("")}</div>
-      </div>
-
-      <div class="trust-foot">Chips are <strong>play-money</strong>. They can't be cashed out, sold, or transferred for value. We cap spend at ~$20/day — we're a trainer, not a casino.</div>
       <button class="hdr-btn" id="store-back2" style="width:100%;padding:12px;margin-top:10px">Back</button>
     </div>`;
   onId("store-back", "click", () => { S.screen = "home"; render(); });
   onId("store-back2", "click", () => { S.screen = "home"; render(); });
   onId("store-claim", "click", () => { _weeklyShown = false; showWeeklyClaim(); });
-  app.querySelectorAll(".buy-col").forEach((b) => onEl(b, "click", () => void doBuyCollectible((b as HTMLElement).dataset.col!)));
   onId("edge-buy", "click", () => { void startEdgePass(); });
   onId("edge-manage", "click", () => { void manageEdgePass(); });
-}
-
-// Buy a cosmetic collectible with premium chips (the live wallet sub reflects the
-// new balance + owned state on success; account-bound, non-transferable).
-async function doBuyCollectible(itemId: string): Promise<void> {
-  try { await FB.buyCollectible(itemId); try { playSound("chip"); } catch { /* */ } }
-  catch (e) { alert(friendlyErr(e)); }
 }
 
 // Edge Pass: redirect to Stripe Checkout (the secret keys live server-side; the
@@ -6034,3 +6034,82 @@ function initCardTilt(): void {
   document.addEventListener("pointerup", reset);
   document.addEventListener("pointercancel", reset);
 }
+
+// ── iOS-style edge-swipe back gesture ─────────────────────────────────────────
+// Active on menu / non-game screens (home, settings, store, profile, mp-setup, lobby, etc.).
+// BLOCKED at the game table (training, online, live-in-person) so you can't accidentally swipe
+// out mid-hand. Also blocked at root screens (home/landing/signin) and while a modal is open.
+const BACK_BLOCKED_SCREENS = new Set(["game", "mp-net", "mp-table", "home", "landing", "signin", "onboard"]);
+// Try the standard back-button ids in order; whichever exists on this screen, click it.
+// Falls back to S.screen → "home" if no back button is found.
+function _navigateBackForSwipe(): boolean {
+  const ids = ["mp-back", "doc-back", "store-back", "pf-back", "hh-back", "ib-back", "co-back", "ad-back", "si-back", "set-back", "lobby-back", "mp-home", "home-btn"];
+  for (const id of ids) {
+    const el = document.getElementById(id);
+    if (el) { (el as HTMLElement).click(); return true; }
+  }
+  // Fallback for screens whose Back button is inside a modal/sub-route.
+  S.screen = "home"; render();
+  return true;
+}
+function initSwipeBack(): void {
+  if (typeof window === "undefined") return;
+  const app = document.getElementById("app");
+  if (!app) return;
+  const EDGE_PX = 28;       // start zone: left edge
+  const COMMIT_PX = 90;     // pull distance to commit the back
+  const MAX_X = () => window.innerWidth;
+  let active = false, startX = 0, startY = 0, dx = 0, peekFrame = 0;
+  const reset = (animate: boolean): void => {
+    if (animate) {
+      app.style.transition = "transform .18s cubic-bezier(.2,.8,.3,1), opacity .18s";
+      app.style.transform = ""; app.style.opacity = "";
+      setTimeout(() => { app.style.transition = ""; }, 200);
+    } else {
+      app.style.transition = ""; app.style.transform = ""; app.style.opacity = "";
+    }
+    active = false; dx = 0;
+  };
+  document.addEventListener("touchstart", (e) => {
+    if (BACK_BLOCKED_SCREENS.has(S.screen)) return;
+    if (document.querySelector(".modal-backdrop")) return; // a modal owns the gesture space
+    const t = e.touches[0]; if (!t) return;
+    if (t.clientX > EDGE_PX) return;
+    active = true; startX = t.clientX; startY = t.clientY; dx = 0;
+  }, { passive: true });
+  document.addEventListener("touchmove", (e) => {
+    if (!active) return;
+    const t = e.touches[0]; if (!t) return;
+    const ddx = t.clientX - startX; const ddy = Math.abs(t.clientY - startY);
+    // Vertical-dominant motion → cancel (scroll wins).
+    if (ddy > Math.abs(ddx) * 0.8 && ddy > 12) { reset(true); return; }
+    dx = Math.max(0, ddx);
+    if (peekFrame) cancelAnimationFrame(peekFrame);
+    peekFrame = requestAnimationFrame(() => {
+      // Live peek: drag the screen with the finger, slight opacity fade as it pulls.
+      const f = Math.min(1, dx / MAX_X());
+      app.style.transform = `translateX(${dx.toFixed(1)}px)`;
+      app.style.opacity = String(1 - f * 0.25);
+    });
+  }, { passive: true });
+  document.addEventListener("touchend", () => {
+    if (!active) return;
+    if (peekFrame) { cancelAnimationFrame(peekFrame); peekFrame = 0; }
+    if (dx >= COMMIT_PX) {
+      // Complete the swipe: finish the slide-out, then navigate back. The new screen
+      // renders with the .screen-in animation (defined in styles.css) for the iOS feel.
+      app.style.transition = "transform .22s cubic-bezier(.2,.8,.3,1), opacity .22s";
+      app.style.transform = `translateX(${MAX_X()}px)`; app.style.opacity = "0";
+      setTimeout(() => {
+        app.style.transition = ""; app.style.transform = ""; app.style.opacity = "";
+        active = false; dx = 0;
+        _navigateBackForSwipe();
+      }, 200);
+    } else {
+      reset(true);
+    }
+  }, { passive: true });
+  document.addEventListener("touchcancel", () => { if (active) reset(true); }, { passive: true });
+}
+// Defer to next tick so #app is mounted.
+setTimeout(initSwipeBack, 0);
