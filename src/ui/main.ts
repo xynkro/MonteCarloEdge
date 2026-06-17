@@ -22,6 +22,9 @@ const HERO_STYLES: Record<string, { label: string; style: HeroStyle; blurb: stri
   nit: { label: "Tight / Cautious", style: { aggression: 0.75, looseness: 0.7 }, blurb: "Premiums only, minimal bluffing." },
   maniac: { label: "Maniac", style: { aggression: 1.6, looseness: 1.5 }, blurb: "Max aggression — high variance." },
 };
+// Short labels for the in-game style cycler pill + recommendation card tag.
+const HERO_STYLE_SHORT: Record<string, string> = { gto: "Bal", tag: "TAG", lag: "LAG", nit: "Nit", maniac: "Mnc" };
+const HERO_STYLE_ORDER = ["gto", "tag", "lag", "maniac", "nit"] as const;
 import { gradeDecision, SRC_WORD } from "../engine/grade.js";
 import { AUTO, TAG, LAG, STATION, NIT, type OpponentProfile } from "../engine/opponent.js";
 import { villainDecision } from "../engine/villain-ai.js";
@@ -251,7 +254,7 @@ const S: AppState = {
   archetype: "Auto",
   tournament: false,
   payoutPreset: "top3",
-  heroStyle: "gto",
+  heroStyle: (() => { try { const v = localStorage.getItem("mce-hero-style"); return (v && HERO_STYLES[v]) ? v : "gto"; } catch { return "gto"; } })(),
   gs: null,
   heroCards: null,
   boardCards: [],
@@ -1071,6 +1074,7 @@ function renderSetup(): void {
   });
   onId("herostyle", "change", (e) => {
     S.heroStyle = (e.target as HTMLSelectElement).value;
+    try { localStorage.setItem("mce-hero-style", S.heroStyle); } catch { /* */ }
     const b = document.querySelector(".style-blurb");
     if (b) b.innerHTML = `<strong>You:</strong> ${HERO_STYLES[S.heroStyle]?.blurb ?? ""}`;
   });
@@ -1444,14 +1448,31 @@ function updateMessage(): void {
   S.message = S.mode === "training" ? `${pos} is deciding…` : `${pos} to act — tap their action below`;
 }
 
+// True when the table is in full-bleed landscape mode (the WSOP broadcast layout
+// in styles.css). Wires a one-time matchMedia listener so rotating re-renders the
+// seat ring (seat coords differ by orientation; rotation isn't a state change).
+let _orientWired = false;
+function landscapeTable(): boolean {
+  if (typeof matchMedia !== "function") return false;
+  const mq = matchMedia("(orientation: landscape) and (max-height: 600px)");
+  if (!_orientWired) { _orientWired = true; try { mq.addEventListener("change", () => render()); } catch { /* older Safari */ } }
+  return mq.matches;
+}
+// Seat position (% of the .poker-table box) for visual order `vis` (0 = hero) of `n` seats.
+// PORTRAIT: the original even ellipse. LANDSCAPE (full-bleed WSOP stadium): the SAME
+// full ring, just wider + a touch taller so players line the whole rim of the wide
+// stadium felt (top row, both sides, bottom corners) with the hero at bottom-centre —
+// exactly like the WSOP broadcast table. The action bar lives in a bottom strip below
+// the felt, so no seat is ever covered.
+function tableSeatPos(vis: number, n: number): { left: number; top: number } {
+  const a = (vis * 2 * Math.PI) / n;
+  if (landscapeTable()) return { left: 50 - 47 * Math.sin(a), top: 50 + 45 * Math.cos(a) };
+  return { left: 50 - 41 * Math.sin(a), top: 50 + 38 * Math.cos(a) };
+}
 function seatCoord(seatIdx: number): { left: number; top: number } {
   const n = getPositions(S.tableSize).length;
   const vis = (seatIdx - S.heroSeat + n) % n;
-  const a = (vis * 2 * Math.PI) / n;
-  // Push seats toward the rim of the felt. Horizontal radius is kept modest so
-  // the side seats' boxes (~76px, centered via translate(-50%)) don't spill past
-  // the table edge and get clipped by .game{overflow:hidden} on narrow phones.
-  return { left: 50 - 41 * Math.sin(a), top: 50 + 38 * Math.cos(a) };
+  return tableSeatPos(vis, n);
 }
 
 // A small head-and-shoulders silhouette avatar so opponents read as people, not
@@ -1829,6 +1850,7 @@ function renderGame(): void {
     : `<div class="rec-panel">
       <div class="rec-head">
         <div class="rec-action">${S.rec.action}${S.rec.amount > 0 ? ` ${chipsBet(S.rec.amount)}` : ""}</div>
+        ${S.heroStyle && S.heroStyle !== "gto" ? `<span class="rec-style style-${S.heroStyle}" title="Recommendation tilted by your '${HERO_STYLES[S.heroStyle]?.label}' style — tap topbar pill to change">${HERO_STYLE_SHORT[S.heroStyle]}</span>` : ""}
         ${srcBadge}
       </div>
       <div class="rec-reason">${recReason}</div>
@@ -1898,6 +1920,9 @@ function renderGame(): void {
             ? `<button class="hdr-btn ${quizMode() ? "quiz-on" : ""}" id="quiz-btn" title="Quiz mode: hide the recommendation, grade your call">${quizMode() ? "🙈 Quiz" : "💡 Coach"}</button>`
             : ""}
           ${S.mode === "training"
+            ? `<button class="hdr-btn style-pill style-${S.heroStyle}" id="style-btn" title="Your play style — tap to cycle. LAG/Maniac bluff more, Nit bluffs less.">${HERO_STYLE_SHORT[S.heroStyle] ?? "Bal"}</button>`
+            : ""}
+          ${S.mode === "training"
             ? `<button class="hdr-btn" id="speed-btn" title="Playback speed">${SPEED_LABEL[trainingSpeed()]}</button>`
             : ""}
           ${S.mode === "live" && S.undoStack.length > 0
@@ -1961,6 +1986,13 @@ function renderGame(): void {
     S.screen = "setup"; S.dealerSeat = -1; S.handNumber = 0; render();
   });
   onId("speed-btn", "click", () => { cycleSpeed(); render(); });
+  onId("style-btn", "click", () => {
+    const i = HERO_STYLE_ORDER.indexOf(S.heroStyle as typeof HERO_STYLE_ORDER[number]);
+    S.heroStyle = HERO_STYLE_ORDER[(i + 1) % HERO_STYLE_ORDER.length]!;
+    try { localStorage.setItem("mce-hero-style", S.heroStyle); } catch { /* */ }
+    updateRec(); // refresh the recommendation under the new style on the spot
+    render();
+  });
   onId("quiz-btn", "click", () => { toggleQuiz(); render(); });
   onId("undo-btn", "click", undo);
   onId("next-hand", "click", nextHand);
@@ -4551,7 +4583,7 @@ function renderNetTable(): void {
 
   const N = Math.max(2, occupied.length);
   const myOrder = Math.max(0, occupied.findIndex((x) => x.s.uid === uid));
-  const coord = (orderIdx: number) => { const vis = (orderIdx - myOrder + N) % N; const a = (vis * 2 * Math.PI) / N; return { left: 50 - 41 * Math.sin(a), top: 50 + 38 * Math.cos(a) }; };
+  const coord = (orderIdx: number) => tableSeatPos((orderIdx - myOrder + N) % N, N);
   // Blind positions (table-seat indices) so newbies see SB/BB, not just the dealer button.
   // Heads-up: the button IS the small blind (shown as D); 3+: SB is left of the button, BB next.
   const _no = occupied.length, _btnO = occupied.findIndex((x) => x.ti === pub.dealerSeat);

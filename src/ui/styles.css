@@ -665,28 +665,49 @@ body::after {
 }
 .controls-body { } /* contents flow naturally; .controls scrolls if they overflow */
 
-/* ── Landscape (short screens, i.e. phones): WSOP-style wide felt left, MCE panel right ── */
+/* ── Landscape (short screens, i.e. phones): WSOP broadcast table ──
+   A wide STADIUM felt fills the top region; players ring the whole rim (top, sides,
+   bottom corners) with the hero at bottom-centre; the action controls sit in a dark
+   bottom bar below the felt (hand read + MCE on the left, buttons on the right) —
+   matching the WSOP layout. Scoped to landscape; portrait is untouched. */
 @media (orientation: landscape) and (max-height: 600px) {
   #app { max-width: none; } /* use the full landscape width, not the 480px cap */
-  .stage { flex-direction: row; align-items: stretch; }
+  .stage { position: relative; display: block; }
+  /* Felt region: full width, top ~68%. The action bar owns the bottom strip. */
   .table-wrap {
-    flex: 1 1 auto; min-width: 0; height: 100%; padding: 4px 38px;
+    position: absolute; top: 0; left: 0; right: 0; height: 68%;
+    padding: 2px 18px 0; display: flex; align-items: center; justify-content: center;
   }
-  /* WSOP-style WIDE oval: a flatter, wider felt than portrait's near-circle. The JS seat
-     %s ride this wider box, so players ring a true broadcast oval instead of a cramped
-     circle. height-driven, then aspect derives the width; the side padding keeps the
-     far-left/right seat cards (centred ±33px past the rail) clear of the screen edge. */
-  .poker-table { height: 96%; width: auto; max-width: 100%; aspect-ratio: 1.4 / 1; }
+  .poker-table { height: 100%; width: 100%; max-width: 100%; aspect-ratio: auto; }
+  /* WSOP stadium: flat-ish top/bottom + rounded ends (vs portrait's near-circle). */
+  .felt, .felt::after { border-radius: 15% / 42%; }
+  .board-center { top: 44%; }
+  .pot-line { top: 66%; }
+  /* Controls = full-width bottom bar. Everything is flattened into ONE horizontal row:
+     hand read + hole cards + MCE recommendation flow left; the action buttons are
+     pushed to the right (margin-left:auto). Matches the WSOP bottom action strip. */
   .controls {
-    flex: 0 0 clamp(300px, 36%, 430px); min-width: 300px; height: 100%; padding: 0 4px;
-    border-left: 1px solid var(--line); overflow-y: auto;
+    position: absolute; left: 0; right: 0; bottom: 0; height: 32%; z-index: 30;
+    display: flex; flex-direction: row; align-items: center;
+    padding: 0 16px calc(2px + env(safe-area-inset-bottom));
+    background: linear-gradient(to top, #060a12 70%, rgba(6,10,18,0));
+    border-top: 1px solid var(--line); overflow: visible;
   }
-  .controls .hero-area { padding: 8px 12px 4px; }
-  .controls .hero-cards { margin-top: 2px; }
-  .hero-card { width: 46px; height: 64px; font-size: 19px; }
-  .action-dock { margin-top: 8px; }
-  .action-bar { padding: 10px 12px calc(10px + env(safe-area-inset-bottom)); }
-  .action-btn { padding: 13px 4px; font-size: 13px; }
+  .controls-body { display: flex; flex-direction: row; align-items: center; gap: 14px; height: 100%; width: 100%; min-width: 0; }
+  .status-bar.your-turn { display: none; } /* turn is conveyed by the live action buttons */
+  /* Trainer: flatten hero-area's vertical stack into a row. */
+  .hero-area { display: flex; flex-direction: row; align-items: center; gap: 14px; flex: 1 1 auto; min-width: 0; padding: 0; }
+  .hand-summary { flex-direction: column; align-items: flex-start; gap: 1px; flex: 0 0 auto; }
+  .hero-read-row { flex: 0 0 auto; margin: 0; }
+  .rec-row { flex: 1 1 auto; min-width: 0; margin: 0; }
+  .rec-panel, .net-mce { max-height: 80px; max-width: 280px; overflow: hidden; }
+  /* Net table: its hero/read/mce/wait blocks flow inline too. */
+  .net-hero, .net-read, .net-wait { flex: 0 0 auto; margin: 0; }
+  .hero-cards { margin: 0; }
+  .hero-card { width: 40px; height: 56px; font-size: 16px; }
+  .action-dock { margin-left: auto; flex: 0 0 auto; align-self: center; }
+  .action-bar { display: flex; gap: 10px; margin-left: auto; padding: 0; }
+  .action-btn { padding: 14px 0; font-size: 15px; min-width: 108px; }
 }
 .controls .hero-area { flex: 0 0 auto; }
 /* Action/result block sits directly under the cards/recommendation — contiguous
@@ -859,6 +880,17 @@ body::after {
 .rec-src.src-chart  { background: rgba(255,209,102,.16); color: var(--gold); }
 .rec-src.src-solving { background: rgba(124,92,255,.14); color: #b3a4ff; animation: pulseSrc 1s ease-in-out infinite; }
 @keyframes pulseSrc { 0%,100% { opacity: .55; } 50% { opacity: 1; } }
+/* Your-play-style pill (topbar) + tag (rec card) — colored by style so it's read at a glance. */
+.style-pill, .rec-style {
+  font: 800 10px/1 var(--display, inherit); letter-spacing: .8px; text-transform: uppercase;
+  padding: 4px 8px; border-radius: 999px; white-space: nowrap;
+  background: rgba(255,255,255,.07); color: var(--text); border: 1px solid rgba(255,255,255,.14);
+}
+.style-pill.style-gto, .rec-style.style-gto { color: var(--text); border-color: rgba(255,255,255,.16); }
+.style-pill.style-tag, .rec-style.style-tag { background: rgba(6,214,160,.14); color: var(--emerald); border-color: rgba(6,214,160,.4); }
+.style-pill.style-lag, .rec-style.style-lag { background: rgba(255,159,67,.14); color: #ffd9a8; border-color: rgba(255,159,67,.45); }
+.style-pill.style-maniac, .rec-style.style-maniac { background: rgba(239,71,111,.16); color: #ffc2cf; border-color: rgba(239,71,111,.45); }
+.style-pill.style-nit, .rec-style.style-nit { background: rgba(125,180,255,.14); color: #b6d4ff; border-color: rgba(125,180,255,.4); }
 
 /* Mixed-strategy bars from the solver. */
 .rec-mix { margin-top: 7px; display: flex; flex-direction: column; gap: 4px; }

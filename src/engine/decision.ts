@@ -942,6 +942,11 @@ function postflopRecommend(
     }
   }
 
+  // Bluff-was-close teaching: when a bluff misses by a small margin we DON'T flip
+  // the action (math says check, so check), but we APPEND a coaching line to the
+  // reasoning so the user learns the structure (what fold% would have made it +EV).
+  // Reasoning-string only — EV / action / mix / frequencies are unchanged → no gate regress.
+  let bluffCoach = "";
   // ── Represent / bluff (incl. barrels & river bluffs) ──
   // With no showdown value, checking just gives up. Bet to represent strength
   // when fold equity clears the break-even. Now allowed MULTIWAY (with a steeper
@@ -975,6 +980,11 @@ function postflopRecommend(
     // hero aggression lowers it (bluff more often).
     const need = breakeven + 0.02 + 0.14 * (nVil - 1) - blockerCredit - barrelCredit
       - (style.aggression - 1) * 0.12;
+    // Within ~10% fold-equity of clearing the bar = a CLOSE bluff: teach the structure.
+    if (foldy <= need && need - foldy <= 0.10 && heroStack > pot * frac) {
+      const kind = wasAggressor ? "barrel" : "bluff";
+      bluffCoach = ` · close ${kind} spot (need ~${pct(need)} fold, opp only folds ~${pct(foldy)})`;
+    }
     if (foldy > need && heroStack > pot * frac) {
       const size = Math.min(pot * frac, betCap);
       const kind = wasAggressor ? "Barrel" : "Bluff";
@@ -999,6 +1009,6 @@ function postflopRecommend(
   return fin({
     action: "check", amount: 0, equity: eq, potOdds: 0,
     ev: { fold: 0, call: 0, raise: -0.5 },
-    reasoning: `Check — ${handLabel}, ${pct(eq)} equity on ${texNote}`,
+    reasoning: `Check — ${handLabel}, ${pct(eq)} equity on ${texNote}${bluffCoach}`,
   });
 }
