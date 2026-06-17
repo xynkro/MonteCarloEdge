@@ -681,8 +681,8 @@ body::after {
   .poker-table { height: 100%; width: 100%; max-width: 100%; aspect-ratio: auto; }
   /* WSOP stadium: flat-ish top/bottom + rounded ends (vs portrait's near-circle). */
   .felt, .felt::after { border-radius: 15% / 42%; }
-  .board-center { top: 44%; }
-  .pot-line { top: 66%; }
+  .board-center { top: 36%; }
+  .pot-line { top: 52%; } /* well above the lifted hero seat so it never sits on the avatar */
   /* Controls = full-width bottom bar. Everything is flattened into ONE horizontal row:
      hand read + hole cards + MCE recommendation flow left; the action buttons are
      pushed to the right (margin-left:auto). Matches the WSOP bottom action strip. */
@@ -709,24 +709,23 @@ body::after {
   .action-dock { margin-left: auto; flex: 0 0 auto; align-self: center; }
   .action-bar { display: flex; gap: 10px; margin-left: auto; padding: 0; }
   .action-btn { padding: 13px 0; font-size: 15px; min-width: 100px; }
-  /* Bet pad → compact 2-column modal so the numpad never runs off a short screen.
-     Left column stacks display + presets + confirm; the numpad sits in the right
-     column, halving the height vs the portrait bottom-sheet. */
-  .modal-backdrop { align-items: center; }
+  /* Bet pad → docked to the RIGHT as a compact full-height panel (WSOP-style) so the
+     hero seat + chips + board stay visible while you size a raise. Single column,
+     vertically centred, sized to fit the short landscape height. */
+  .modal-backdrop:has(.betpad-grid) { align-items: stretch; justify-content: flex-end; }
   .modal-content:has(.betpad-grid) {
-    width: min(94vw, 660px); max-width: 660px; max-height: 94dvh; border-radius: 20px;
-    border-bottom: 1px solid var(--line-2); padding: 14px 16px;
-    display: grid; gap: 7px 16px; align-items: start;
-    grid-template-columns: minmax(170px, 1fr) minmax(220px, 1.05fr);
-    grid-template-areas: "title title" "display pad" "presets pad" "actions pad";
+    width: min(46vw, 360px); max-width: 360px; height: 100%; max-height: 100%;
+    border-radius: 16px 0 0 16px; border: 1px solid var(--line-2); border-right: none;
+    padding: 10px 14px calc(8px + env(safe-area-inset-bottom));
+    display: flex; flex-direction: column; justify-content: center; gap: 7px;
   }
-  .modal-content:has(.betpad-grid) > h3 { grid-area: title; margin: 0 0 2px; }
-  .modal-content:has(.betpad-grid) .betpad-display { grid-area: display; margin: 0; }
-  .modal-content:has(.betpad-grid) .betpad-presets { grid-area: presets; margin: 0; grid-template-columns: repeat(2, 1fr); }
-  .modal-content:has(.betpad-grid) .betpad-grid { grid-area: pad; margin: 0; align-self: stretch; }
-  .modal-content:has(.betpad-grid) .modal-actions { grid-area: actions; margin: 0; }
-  .modal-content:has(.betpad-grid) .numpad-btn { padding: 9px 0; font-size: 18px; }
-  .modal-content:has(.betpad-grid) .preset-btn { padding: 7px 4px; }
+  .modal-content:has(.betpad-grid) > h3 { margin: 0; }
+  .modal-content:has(.betpad-grid) .betpad-display { margin: 0; padding: 5px 8px; font-size: 25px; }
+  .modal-content:has(.betpad-grid) .betpad-presets { margin: 0; }
+  .modal-content:has(.betpad-grid) .betpad-grid { margin: 0; }
+  .modal-content:has(.betpad-grid) .modal-actions { margin: 0; }
+  .modal-content:has(.betpad-grid) .numpad-btn { padding: 8px 0; font-size: 17px; }
+  .modal-content:has(.betpad-grid) .preset-btn { padding: 6px 4px; }
 }
 .controls .hero-area { flex: 0 0 auto; }
 /* Action/result block sits directly under the cards/recommendation — contiguous
