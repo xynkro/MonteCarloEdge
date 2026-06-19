@@ -523,6 +523,11 @@ body::after {
   animation: holeReveal .42s cubic-bezier(.2,.8,.3,1.1) both; transform-origin: center;
 }
 @keyframes holeReveal { from { transform: rotateY(85deg) scale(.92); opacity: 0; } to { transform: rotateY(0) scale(1); opacity: 1; } }
+/* The net table is a crowded 12-max ring (vs the trainer's heads-up); the full-size 42×58
+   reveal cards collide with neighbouring seat boxes, esp. on the right rim. Scope smaller
+   reveal cards + a higher z-index to the net table so a showdown reads cleanly without overlap. */
+.net-game .seat-cards { gap: 2px; z-index: 16; }
+.net-game .seat-hole.reveal { width: 30px; height: 42px; font-size: 17px; border-radius: 6px; }
 .chip-dot {
   width: 9px; height: 9px; border-radius: 50%;
   background: radial-gradient(circle at 35% 30%, #ffe08a, var(--gold));
@@ -573,6 +578,22 @@ body::after {
 .table-seat.winner .seat-chip::after {
   content: ""; position: absolute; inset: -1px; border-radius: inherit; pointer-events: none;
   box-shadow: 0 0 28px rgba(0,214,143,.7); opacity: .92;
+}
+/* "Acting now" spotlight — set transiently on the seat as each staggered bot callout fires.
+   Bright gold ring + pulse so the user has a visual cue for WHO acted at this beat (the
+   table's final state is already shown; this just narrates the sequence). One-shot animation
+   self-clears after botStaggerMs() so it doesn't linger after the last step. */
+.table-seat.acting-now .seat-chip {
+  border-color: var(--gold); box-shadow: 0 0 0 2px var(--gold), 0 0 18px rgba(255,209,102,.65);
+  animation: actingPulse .42s cubic-bezier(.2,.8,.3,1.1) both;
+}
+@keyframes actingPulse {
+  0%   { transform: scale(.92); box-shadow: 0 0 0 2px var(--gold), 0 0 4px rgba(255,209,102,.4); }
+  60%  { transform: scale(1.07); box-shadow: 0 0 0 2px var(--gold), 0 0 26px rgba(255,209,102,.85); }
+  100% { transform: scale(1); box-shadow: 0 0 0 2px var(--gold), 0 0 18px rgba(255,209,102,.65); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .table-seat.acting-now .seat-chip { animation: none; }
 }
 .seat-hole.win { box-shadow: 0 0 14px rgba(255,209,102,.85), 0 2px 7px rgba(0,0,0,.55); transform: scale(1.12); z-index: 2; }
 .seat-hole.lose { opacity: .62; }
@@ -670,6 +691,9 @@ body::after {
   padding-top: 10px;
 }
 .controls-body { } /* contents flow naturally; .controls scrolls if they overflow */
+/* Wrapper around the net read + MCE chip. Transparent in portrait (children stack as before);
+   becomes a shrinkable flex cluster in landscape so the action buttons stay pinned + unclipped. */
+.net-readwrap { display: contents; }
 
 /* ── Landscape (short screens, i.e. phones): WSOP broadcast table ──
    A wide STADIUM felt fills the top region; players ring the whole rim (top, sides,
@@ -714,7 +738,13 @@ body::after {
   .hero-card { width: 36px; height: 50px; font-size: 15px; }
   .action-dock { margin-left: auto; flex: 0 0 auto; align-self: center; }
   .action-bar { display: flex; gap: 10px; margin-left: auto; padding: 0; }
-  .action-btn { padding: 13px 0; font-size: 15px; min-width: 100px; }
+  .action-btn { padding: 13px 0; font-size: 15px; min-width: 92px; }
+  /* On YOUR turn the read + MCE chip collapse into ONE shrinkable cluster (it scrolls if it
+     doesn't fit) so the Fold/Call/Raise buttons are pinned to the right and NEVER clipped or
+     overlapped. This is the landscape fix for the squished-chip / cut-off-Raise bug. */
+  .net-readwrap { display: flex; align-items: center; gap: 12px; flex: 1 1 auto; min-width: 0; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .net-readwrap > * { flex: 0 0 auto; }
+  .action-bar { flex: 0 0 auto; }
   /* Bet pad → docked to the RIGHT as a compact full-height panel (WSOP-style) so the
      hero seat + chips + board stay visible while you size a raise. Single column,
      vertically centred, sized to fit the short landscape height. */
@@ -2159,6 +2189,8 @@ body::after {
 
 /* ═══════════ MCE STRATEGY overlay (assisted online seats) ═══════════ */
 .net-mce { background: linear-gradient(160deg, rgba(245,196,81,.13), rgba(124,92,255,.07)); border: 1px solid rgba(245,196,81,.34); border-radius: 13px; padding: 10px 13px; margin-bottom: 9px; }
+/* Shown to a player who has folded — out of the hand, so no read/recommendation, just watching. */
+.net-folded { text-align: center; color: var(--muted, #9aa4b2); font-size: .9rem; padding: 11px 12px; opacity: .85; }
 .nm-row { display: flex; align-items: center; gap: 9px; }
 .nm-tag { font-size: .64rem; font-weight: 800; letter-spacing: .5px; color: #1a1305; background: var(--gold-2); padding: 3px 7px; border-radius: 6px; }
 .nm-action { flex: 1; font-size: 1.05rem; font-weight: 800; color: var(--gold-2); }

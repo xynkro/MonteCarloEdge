@@ -3801,18 +3801,27 @@ function clearNetSubs(): void {
   if (_netTableUnsub) { _netTableUnsub(); _netTableUnsub = null; }
   if (_netHandUnsub) { _netHandUnsub(); _netHandUnsub = null; }
   if (_netChatUnsub) { _netChatUnsub(); _netChatUnsub = null; }
-  if (_pendingNetApply) { clearTimeout(_pendingNetApply.t); _pendingNetApply = null; }
 }
+
+function stripMessagePrefix(m: string): string { return m.replace(/^[^:]*:\s*/, "").trim(); }
 
 function friendlyErr(e: unknown): string {
   const code = (e as { code?: string })?.code ?? "";
   const m = (e as Error)?.message ?? "Something went wrong.";
   if (code.includes("operation-not-allowed") || /requested action is invalid/i.test(m)) return "Google sign-in isn't enabled in your Firebase console yet.";
   if (code.includes("unauthorized-domain")) return "This domain isn't authorized in Firebase Auth settings.";
-  if (code.includes("permission")) return "Permission denied (Firestore rules).";
+  if (code.includes("permission")) {
+    const clean = stripMessagePrefix(m);
+    return clean && !/insufficient permissions/i.test(clean) && !/^permission/i.test(clean)
+      ? clean : "You're not in this hand anymore — refresh the table.";
+  }
   if (code.includes("not-found")) return "Room not found — check the code.";
   if (code.includes("popup")) return "Sign-in popup was blocked or closed.";
-  if (code.includes("failed-precondition") || code.includes("resource-exhausted")) return m.replace(/^[^:]*:\s*/, "");
+  if (code.includes("failed-precondition") || code.includes("resource-exhausted")) {
+    const clean = stripMessagePrefix(m);
+    if (/^illegal\b/i.test(clean) || /^(check|call|bet|raise|fold)$/i.test(clean)) return "That move just became invalid — the table updated.";
+    return clean;
+  }
   return m;
 }
 
@@ -3836,30 +3845,7 @@ async function enterRoom(code: string): Promise<void> {
     void FB.setSeatPrefs(code, { heroStyle: hs }).catch(() => { /* spectator / not seated yet */ });
   }
   try {
-    _netTableUnsub = await FB.subscribeRoom(code, (pub) => {
-      // If a previous apply was deferred for stagger, flush it first so we never lose state.
-      if (_pendingNetApply) { clearTimeout(_pendingNetApply.t); _pendingNetApply.run(); _pendingNetApply = null; }
-      const prev = S.net.pub;
-      // The actual snapshot apply (renders the new state + post-anim callouts).
-      const apply = (): void => {
-        if (S.screen === "mp-net" && prev) netPreAnims(prev as Record<string, any>, pub as Record<string, any>);
-        S.net.pub = pub; _netActing = false; _netBetOpen = false; S.net.err = "";
-        if (S.screen === "mp-net") { render(); if (prev) netPostAnims(prev as Record<string, any>, pub as Record<string, any>); }
-      };
-      // Multi-bot trace → DEFER applying the new snapshot so the chip totals + pot + street
-      // don't all snap to the final values at once. While we wait, the OLD displayed snapshot
-      // stays (with the user's optimistic apply for THEIR action), making slow really feel slow.
-      // Callouts/SFX still fire staggered on the new snapshot's apply at the end.
-      const trace = (pub.botTrace as Array<unknown> | undefined) ?? [];
-      const tracedHand = prev && (prev as Record<string, any>).status === "in_hand" && trace.length >= 2;
-      if (tracedHand) {
-        const delay = Math.max(0, (trace.length - 1) * botStaggerMs());
-        const t = setTimeout(() => { _pendingNetApply = null; apply(); }, delay) as unknown as number;
-        _pendingNetApply = { run: apply, t };
-      } else {
-        apply();
-      }
-    });
+    _netTableUnsub = await FB.subscribeRoom(code, (pub) => onNetSnapshot(pub as Record<string, any> | null));
     const uid = S.mp.auth?.uid;
     if (uid) _netHandUnsub = await FB.subscribeMyHand(code, uid, (h) => { S.net.myHand = h?.holeCards ?? null; S.net.myRec = (h as { rec?: typeof S.net.myRec })?.rec ?? null; if (S.screen === "mp-net") render(); });
     // Chat is its own subcollection (separate listener so room snapshots stay tight).
@@ -3926,6 +3912,8 @@ async function joinNetRoom(code: string): Promise<void> {
 let _fomoDismissed = false; // user closed the "unlock MCE" upsell this session
 let _netActing = false; // optimistic: true between tapping an action and the next snapshot
 let _netResyncing = false; // true while a stale-frame recovery re-subscribe is in flight (loop guard)
+let _pendingLeave = false; // tapped Leave mid-hand → bank + exit automatically on the next hand-over
+let _bustLinger: ReturnType<typeof setTimeout> | null = null; // bust-rebuy linger timer
 let _netActingSince = 0; // timestamp the in-flight action started (drives the "still loading…" escalation)
 let _netBetOpen = false; // bet-sizing keypad panel open
 let _netBetAmt = 0; // current keypad value = total bet / raise-to
@@ -3965,7 +3953,11 @@ async function netAct(action: { type: string; amount?: number }): Promise<void> 
     // authoritative state. _netResyncing gates this to ONE resync per failed act so a genuinely
     // out-of-turn tap (state already correct) can't spin an infinite refetch loop; the flag clears
     // on the next successful act (and on room entry/leave).
-    if (/no hand in progress|not your turn/i.test(msg) && !_netResyncing && S.net.code) {
+    // Match the RAW server message (not the friendly one) so an "illegal: raise" rejection —
+    // which means our buttons were stale/desynced from the server's turn state — also triggers
+    // a re-subscribe to pull the authoritative frame and correct the controls.
+    const raw = (e as Error)?.message ?? "";
+    if (/no hand in progress|not your turn|illegal/i.test(raw + " " + msg) && !_netResyncing && S.net.code) {
       _netResyncing = true; S.net.err = "";
       void enterRoom(S.net.code); // clearNetSubs + fresh subscribeRoom → immediate authoritative frame
       return;
@@ -3978,8 +3970,11 @@ async function netDeal(silent = false): Promise<void> {
   stopAutoDeal();
   try { await FB.dealHand(code); }
   catch (e) {
-    // Auto-deal races are expected (another client dealt first) — stay quiet about them.
-    if (!silent) { S.net.err = friendlyErr(e); render(); }
+    // Auto-deal races are expected (another client / the auto-advance dealt first). Even on a
+    // MANUAL tap, "Hand already in progress" just means the hand we wanted is already starting —
+    // never flash that as a red error on the hand-over screen. Surface only genuine failures.
+    const msg = friendlyErr(e);
+    if (!silent && !/already in progress|already started|in progress/i.test(msg)) { S.net.err = msg; render(); }
   }
 }
 
@@ -3987,6 +3982,11 @@ async function netDeal(silent = false): Promise<void> {
 // counts down and triggers the next hand; the server's in_hand guard makes the race harmless.
 let _autoDealT: ReturnType<typeof setInterval> | null = null;
 let _autoDealAt = 0; // epoch ms when the auto-deal fires (drives the countdown label)
+// On bust, linger on the showdown result + revealed cards BEFORE auto-opening the rebuy sheet,
+// so the player actually sees what beat them instead of an instant rebuy prompt.
+let _bustHandId: string | null = null;
+let _bustShownAt = 0;
+const BUST_REVEAL_LINGER = 5000;
 function stopAutoDeal(): void { if (_autoDealT) { clearInterval(_autoDealT); _autoDealT = null; } _autoDealAt = 0; }
 function startAutoDeal(code: string): void {
   if (_autoDealT) return;
@@ -4019,11 +4019,86 @@ let _histStartChips: number | null = null;
 // blast through — used by both the visual callout stagger AND the snapshot-apply deferral.
 const BOT_STAGGER_BY_TIER: Record<SpeedTier, number> = { slow: 2000, normal: 850, fast: 380, instant: 90 };
 const botStaggerMs = (): number => BOT_STAGGER_BY_TIER[trainingSpeed()];
-// Replay-key memo so a re-render doesn't double-fire the same staggered trace.
-let _lastBotTraceKey = "";
-// When a snapshot's apply is deferred (multi-bot stagger), this holds the pending run + timer
-// so a NEW snapshot can flush it immediately instead of dropping state.
-let _pendingNetApply: { run: () => void; t: number } | null = null;
+
+// ── Turn-by-turn online replay ─────────────────────────────────────────────────
+// A new server tick may carry `botFrames`: the REAL public table state captured after each
+// bot acted (server-authoritative). We replay them in order, paced by the speed tier, so the
+// bots visibly take turns — exactly like the local trainer — then land on the authoritative
+// final snapshot. Because every frame is a real server state, the existing per-transition
+// animators (netPreAnims/netPostAnims) just work on each step; there is NO client-side
+// engine simulation (that was the v116–v118 trap). This is the one render path.
+let _netReplayGen = 0; // bumped on every snapshot → cancels any in-flight replay
+type NetFrame = { seat: number; type: string; amount: number };
+
+// Apply ONE state transition: pre-anim on the OLD dom, swap state + render, post-anim, then
+// (for a replayed bot step) flash that seat's callout + spotlight.
+function applyNetTransition(prev: Record<string, any> | null, next: Record<string, any>, cue: NetFrame | null): void {
+  if (S.screen === "mp-net" && prev) netPreAnims(prev, next);
+  S.net.pub = next;
+  if (S.screen === "mp-net") {
+    render();
+    if (prev) netPostAnims(prev, next);
+    if (cue) flashSeatCue(cue.seat, cue.type, cue.amount);
+  }
+}
+
+function onNetSnapshot(pubRaw: Record<string, any> | null): void {
+  const gen = ++_netReplayGen; // supersede any running replay
+  if (!pubRaw) { S.net.pub = null; _netActing = false; _netBetOpen = false; if (S.screen === "mp-net") render(); return; }
+  // Split the replay frames off the doc; the snapshot we KEEP is the final authoritative state.
+  const frames = (Array.isArray(pubRaw.botFrames) ? pubRaw.botFrames : []) as Array<{ seat: number; type: string; amount: number; pub: Record<string, any> }>;
+  const finalPub: Record<string, any> = { ...pubRaw }; delete finalPub.botFrames;
+  const prev = S.net.pub as Record<string, any> | null;
+
+  // Queued leave (tapped Leave mid-hand): the instant the hand is over, bank + exit; while it's
+  // still running, fold out on our turn so it resolves. Guarantees the stack is ALWAYS banked.
+  if (_pendingLeave && S.screen === "mp-net") {
+    if (finalPub.status === "hand_over" || finalPub.status === "waiting") {
+      S.net.pub = finalPub; _pendingLeave = false; void netLeave(); return;
+    }
+    const myUid = S.mp.auth?.uid;
+    const ta = (finalPub.seats as Array<{ uid?: string | null; bet?: number }>)?.[finalPub.toAct as number];
+    if (finalPub.status === "in_hand" && ta && ta.uid === myUid && !_netActing) {
+      S.net.pub = finalPub; render();
+      const toCall = ((finalPub.currentBet as number) || 0) - (ta.bet || 0);
+      void netAct(toCall > 0 ? { type: "fold" } : { type: "check" });
+      return;
+    }
+  }
+
+  // Replay only a genuinely NEW tick that actually has bot steps, and only when a prior state
+  // is already on-screen (skip on first load / re-subscribe so we never replay a stale chain).
+  const newTick = !!prev && typeof finalPub.version === "number" && typeof prev.version === "number" && finalPub.version > prev.version;
+  if (!(S.screen === "mp-net" && newTick && frames.length > 0)) {
+    applyNetTransition(prev, finalPub, null);
+    _netActing = false; _netBetOpen = false; S.net.err = ""; _bustLinger = null;
+    return;
+  }
+
+  // Paced replay: step through each captured frame, then apply the AUTHORITATIVE final
+  // snapshot. The per-frame publicState snapshots lack `revealedHoles` (added only in persist)
+  // and `version`, so each frame is patched: `version` ← finalPub's (keeps the newTick gate
+  // working if a fresh tick lands mid-replay), `lastAction` ← null (flashSeatCue is the SOLE
+  // callout source during replay — otherwise the seat template renders a duplicate callout).
+  _netActing = false; _netBetOpen = false; S.net.err = "";
+  finalPub.lastAction = null;
+  const stagger = botStaggerMs();
+  let i = 0;
+  const step = (): void => {
+    if (gen !== _netReplayGen) return;            // a newer snapshot took over
+    if (S.screen !== "mp-net") return;            // left the table → drop the replay (don't resurrect pub)
+    const f = frames[i]!;
+    if (f.pub) { f.pub.lastAction = null; f.pub.version = finalPub.version; }
+    applyNetTransition(S.net.pub as Record<string, any> | null, f.pub, { seat: f.seat, type: f.type, amount: f.amount });
+    i++;
+    if (i < frames.length) setTimeout(step, stagger);
+    // Final frame done → RENDER the authoritative snapshot (carries revealedHoles + the
+    // "won with…" banner the per-frame snapshots lack). netPostAnims won't re-fire the winner
+    // sweep because prev.status is already hand_over.
+    else applyNetTransition(S.net.pub as Record<string, any> | null, finalPub, null);
+  };
+  step();
+}
 // Visual-only floating callout at a seat. Sound is the caller's responsibility so
 // trainer can reuse this without double-firing the SFX that's already played at action time.
 // Deferred via queueMicrotask + RAF so it survives any synchronous render() in the same tick
@@ -4047,10 +4122,19 @@ function flashActionCallout(seat: number, type: string, amount: number): void {
   // Run after the current synchronous render cycle so morphdom doesn't drop our child.
   requestAnimationFrame(() => requestAnimationFrame(inject));
 }
-function flashBotAction(step: { seat: number; type: string; amount: number }, _unused: { top: number } | null): void {
-  playSound(step.type === "fold" ? "fold" : step.type === "check" ? "check" : step.type === "call" ? "chip" : "bet");
-  if (step.amount > 0) requestAnimationFrame(() => animateChipBet(step.seat));
-  flashActionCallout(step.seat, step.type, step.amount);
+// Visual "acting now" cue for a replayed bot step: floating action callout + a moving
+// spotlight on the seat. SFX + chip-fly are handled by netPostAnims's per-frame state diff
+// (one action per frame), so this stays PURELY the "who is acting" cue — no sound, no chips —
+// to avoid doubling up under the staggered replay.
+function flashSeatCue(seat: number, type: string, amount: number): void {
+  flashActionCallout(seat, type, amount);
+  document.querySelectorAll(".table-seat.acting-now").forEach((el) => el.classList.remove("acting-now"));
+  const seatEl = document.querySelector(`.table-seat[data-seat="${seat}"]`) as HTMLElement | null;
+  if (!seatEl) return;
+  seatEl.classList.add("acting-now");
+  // Self-clear so the last bot's spotlight fades after its beat instead of lingering forever.
+  const hold = Math.max(700, botStaggerMs() - 100);
+  setTimeout(() => { seatEl.classList.remove("acting-now"); }, hold);
 }
 function blindPosition(pub: Record<string, any>, seatIdx: number): string {
   const seats = (pub.seats as Array<{ uid: string | null; ai: string | null }> | undefined) ?? [];
@@ -4079,15 +4163,17 @@ function netPostAnims(prev: Record<string, any>, pub: Record<string, any>): void
   // Uses pub.lastWinners (robust — works even for instant fold-outs that skip an in_hand frame).
   if (prev.status !== "hand_over" && pub.status === "hand_over") {
     const winners = (pub.lastWinners || []) as number[];
-    const traceLen = ((pub.botTrace as Array<unknown> | undefined)?.length ?? 0);
-    const handOverDelay = traceLen * botStaggerMs();
+    // The turn-by-turn replay has already paced us to this final frame, so fire the
+    // pot→winner sweep + coin shower immediately — no extra trace-length delay (that delay
+    // was what made bets/folds land AFTER "you won"). On the immediate-apply path there were
+    // no bots to pace anyway, so firing now is correct there too.
     const fireHandOver = (): void => {
       if (winners.length) requestAnimationFrame(() => { animatePotToWinner(winners); winners.forEach((w) => animateCoinShower(w)); });
       const mySeat = (pub.seats as Array<{ uid: string | null }> | undefined)?.findIndex((s) => s?.uid === uid) ?? -1;
       const iWon = mySeat >= 0 && winners.includes(mySeat);
       playSound(iWon ? "win" : "chip");
     };
-    if (handOverDelay > 0) setTimeout(fireHandOver, handOverDelay); else fireHandOver();
+    fireHandOver();
     const mySeat = (pub.seats as Array<{ uid: string | null }> | undefined)?.findIndex((s) => s?.uid === uid) ?? -1;
     // History capture: snapshot what just happened from MY view, drop into localStorage.
     if (mySeat >= 0 && pub.handId && Hist.currentHandId() === String(pub.handId)) {
@@ -4116,18 +4202,10 @@ function netPostAnims(prev: Record<string, any>, pub: Record<string, any>): void
       _histStartChips = null;
     }
   }
-  // Bot turn-speed rework: server emits `botTrace` (ordered list of bot actions from
-  // the last tick). Stagger SFX + callouts so the user perceives bots taking turns.
-  const trace = (pub.botTrace as Array<{ seat: number; type: string; amount: number }> | undefined) ?? [];
-  const traceKey = trace.length ? `${pub.handId}-${pub.street}-${trace.map((s) => `${s.seat}:${s.type}:${s.amount}`).join("|")}` : "";
-  const traceSeats = new Set(trace.map((s) => s.seat));
-  if (traceKey && traceKey !== _lastBotTraceKey) {
-    _lastBotTraceKey = traceKey;
-    trace.forEach((step, i) => setTimeout(() => flashBotAction(step, null), i * botStaggerMs()));
-  }
-  // Per-action bet: a seat's wager grew on the SAME street → fly chips from that seat
-  // toward the pot. Trace seats are handled by the staggered replay above → skip here
-  // so we don't double-up SFX or fire a synchronous chip-fly under a staggered callout.
+  // Per-action animation: with turn-by-turn replay each frame's diff is exactly ONE bot's
+  // action, so fly its chips / play its SFX here (the floating callout + "acting now"
+  // spotlight come from the replay's flashSeatCue). My OWN action already showed
+  // optimistically (netAct), so skip it via wasMe to avoid a double chip-fly / sound.
   if (prev.status === "in_hand" && pub.status === "in_hand" && prev.street === pub.street) {
     const oldS = (prev.seats || []) as Array<{ bet?: number; folded?: boolean; uid?: string | null }>;
     const newS = (pub.seats || []) as Array<{ bet?: number; folded?: boolean; uid?: string | null }>;
@@ -4136,15 +4214,11 @@ function netPostAnims(prev: Record<string, any>, pub: Record<string, any>): void
       const wasMe = oldS[i]?.uid === uid && uid;
       const oldBet = oldS[i]?.bet || 0;
       const newBet = s.bet || 0;
-      const inTrace = traceSeats.has(i);
       if (newBet > oldBet) {
-        if (!inTrace) {
-          requestAnimationFrame(() => animateChipBet(i));
-          if (!wasMe) playSound(newBet > oldBet * 1.5 ? "bet" : "chip");
-        }
+        if (!wasMe) { requestAnimationFrame(() => animateChipBet(i)); playSound(newBet > oldBet * 1.5 ? "bet" : "chip"); }
         Hist.pushAction({ street: String(pub.street ?? "preflop"), type: newBet === oldBet ? "call" : "bet", amount: newBet - oldBet, bySeat: i });
       } else if (nowFolded && !wasFolded) {
-        if (!wasMe && !inTrace) playSound("fold");
+        if (!wasMe) playSound("fold");
         Hist.pushAction({ street: String(pub.street ?? "preflop"), type: "fold", amount: 0, bySeat: i });
       }
     });
@@ -4169,21 +4243,52 @@ function startNetClock(): void {
     // (check if it's free, otherwise fold — standard time-bank-expiry behaviour). Each
     // client enforces its own turn, so a stalled/AFK player never freezes the table.
     if (secs <= 0 && !_netActing) {
-      const uid = S.mp.auth?.uid;
-      const seat = (pub.seats as Array<{ uid: string | null; bet: number }> | undefined)?.[pub.toAct as number];
-      if (seat && seat.uid === uid) {
-        const toCall = ((pub.currentBet as number) || 0) - (seat.bet || 0);
-        void netAct(toCall > 0 ? { type: "fold" } : { type: "check" });
-      }
+      autoFoldMyTurn(pub, S.mp.auth?.uid);
     }
   }, 500);
 }
 function stopNetClock(): void { if (_netClock != null) { clearInterval(_netClock); _netClock = null; } }
 
+function autoFoldMyTurn(pub: Record<string, any>, uid: string | undefined): void {
+  const ta = (pub.seats as Array<{ uid?: string | null; bet?: number }>)?.[pub.toAct as number];
+  if (pub && pub.status === "in_hand" && ta && ta.uid === uid && !_netActing) {
+    const toCall = ((pub.currentBet as number) || 0) - (ta.bet || 0);
+    void netAct(toCall > 0 ? { type: "fold" } : { type: "check" });
+  }
+}
+
 async function netLeave(): Promise<void> {
-  const code = S.net.code; clearNetSubs(); stopNetClock(); stopAutoDeal();
-  if (code) { try { await FB.leaveRoom(code); } catch { /* */ } }
-  S.net.code = null; S.net.pub = null; S.net.myHand = null; S.net.myRec = null; S.net.err = ""; _netResyncing = false;
+  const code = S.net.code;
+  if (!code) { _leaveCleanup(); return; }
+  S.net.busy = true; render();
+  try {
+    await FB.leaveRoom(code); // server banks the table stack back to the wallet, THEN we exit
+    _leaveCleanup();
+  } catch (e) {
+    S.net.busy = false;
+    const msg = friendlyErr(e);
+    // CRITICAL: never navigate away on a mid-hand reject — that stranded the stack on the seat
+    // (wallet never credited). Instead QUEUE the leave: stop dealing into a new hand, fold out
+    // if it's our turn, and the next hand-over snapshot banks + exits automatically.
+    // Detect via the server's machine-readable details code (Firebase callable errors expose
+    // `.details`); fall back to the legacy message regex for servers/clients deployed before the
+    // code existed. Reading the code — not the wording — is what keeps the stack from stranding.
+    const inHand = (e as { details?: { code?: string } })?.details?.code === "IN_HAND";
+    if (inHand || /finish the hand|before leaving|in[_ ]?hand|in progress/i.test(msg)) {
+      _pendingLeave = true; S.net.err = ""; stopAutoDeal();
+      const pub = S.net.pub as Record<string, any> | null;
+      if (pub) autoFoldMyTurn(pub, S.mp.auth?.uid);
+      render();
+    } else {
+      S.net.err = msg; render(); // genuine failure → surface it, stay put (chips stay safe on the seat)
+    }
+  }
+}
+function _leaveCleanup(): void {
+  clearNetSubs(); stopNetClock(); stopAutoDeal();
+  if (_bustLinger) { clearTimeout(_bustLinger); _bustLinger = null; }
+  S.net.code = null; S.net.pub = null; S.net.myHand = null; S.net.myRec = null; S.net.err = "";
+  _netResyncing = false; _pendingLeave = false; S.net.busy = false;
   S.screen = "mp-setup"; render();
 }
 
@@ -4417,6 +4522,29 @@ function netReadBlock(board: readonly Card[], myHand: readonly Card[], eqPct: nu
   return `${summary}<div class="hero-read-row">${beatsFlank}${cards}${drawsFlank}</div>${heroLine}`;
 }
 
+// Showdown banner: name the WINNING hand ("Bot 6 won with two pair") from the winner's
+// revealed cards + board, reusing the same describeHand() the read panel uses (so it says
+// "top pair"/"trips"/"a flush" etc., not a raw category). Falls back to the server's plain
+// result string ("won (all folded)" / "won the showdown") when there's nothing revealed to read.
+function netShowdownResult(pub: Record<string, any>): string {
+  const fallback = esc(String(pub.lastResult || "Hand over"));
+  const reveal = (pub.revealedHoles || {}) as Record<string, [number, number]>;
+  const winners = (pub.lastWinners || []) as number[];
+  const board = (pub.board as Card[]) || [];
+  if (winners.length === 0 || board.length < 3) return fallback;
+  const w = winners[0]!;
+  const wh = reveal[String(w)];
+  if (!wh || wh.length < 2) return fallback;
+  const wseat = (pub.seats as Array<{ name?: string; uid?: string | null }>)?.[w];
+  const isMe = !!wseat?.uid && wseat.uid === S.mp.auth?.uid;
+  const name = isMe ? "You" : (wseat?.name || "Player");
+  let label = "";
+  try { label = describeHand([wh[0]!, wh[1]!], board).label || ""; } catch { label = ""; }
+  if (!label) return fallback;
+  const split = winners.length > 1 ? " · split pot" : "";
+  return `${esc(name)} won with ${esc(label.toLowerCase())}${split}`;
+}
+
 // Online bet/raise keypad as a bottom-sheet MODAL — mirrors the training renderBetPad
 // (presets + numpad), appended to <body> so it sits over the dimmed table. Re-synced on
 // every render; removed when the pad is closed / it's no longer my turn.
@@ -4545,9 +4673,15 @@ function renderNetTable(): void {
   // the sheet pops right back open, masking the success.
   const recentlyRebought = (Date.now() - _rebuySubmittedAt) < 4000;
   if (busted && !S.net.rebuy.open && !S.net.cog && !recentlyRebought) {
-    // Auto-open once on bust (idempotent — flag clears when user closes).
-    S.net.rebuy.open = true;
-    if (S.net.rebuy.amount === 0) S.net.rebuy.amount = (pub.startingStack as number) || 20 * (((pub.blinds as { bb?: number })?.bb) || 10);
+    const hid = String(pub.handId ?? "");
+    if (_bustHandId !== hid) { _bustHandId = hid; _bustShownAt = Date.now(); }
+    const waited = Date.now() - _bustShownAt;
+    if (waited >= BUST_REVEAL_LINGER) {
+      S.net.rebuy.open = true;
+      if (S.net.rebuy.amount === 0) S.net.rebuy.amount = (pub.startingStack as number) || 20 * (((pub.blinds as { bb?: number })?.bb) || 10);
+    } else if (!_bustLinger) {
+      _bustLinger = setTimeout(() => { _bustLinger = null; if (S.screen === "mp-net") render(); }, BUST_REVEAL_LINGER - waited + 60);
+    }
   }
   const myBb = ((pub.blinds as { bb?: number })?.bb) || 10;
   const minBuy = 20 * myBb;
@@ -4700,7 +4834,13 @@ function renderNetTable(): void {
   // showing the in-flight "Sending…" view, NOT the "…to act…" wait. So suppress only when we are
   // NOT mid-send: _netActing distinguishes the optimistic-fold frame (true) from a genuinely stale
   // frozen frame (false, because the send already completed/failed).
-  const myTurn = status === "in_hand" && pub.toAct >= 0 && seats[pub.toAct]?.uid === uid && !(seats[pub.toAct]?.folded && !_netActing);
+  // Action UI shows only when it's genuinely my turn. The engine NEVER makes a 0-chip (all-in)
+  // seat act (game-state.ts nextToAct guards stacks>0), so requiring chips>0 here can't hide a
+  // legit turn — it only suppresses a desynced "your turn" frame that would otherwise offer an
+  // illegal Raise (the chips=0 + Check/Raise glitch). _netActing keeps "Sending…" during a send.
+  const myTurn = status === "in_hand" && pub.toAct >= 0 && seats[pub.toAct]?.uid === uid
+    && !(seats[pub.toAct]?.folded && !_netActing)
+    && (((seats[pub.toAct] as { chips?: number })?.chips ?? 0) > 0 || _netActing);
   // Did I win the hand that just ended? Server tells us directly (pub.lastWinners), so it's
   // robust even when an instant fold-out skips the in_hand frame. Drives the Share-win CTA.
   const mySeatIdx = seats.findIndex((s) => s.uid === uid);
@@ -4710,18 +4850,22 @@ function renderNetTable(): void {
   // If I hold Edge Pass, the MCE engine already computed my SITUATIONAL equity (vs villain's
   // actual betting range) — use THAT so the strip and the MCE card never disagree. Free
   // players get the client estimate (vs a generic range) as the hook.
-  const _r = (status === "in_hand" && S.net.myHand) ? netHandRead() : null;
+  // Folded players are out of the hand — no live read, no bet recommendation (just watch).
+  const iFolded = mySeatIdx >= 0 && !!(seats[mySeatIdx] as { folded?: boolean })?.folded;
+  const _r = (status === "in_hand" && S.net.myHand && !iFolded) ? netHandRead() : null;
   const _recEq = (S.net.myRec && typeof (S.net.myRec as { equity?: number }).equity === "number") ? Math.round((S.net.myRec as { equity: number }).equity * 100) : null;
   const eqShown = _recEq ?? (_r ? _r.eqPct : 0);
   const freeRead = _r ? `<div class="net-read"><span class="nr-hand">${esc(_r.label)}</span><span class="nr-eq"><b>${eqShown}%</b> win</span>${_r.nuts ? `<span class="nr-nuts">🥜 ${esc(_r.nuts)}</span>` : ""}</div>` : "";
   // MCE on for my seat → the FULL training read pills (label + win% + BEATS-YOU/DRAWING +
   // rep→bet); otherwise the free single-line hook. Same component for the turn + waiting views.
   const myAssisted = !!(seats.find((s) => s.uid === uid) as { assisted?: boolean } | undefined)?.assisted;
-  const heroRead = S.net.myHand
-    ? (myAssisted && S.net.myHand.length === 2
-        ? netReadBlock((pub.board as Card[]) || [], S.net.myHand, eqShown, (S.net.myRec as { potOdds?: number } | null)?.potOdds ?? 0, (pub.pot as number) || 0, ((pub.blinds as { bb?: number })?.bb) || 2, sym)
-        : `<div class="net-hero">${S.net.myHand.map((c) => `<span class="hero-card ${isRed(c) ? "red" : ""}">${cardFace(c)}</span>`).join("")}</div>${freeRead}`)
-    : freeRead;
+  const heroRead = iFolded
+    ? `<div class="net-folded">You folded — watching the hand 👀</div>`
+    : S.net.myHand
+      ? (myAssisted && S.net.myHand.length === 2
+          ? netReadBlock((pub.board as Card[]) || [], S.net.myHand, eqShown, (S.net.myRec as { potOdds?: number } | null)?.potOdds ?? 0, (pub.pot as number) || 0, ((pub.blinds as { bb?: number })?.bb) || 2, sym)
+          : `<div class="net-hero">${S.net.myHand.map((c) => `<span class="hero-card ${isRed(c) ? "red" : ""}">${cardFace(c)}</span>`).join("")}</div>${freeRead}`)
+      : freeRead;
   let controls = "";
   if (lobby) {
     const canAddAi = isOwner && currency === "play" && occupied.length < seats.length;
@@ -4771,7 +4915,7 @@ function renderNetTable(): void {
       if (iAutoDeal) startAutoDeal(code); else if (mySeated) stopAutoDeal();
       const secs = _autoDealAt ? Math.max(0, Math.ceil((_autoDealAt - Date.now()) / 1000)) : 5;
       const dealLabel = S.net.busy ? '<span class="spin dark"></span>' : iAutoDeal ? `▶ NEXT HAND · ${secs}s` : "▶ NEXT HAND";
-      controls = `<div class="mp-result">${esc(pub.lastResult || "Hand over")}</div>${shareBtn}${mySeated ? `<button class="start-btn" id="net-deal">${dealLabel}</button>` : `<div class="hint" style="text-align:center">Next hand starting…</div>`}`;
+      controls = `<div class="mp-result">${netShowdownResult(pub)}</div>${shareBtn}${mySeated ? `<button class="start-btn" id="net-deal">${dealLabel}</button>` : `<div class="hint" style="text-align:center">Next hand starting…</div>`}`;
     }
   } else if (myTurn) {
     const seat = seats[pub.toAct]!; const cur = (pub.currentBet as number) || 0;
@@ -4791,7 +4935,7 @@ function renderNetTable(): void {
     } else {
       // Matches the training table: Fold / Check-or-Call / Bet-or-Raise. All-in is reached
       // via the keypad's All-in preset (no standalone button).
-      controls = `${hero}${mceCard}
+      controls = `<div class="net-readwrap">${hero}${mceCard}</div>
       <div class="action-bar">
         ${toCall > 0 ? `<button class="action-btn fold" id="na-fold">Fold</button>` : ""}
         ${toCall > 0 ? `<button class="action-btn call" id="na-call">Call ${mpc(toCall)}</button>` : `<button class="action-btn check" id="na-check">Check</button>`}
@@ -4814,7 +4958,7 @@ function renderNetTable(): void {
       <div class="game-topbar"><span>Room <strong>${code}</strong> · ${sym} ${currency === "premium" ? "premium" : "play"}${spectators.length ? ` · 👁 ${spectators.length}` : ""}${sidelined.length ? ` · 💤 ${sidelined.length}` : ""}${isSpectator ? " · watching" : ""}</span><div class="topbar-btns">${!isSpectator ? `<button class="hdr-btn style-pill style-${S.heroStyle}" id="net-style-btn" title="Your play style — tap to cycle. LAG/Maniac bluff more, Nit bluffs less.">${HERO_STYLE_SHORT[S.heroStyle] ?? "Bal"}</button>` : ""}<button class="hdr-btn ch-toggle" id="net-chat" title="Chat">💬${unread > 0 ? `<span class="ch-badge">${unread}</span>` : ""}</button><button class="hdr-btn" id="net-cog" title="Settings">⚙</button><button class="hdr-btn" id="net-leave">Leave</button></div></div>
       <div class="stage">
         <div class="table-wrap"><div class="poker-table"><div class="felt"></div>${seatHtml}<div class="board-center">${center}</div>${potHtml}</div></div>
-        <div class="controls"><div class="controls-body">${upsellHtml}${controls}${S.net.err ? `<div class="room-broke" style="margin-top:8px">${esc(S.net.err)}</div>` : ""}</div></div>
+        <div class="controls"><div class="controls-body">${upsellHtml}${_pendingLeave ? `<div class="hint" style="text-align:center;margin-bottom:6px">⏳ Banking your chips & leaving after this hand…</div>` : ""}${controls}${S.net.err ? `<div class="room-broke" style="margin-top:8px">${esc(S.net.err)}</div>` : ""}</div></div>
       </div>
       ${netCogSheetHtml(pub, seats as CogSeat[], uid)}
       ${rebuySheet}

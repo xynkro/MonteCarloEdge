@@ -370,6 +370,10 @@ export function recommendForSeat(
   tableSeat: number,
   recommend: typeof import("../engine/decision.js").recommend,
   profile: import("../engine/opponent.js").OpponentProfile,
+  // Live read overlay — a single in-game hint, not the trainer's full-precision path.
+  // Match the server bots' low Monte-Carlo count (villainDecision uses 1500) so the
+  // per-action tick stays ~villainDecision cost; 1500 iters is accurate to ~±1%.
+  equityIters = 1500,
 ) {
   if (!t.gs || t.status !== "in_hand") return null;
   const g = tableToGs(t, tableSeat);
@@ -421,7 +425,7 @@ export function recommendForSeat(
   // Apply the seat owner's chosen play style (Bluff Lab). Defaults to Balanced/GTO.
   const heroKey = t.seats[tableSeat]?.heroStyle ?? "gto";
   const heroStyle = HERO_STYLE_MAP[heroKey] ?? HERO_STYLE_MAP.gto;
-  return recommend(gs, profile, undefined, undefined, undefined, heroStyle);
+  return recommend(gs, profile, undefined, undefined, undefined, heroStyle, equityIters);
 }
 
 /** A single player's own hole cards — the ONLY secret a client ever receives. */

@@ -33,6 +33,13 @@ setGlobalOptions({ region: "asia-southeast1", maxInstances: 10, memory: "1GiB" }
 initializeApp();
 const db = getFirestore();
 
+// Turn-by-turn replay: a snapshot of the PUBLIC table state captured right AFTER each bot
+// action in a tick, paired with the action that produced it. The client replays these in
+// sequence (paced by the speed tier) so a chain of bots looks like they took turns — exactly
+// like the local trainer — instead of the table jumping straight to the final state. Each
+// frame is server-authoritative truth, so there's no client-side simulation (one render path).
+type BotFrame = { seat: number; type: string; amount: number; pub: ReturnType<typeof publicState> };
+
 // Stripe Edge Pass paywall (createCheckoutSession / createBillingPortal / stripeWebhook).
 export * from "./stripe.js";
 // Passkey / Face ID auth (register + authenticate → Firebase custom token).
@@ -96,7 +103,7 @@ function readWallet(d: Record<string, unknown> | undefined): { play: number; pre
 }
 
 // Bots decide server-side until it's a human's turn or the hand ends.
-function runBots(t: AuthTable): void {
+function runBots(t: AuthTable, frames?: BotFrame[]): void {
   // Reset the trace at the START of this tick — clients use the diff to drive a
   // staggered "bots took turns" replay. A new client snapshot replaces the old trace.
   t.botTrace = [];
@@ -123,6 +130,16 @@ function runBots(t: AuthTable): void {
     // Record the action the engine accepted (post-cap-to-allin). Bound the trace so
     // a runaway loop can't grow it without bound.
     if (t.botTrace.length < 32) t.botTrace.push({ seat, type: appliedType, amount: appliedAmount });
+    // Capture the resulting PUBLIC state so the client can replay this exact step
+    // turn-by-turn (no client simulation). botTrace is stripped, lastAction is nulled
+    // to prevent rendering callouts on intermediate frames, and version is stamped
+    // so final-frame detection works. The array is bounded to match the trace cap.
+    if (frames && frames.length < 32) {
+      const snap = publicState(t);
+      snap.botTrace = [];
+      snap.lastAction = null; // Don't render action callout on intermediate frames
+      frames.push({ seat, type: appliedType, amount: appliedAmount, pub: snap, version: 0 } as any);
+    }
   }
 }
 
@@ -131,7 +148,7 @@ function runBots(t: AuthTable): void {
 // the chip-conservation tripwire is meaningful — join/leave legitimately change the
 // table chips between hands, so we must NOT run the check there (it would brick the
 // table after hand 1).
-function persist(tx: Transaction, code: string, t: AuthTable, version: number, baseline: number, settled = false, currency: Currency = "play"): void {
+function persist(tx: Transaction, code: string, t: AuthTable, version: number, baseline: number, settled = false, currency: Currency = "play", frames?: BotFrame[]): void {
   if (settled && t.status === "hand_over") {
     const banked = t.seats.reduce((a, s) => a + (s.uid || s.ai ? s.chips : 0), 0);
     if (Math.abs(banked - baseline) > 0.5) {
@@ -153,10 +170,14 @@ function persist(tx: Transaction, code: string, t: AuthTable, version: number, b
     }
   }
   const deadlineMs = t.status === "in_hand" ? Date.now() + TURN_SECONDS * 1000 : 0;
+  const handOverAtMs = t.status === "hand_over" ? Date.now() : 0;
 
   tx.set(stateRef(code), { snap: serializeAuthTable(t), version, baseline, currency } satisfies StateDoc);
   tx.set(tableRef(code), {
-    ...pub, version, deadlineMs, revealedHoles, currency, updatedAt: FieldValue.serverTimestamp(),
+    ...pub, version, deadlineMs, handOverAtMs, revealedHoles, currency, updatedAt: FieldValue.serverTimestamp(),
+    // Per-bot-action replay frames (act/startHand ticks only) — see BotFrame. Cleared on
+    // non-tick writes so a client never replays a stale chain.
+    botFrames: settled ? (frames ?? []) : [],
   });
   // Per-player hole cards — each human in the hand reads only their own doc.
   for (const ts of t.liveSeats) {
@@ -332,8 +353,9 @@ export const startHand = onCall(async (req) => {
     // Total chips at the table (blinds are now in the pot, but seats[].chips still
     // hold each buy-in until settle). Conserved across the whole hand.
     const baseline = t.seats.reduce((a, s) => a + (s.uid || s.ai ? s.chips : 0), 0);
-    runBots(t); // auto-play any leading bots up to the first human
-    persist(tx, code, t, version + 1, baseline, true, currency);
+    const _frames: BotFrame[] = [];
+    runBots(t, _frames); // auto-play any leading bots up to the first human
+    persist(tx, code, t, version + 1, baseline, true, currency, _frames);
     return { ok: true };
   });
 });
@@ -352,8 +374,9 @@ export const act = onCall(async (req) => {
     // concurrent writes, and an out-of-turn/illegal retry is caught by engineAct.)
     const r = engineAct(t, uid, action); // validates turn (from uid) + legality + min-raise
     if (!r.ok) throw new HttpsError("failed-precondition", r.err ?? "illegal action");
-    runBots(t); // resolve any bots up to the next human / hand end
-    persist(tx, code, t, version + 1, baseline, true, currency);
+    const frames: BotFrame[] = []; // per-attempt (retries get a fresh array)
+    runBots(t, frames); // resolve any bots up to the next human / hand end
+    persist(tx, code, t, version + 1, baseline, true, currency, frames);
     return { ok: true };
   });
 });
@@ -531,8 +554,19 @@ export const leaveTable = onCall(async (req) => {
       persist(tx, code, t, version + 1, baseline, false, currency);
       return { ok: true };
     }
-    if (t.status === "in_hand" && t.liveSeats.includes(t.seats.indexOf(seat))) {
-      throw new HttpsError("failed-precondition", "Finish the hand before leaving.");
+    // Mid-hand cash-out: if leaving during a hand, auto-fold and bank chips atomically.
+    // Check if it's their turn — if so, fold them; otherwise just remove from the hand.
+    const seatIdx = t.seats.indexOf(seat);
+    if (t.status === "in_hand" && t.liveSeats.includes(seatIdx)) {
+      const toAct = toActTableSeat(t);
+      if (toAct === seatIdx) {
+        // Their turn — fold them
+        const r = actSeat(t, seatIdx, { type: "fold" });
+        if (!r.ok) {
+          // Fold failed (shouldn't happen, but safety fallback)
+          throw new HttpsError("failed-precondition", "Couldn't process your leave action.", { code: "FOLD_FAILED" });
+        }
+      }
     }
     const back = seat.chips;
     const u = await tx.get(userRef(uid));
