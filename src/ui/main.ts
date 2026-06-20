@@ -3801,6 +3801,7 @@ function clearNetSubs(): void {
   if (_netTableUnsub) { _netTableUnsub(); _netTableUnsub = null; }
   if (_netHandUnsub) { _netHandUnsub(); _netHandUnsub = null; }
   if (_netChatUnsub) { _netChatUnsub(); _netChatUnsub = null; }
+  _netReplayGen++; // cancel any in-flight bot-replay so it can't paint a stale frame after we detach
 }
 
 function stripMessagePrefix(m: string): string { return m.replace(/^[^:]*:\s*/, "").trim(); }
@@ -4691,7 +4692,8 @@ function renderNetTable(): void {
   const newStack = (mySeatLocal?.chips ?? 0) + rebuyAmt;
   const rbValid = rebuyAmt > 0 && rebuyAmt <= myWallet && newStack >= minBuy && newStack <= tierMax;
   const rebuySheet = S.net.rebuy.open ? `
-    ${lobby ? `<div class="cog-backdrop" id="rb-close"></div>` : ""}
+    ${lobby ? `<div class="cog-backdrop" id="rb-close"></div>`
+      : !busted ? `<div class="cog-backdrop cog-backdrop-clear" id="rb-close"></div>` : ""}
     <div class="cog-sheet rebuy-sheet${!lobby ? " rebuy-floating" : ""}">
       <div class="cog-head"><span>${busted ? "💥 Busted — top up" : "Top up your stack"}</span><button class="hdr-btn" id="rb-x">✕</button></div>
       <div class="rb-display">
@@ -5216,6 +5218,7 @@ try { _viewAsPlayer = localStorage.getItem("mce-view-as-player") === "1"; } catc
 function effectiveAdmin(): boolean { return S.isAdmin && !_viewAsPlayer; }
 function setViewAsPlayer(v: boolean): void { _viewAsPlayer = v; try { localStorage.setItem("mce-view-as-player", v ? "1" : "0"); } catch { /* */ } S.screen = "home"; render(); }
 
+let _inboxErr = ""; // transient delete/action error shown on the inbox screen
 function renderInbox(): void {
   cancelVillainTimer();
   const uid = S.mp.auth?.uid;
@@ -5240,8 +5243,9 @@ function renderInbox(): void {
           </div>
         </div>`;
       }).join("")}
+      ${_inboxErr ? `<div class="room-broke" style="margin-top:10px">${esc(_inboxErr)}</div>` : ""}
     </div>`;
-  onId("ib-back", "click", () => { S.screen = "home"; render(); });
+  onId("ib-back", "click", () => { _inboxErr = ""; S.screen = "home"; render(); });
   onId("ib-new", "click", () => { S.compose = { toUid: "", toName: "", text: "", giftAmt: 0, busy: false, err: "", sent: "" }; S.screen = "compose"; render(); });
   app.querySelectorAll(".io-chip").forEach((b) => onEl(b, "click", () => { const el = b as HTMLElement; S.compose = { toUid: el.dataset.uid!, toName: el.dataset.name!, text: "", giftAmt: 0, busy: false, err: "", sent: "" }; S.screen = "compose"; render(); }));
   app.querySelectorAll(".ib-reply").forEach((b) => onEl(b, "click", () => {
@@ -5249,17 +5253,14 @@ function renderInbox(): void {
     S.compose = { toUid: el.dataset.uid!, toName: el.dataset.name!, text: "", giftAmt: 0, busy: false, err: "", sent: "" };
     S.screen = "compose"; render();
   }));
-  app.querySelectorAll(".ib-delete").forEach((b) => onEl(b, "click", async () => {
-    const el = b as HTMLElement;
-    const msgId = el.dataset.id;
+  app.querySelectorAll(".ib-delete").forEach((b) => onEl(b, "click", () => {
+    const msgId = (b as HTMLElement).dataset.id;
     if (!msgId || !uid) return;
-    try {
-      await FB.deleteMessage(uid, msgId);
-      S.inbox = S.inbox.filter((m) => m.id !== msgId);
-      render();
-    } catch (e) {
-      console.error("Failed to delete message:", e);
-    }
+    // Fire-and-forget: the live subscribeInbox listener drops the row via Firestore's latency
+    // compensation (the local delete applies instantly), mirroring markRead — no optimistic
+    // mutation needed. On failure the SDK rolls the row back; surface why.
+    _inboxErr = "";
+    FB.deleteMessage(uid, msgId).catch((e) => { _inboxErr = friendlyErr(e); render(); });
   }));
   // Mark everything read (fire-and-forget).
   if (uid) msgs.filter((m) => !m.read).forEach((m) => void FB.markRead(uid, m.id).catch(() => {}));
@@ -5879,7 +5880,6 @@ function renderProfile(): void {
 
 /* ═══════════════════ SETTINGS / LEGAL / EXPLAINER ═══════════════════ */
 
-const APP_VERSION = "0.1.0";
 let _docReturn: "home" | "settings" = "home";
 
 const motionPref = (): "auto" | "on" | "off" => {

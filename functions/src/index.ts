@@ -131,14 +131,14 @@ function runBots(t: AuthTable, frames?: BotFrame[]): void {
     // a runaway loop can't grow it without bound.
     if (t.botTrace.length < 32) t.botTrace.push({ seat, type: appliedType, amount: appliedAmount });
     // Capture the resulting PUBLIC state so the client can replay this exact step
-    // turn-by-turn (no client simulation). botTrace is stripped, lastAction is nulled
-    // to prevent rendering callouts on intermediate frames, and version is stamped
-    // so final-frame detection works. The array is bounded to match the trace cap.
+    // turn-by-turn (no client simulation). botTrace is stripped and lastAction nulled so
+    // intermediate frames don't re-render action callouts; the client stamps each frame's
+    // version from finalPub before applying it. The array is bounded to match the trace cap.
     if (frames && frames.length < 32) {
       const snap = publicState(t);
       snap.botTrace = [];
       snap.lastAction = null; // Don't render action callout on intermediate frames
-      frames.push({ seat, type: appliedType, amount: appliedAmount, pub: snap, version: 0 } as any);
+      frames.push({ seat, type: appliedType, amount: appliedAmount, pub: snap });
     }
   }
 }
@@ -170,11 +170,10 @@ function persist(tx: Transaction, code: string, t: AuthTable, version: number, b
     }
   }
   const deadlineMs = t.status === "in_hand" ? Date.now() + TURN_SECONDS * 1000 : 0;
-  const handOverAtMs = t.status === "hand_over" ? Date.now() : 0;
 
   tx.set(stateRef(code), { snap: serializeAuthTable(t), version, baseline, currency } satisfies StateDoc);
   tx.set(tableRef(code), {
-    ...pub, version, deadlineMs, handOverAtMs, revealedHoles, currency, updatedAt: FieldValue.serverTimestamp(),
+    ...pub, version, deadlineMs, revealedHoles, currency, updatedAt: FieldValue.serverTimestamp(),
     // Per-bot-action replay frames (act/startHand ticks only) — see BotFrame. Cleared on
     // non-tick writes so a client never replays a stale chain.
     botFrames: settled ? (frames ?? []) : [],
@@ -313,12 +312,12 @@ export const addBot = onCall(async (req) => {
   const uid = uidOf(req);
   const { code, archetype } = (req.data ?? {}) as { code?: string; archetype?: string };
   if (!code) throw new HttpsError("invalid-argument", "Room code required.");
-  let arch = archetype && PROFILES[archetype] ? archetype : "TAG";
-  // Random bot selection: if "rand" or any non-profile value, pick a random archetype
-  if (!archetype || archetype === "rand" || !PROFILES[archetype]) {
-    const profiles = ["TAG", "LAG", "Station"];
-    arch = profiles[Math.floor(cryptoRng() * profiles.length)]!;
-  }
+  // Explicit valid archetype → use it. "rand" / unknown / missing → random personality, drawn
+  // from PROFILES so a newly-added archetype is automatically eligible (no hardcoded drift).
+  const pool = Object.keys(PROFILES);
+  const arch = archetype && archetype !== "rand" && PROFILES[archetype]
+    ? archetype
+    : pool[Math.floor(cryptoRng() * pool.length)]!;
   return db.runTransaction(async (tx) => {
     const { t, version, baseline, currency } = await loadState(tx, code);
     if (uid !== t.ownerUid) throw new HttpsError("permission-denied", "Only the host can add a bot.");
@@ -559,19 +558,16 @@ export const leaveTable = onCall(async (req) => {
       persist(tx, code, t, version + 1, baseline, false, currency);
       return { ok: true };
     }
-    // Mid-hand cash-out: if leaving during a hand, auto-fold and bank chips atomically.
-    // Check if it's their turn — if so, fold them; otherwise just remove from the hand.
-    const seatIdx = t.seats.indexOf(seat);
-    if (t.status === "in_hand" && t.liveSeats.includes(seatIdx)) {
-      const toAct = toActTableSeat(t);
-      if (toAct === seatIdx) {
-        // Their turn — fold them
-        const r = actSeat(t, seatIdx, { type: "fold" });
-        if (!r.ok) {
-          // Fold failed (shouldn't happen, but safety fallback)
-          throw new HttpsError("failed-precondition", "Couldn't process your leave action.", { code: "FOLD_FAILED" });
-        }
-      }
+    if (t.status === "in_hand" && t.liveSeats.includes(t.seats.indexOf(seat))) {
+      // Reject a mid-hand leave — the client's queued-leave (_pendingLeave) then folds on-turn
+      // and banks safely at hand_over, where seat.chips holds the SETTLED stack. We must NOT
+      // cash out here: mid-hand seat.chips is the full PRE-hand buy-in (it's only reconciled in
+      // settle(), mp-engine.ts:299), and the chips already committed to the pot are still live —
+      // banking the full stack would create chips and trip the conservation tripwire, bricking
+      // the table for everyone. leave() also doesn't fold the seat in t.gs, so a non-folded
+      // leaver would remain a live showdown contender on a blanked ghost seat. Machine-readable
+      // `code` lets the client detect this WITHOUT regex-matching the (byte-stable) message.
+      throw new HttpsError("failed-precondition", "Finish the hand before leaving.", { code: "IN_HAND" });
     }
     const back = seat.chips;
     const u = await tx.get(userRef(uid));

@@ -2029,7 +2029,9 @@ body::after {
 .rb-key:active { background: var(--elevate); transform: scale(.96); }
 .rb-actions { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; }
 .rb-confirm { background: linear-gradient(135deg,#3ecf8e,#13b27a); color: #08291a; }
-/* Floating rebuy sheet during active game — no backdrop, sits on top of table, game continues below */
+/* Floating rebuy sheet during active game — sits on top of table, game continues below.
+   A non-busted top-up gets a transparent tap-catcher backdrop (table stays visible, tap to close). */
+.cog-backdrop-clear { background: transparent; }
 .rebuy-floating { max-height: 65vh; }
 .rebuy-floating .rb-quick, .rebuy-floating .rb-pad { gap: 4px; margin: 4px 0 8px; }
 .rebuy-floating .rb-key { padding: 10px 0; font-size: 1rem; }

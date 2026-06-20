@@ -171,13 +171,14 @@ export async function updateName(uid: string, name: string): Promise<void> {
   const { m, db } = await firestore();
   try { await m.setDoc(m.doc(db, "users", uid), { name }, { merge: true }); } catch { /* */ }
 }
+const inboxPath = (uid: string, msgId: string) => `users/${uid}/inbox/${msgId}`;
 export async function markRead(uid: string, msgId: string): Promise<void> {
   const { m, db } = await firestore();
-  await m.updateDoc(m.doc(db, `users/${uid}/inbox/${msgId}`), { read: true });
+  await m.updateDoc(m.doc(db, inboxPath(uid, msgId)), { read: true });
 }
 export async function deleteMessage(uid: string, msgId: string): Promise<void> {
   const { m, db } = await firestore();
-  await m.deleteDoc(m.doc(db, `users/${uid}/inbox/${msgId}`));
+  await m.deleteDoc(m.doc(db, inboxPath(uid, msgId)));
 }
 export const giftChips = (toUid: string, amount: number, note = "") => callFn<{ ok: boolean }>("giftChips", { toUid, amount, note });
 export const sendMessage = (toUid: string, text: string) => callFn<{ ok: boolean }>("sendMessage", { toUid, text });
