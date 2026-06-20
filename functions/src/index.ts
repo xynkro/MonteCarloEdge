@@ -313,7 +313,12 @@ export const addBot = onCall(async (req) => {
   const uid = uidOf(req);
   const { code, archetype } = (req.data ?? {}) as { code?: string; archetype?: string };
   if (!code) throw new HttpsError("invalid-argument", "Room code required.");
-  const arch = archetype && PROFILES[archetype] ? archetype : "TAG";
+  let arch = archetype && PROFILES[archetype] ? archetype : "TAG";
+  // Random bot selection: if "rand" or any non-profile value, pick a random archetype
+  if (!archetype || archetype === "rand" || !PROFILES[archetype]) {
+    const profiles = ["TAG", "LAG", "Station"];
+    arch = profiles[Math.floor(cryptoRng() * profiles.length)]!;
+  }
   return db.runTransaction(async (tx) => {
     const { t, version, baseline, currency } = await loadState(tx, code);
     if (uid !== t.ownerUid) throw new HttpsError("permission-denied", "Only the host can add a bot.");
