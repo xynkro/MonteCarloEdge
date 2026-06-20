@@ -4691,8 +4691,8 @@ function renderNetTable(): void {
   const newStack = (mySeatLocal?.chips ?? 0) + rebuyAmt;
   const rbValid = rebuyAmt > 0 && rebuyAmt <= myWallet && newStack >= minBuy && newStack <= tierMax;
   const rebuySheet = S.net.rebuy.open ? `
-    <div class="cog-backdrop" id="rb-close"></div>
-    <div class="cog-sheet rebuy-sheet">
+    ${lobby ? `<div class="cog-backdrop" id="rb-close"></div>` : ""}
+    <div class="cog-sheet rebuy-sheet${!lobby ? " rebuy-floating" : ""}">
       <div class="cog-head"><span>${busted ? "💥 Busted — top up" : "Top up your stack"}</span><button class="hdr-btn" id="rb-x">✕</button></div>
       <div class="rb-display">
         <span class="rb-sym">${sym}</span><span class="rb-amt">${mpc(rebuyAmt)}</span>
