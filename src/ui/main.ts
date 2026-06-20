@@ -5234,7 +5234,10 @@ function renderInbox(): void {
         return `<div class="inbox-row ${m.read ? "" : "unread"}">
           <span class="ib-ic">${icon}</span>
           <div class="ib-body"><div class="ib-from">${esc(m.fromName)}</div><div class="ib-text">${body}</div></div>
-          ${m.from && m.from !== "admin" ? `<button class="hdr-btn ib-reply" data-uid="${esc(m.from)}" data-name="${esc(m.fromName)}">Reply</button>` : ""}
+          <div class="ib-actions">
+            ${m.from && m.from !== "admin" ? `<button class="hdr-btn ib-reply" data-uid="${esc(m.from)}" data-name="${esc(m.fromName)}">Reply</button>` : ""}
+            <button class="hdr-btn ib-delete" data-id="${esc(m.id)}" title="Delete">✕</button>
+          </div>
         </div>`;
       }).join("")}
     </div>`;
@@ -5245,6 +5248,18 @@ function renderInbox(): void {
     const el = b as HTMLElement;
     S.compose = { toUid: el.dataset.uid!, toName: el.dataset.name!, text: "", giftAmt: 0, busy: false, err: "", sent: "" };
     S.screen = "compose"; render();
+  }));
+  app.querySelectorAll(".ib-delete").forEach((b) => onEl(b, "click", async () => {
+    const el = b as HTMLElement;
+    const msgId = el.dataset.id;
+    if (!msgId || !uid) return;
+    try {
+      await FB.deleteMessage(uid, msgId);
+      S.inbox = S.inbox.filter((m) => m.id !== msgId);
+      render();
+    } catch (e) {
+      console.error("Failed to delete message:", e);
+    }
   }));
   // Mark everything read (fire-and-forget).
   if (uid) msgs.filter((m) => !m.read).forEach((m) => void FB.markRead(uid, m.id).catch(() => {}));

@@ -1709,6 +1709,10 @@ body::after {
 .ib-body { flex: 1; min-width: 0; }
 .ib-from { font-weight: 800; font-size: 14px; }
 .ib-text { font-size: 13px; color: var(--muted); word-break: break-word; }
+.ib-actions { display: flex; gap: 6px; flex-shrink: 0; }
+.ib-reply, .ib-delete { padding: 4px 8px; font-size: 12px; }
+.ib-delete { color: var(--muted); }
+.ib-delete:active { color: #e0566a; }
 .co-online { display: flex; flex-wrap: wrap; gap: 8px; }
 .co-to { margin-bottom: 12px; font-size: 15px; }
 .ledger-row { display: flex; justify-content: space-between; gap: 10px; padding: 8px 4px; border-bottom: 1px solid var(--line); font-size: 13px; }

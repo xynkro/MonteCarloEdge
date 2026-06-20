@@ -175,6 +175,10 @@ export async function markRead(uid: string, msgId: string): Promise<void> {
   const { m, db } = await firestore();
   await m.updateDoc(m.doc(db, `users/${uid}/inbox/${msgId}`), { read: true });
 }
+export async function deleteMessage(uid: string, msgId: string): Promise<void> {
+  const { m, db } = await firestore();
+  await m.deleteDoc(m.doc(db, `users/${uid}/inbox/${msgId}`));
+}
 export const giftChips = (toUid: string, amount: number, note = "") => callFn<{ ok: boolean }>("giftChips", { toUid, amount, note });
 export const sendMessage = (toUid: string, text: string) => callFn<{ ok: boolean }>("sendMessage", { toUid, text });
 export const claimWeekly = () => callFn<{ granted: number; balance: number }>("claimWeekly", {});
