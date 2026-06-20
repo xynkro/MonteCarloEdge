@@ -5945,11 +5945,6 @@ function renderSettings(): void {
         ${row("How it works", `<button class="hdr-btn" id="set-explainer">Open</button>`)}
         ${row("Terms &amp; legal", `<button class="hdr-btn" id="set-legal">Open</button>`, "Play-money, not gambling — the full terms.")}
       </div>
-      <div class="set-group"><div class="set-head">About</div>
-        <div class="about-name">MONTECARLO EDGE</div>
-        <div class="set-note">A free NLHE exploitative-poker trainer powered by the Monte Carlo Edge (MCE) engine + social play-money app. Built by Caspar, a solo developer in Singapore. No ads · no data selling · no real-money wagering. v${APP_VERSION}</div>
-        <div class="about-links"><a href="https://github.com/xynkro/MonteCarloEdge" target="_blank" rel="noopener">GitHub</a> · <a href="https://xynkro.github.io/MonteCarloEdge/" target="_blank" rel="noopener">Live app</a></div>
-      </div>
       <button class="hdr-btn" id="set-back" style="width:100%;padding:12px;margin-top:6px">Back to Home</button>
     </div>`;
 
