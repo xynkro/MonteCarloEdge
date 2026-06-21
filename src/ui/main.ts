@@ -6046,8 +6046,11 @@ function renderMpLobby(): void {
 
 /* ═══════════════════ INIT ═══════════════════ */
 
-// Register the service worker for offline / installable PWA.
-if ("serviceWorker" in navigator) {
+// Register the service worker for offline / installable PWA — WEB ONLY. In the native
+// (Capacitor) shell the assets are already bundled locally and refreshed via app updates, so
+// a SW on top only risks serving a stale build after an update. Skip it on native.
+const _isNativeShell = !!(window as unknown as { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor?.isNativePlatform?.();
+if ("serviceWorker" in navigator && !_isNativeShell) {
   window.addEventListener("load", () => {
     navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js`).catch(() => {});
   });

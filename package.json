@@ -20,6 +20,7 @@
     "cap:android": "npm run build && npx cap sync android && npx cap open android"
   },
   "devDependencies": {
+    "@capacitor/assets": "^3.0.5",
     "@capacitor/cli": "^8.4.1",
     "@types/node": "^24.0.0",
     "tsx": "^4.20.0",
