@@ -270,6 +270,11 @@ export async function signInRedirect(which: "google" | "apple"): Promise<void> {
 }
 /** Finalize a redirect sign-in on load. Returns the user (+ whether brand new) or null. */
 export async function consumeRedirect(): Promise<{ user: MPUser; isNew: boolean } | { error: unknown } | null> {
+  // Native: there's no redirect flow (OAuth runs through the @capacitor-firebase/authentication
+  // plugin), and our native Auth is initialized WITHOUT a popupRedirectResolver — so calling
+  // getRedirectResult here throws auth/argument-error and bounces the signed-in user to the
+  // sign-in screen. The persisted session is restored by onAuthStateChanged instead.
+  if (isNativeShell()) return null;
   const app = await getFirebaseApp();
   const { getAuth, getRedirectResult, getAdditionalUserInfo } = await import("firebase/auth");
   try {
