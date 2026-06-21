@@ -50,6 +50,15 @@ export function getFirebaseApp(): Promise<FirebaseApp> {
     _appPromise = (async () => {
       const { initializeApp, getApps, getApp } = await import("firebase/app");
       const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
+      // Native (Capacitor WKWebView): the default getAuth() wires a popup/redirect resolver
+      // (an auth iframe to firebaseapp.com) and auto-detects persistence — both HANG inside the
+      // webview, so signInWithCredential never resolves. Initialize Auth explicitly (indexedDB
+      // persistence, NO resolver — native sign-in uses the plugin, not popups) before any
+      // getAuth() call. Must run before the first getAuth; getFirebaseApp() gates every auth op.
+      if ((globalThis as unknown as { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor?.isNativePlatform?.()) {
+        const a = await import("firebase/auth");
+        try { a.initializeAuth(app, { persistence: [a.indexedDBLocalPersistence, a.browserLocalPersistence] }); } catch { /* already initialized */ }
+      }
       if (DEV_EMU) {
         const [auth, fs, fns] = await Promise.all([import("firebase/auth"), import("firebase/firestore"), import("firebase/functions")]);
         try { auth.connectAuthEmulator(auth.getAuth(app), "http://127.0.0.1:9099", { disableWarnings: true }); } catch { /* already wired */ }
