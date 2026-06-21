@@ -14,15 +14,22 @@
     "validate-decisions": "tsx src/engine/scripts/validate-decisions.ts",
     "self-play": "tsx src/engine/scripts/self-play.ts",
     "emu": "npm --prefix functions run build && firebase emulators:start --only auth,firestore,functions --project montecarloedge",
-    "validate:all": "npm run validate && npm run validate-ranges && npm run validate-decisions"
+    "validate:all": "npm run validate && npm run validate-ranges && npm run validate-decisions",
+    "cap:sync": "npm run build && npx cap sync",
+    "cap:ios": "npm run build && npx cap sync ios && npx cap open ios",
+    "cap:android": "npm run build && npx cap sync android && npx cap open android"
   },
   "devDependencies": {
+    "@capacitor/cli": "^8.4.1",
     "@types/node": "^24.0.0",
     "tsx": "^4.20.0",
     "typescript": "~5.6.0",
     "vitest": "^2.1.0"
   },
   "dependencies": {
+    "@capacitor/android": "^8.4.1",
+    "@capacitor/core": "^8.4.1",
+    "@capacitor/ios": "^8.4.1",
     "@simplewebauthn/browser": "^9.0.1",
     "firebase": "^12.14.0",
     "morphdom": "^2.7.8"
