@@ -42,6 +42,9 @@ type BotFrame = { seat: number; type: string; amount: number; pub: ReturnType<ty
 
 // Stripe Edge Pass paywall (createCheckoutSession / createBillingPortal / stripeWebhook).
 export * from "./stripe.js";
+// RevenueCat native IAP webhook (the sole server-authoritative writer of edgePass / chip grants
+// on iOS & Android — mirrors stripeWebhook). Web keeps Stripe.
+export * from "./revenuecat.js";
 // Passkey / Face ID auth (register + authenticate → Firebase custom token).
 export * from "./passkey.js";
 

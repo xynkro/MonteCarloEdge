@@ -39,6 +39,7 @@ import * as MP from "../mp/mp-engine.js";
 import type { AuthTable } from "../mp/mp-engine.js";
 import type { MPAction, MPUser } from "../mp/types.js";
 import * as FB from "../mp/firebase-adapter.js";
+import * as IAP from "../mp/revenuecat.js";
 import { LEGAL_INTRO, LEGAL_SECTIONS, EXPLAINER_INTRO, EXPLAINER_SECTIONS, type Section } from "./content.js";
 import { playSound, setSoundEnabled, isSoundEnabled } from "./sound.js";
 import * as Hist from "./history.js";
@@ -5053,6 +5054,9 @@ function stopEconomySubs(): void {
 }
 async function startEconomySubs(uid: string): Promise<void> {
   stopEconomySubs();
+  // Native: identify the RevenueCat SDK with the Firebase uid so IAP grants map to this user.
+  // No-op on web / placeholder keys (the bridge guards internally).
+  void IAP.rcConfigure(uid);
   try {
     _walletUnsub = await FB.subscribeWallet(uid, (w) => { S.wallet = { play: w.play, premium: w.premium }; S.edgePass = w.edgePass; S.lastWeekly = w.lastWeekly; S.weeklyStreak = w.weeklyStreak; S.collectibles = w.collectibles; _walletLoaded = true; renderIfEcon(); renderMpSetupLive(); maybeShowWeekly(); });
     _inboxUnsub = await FB.subscribeInbox(uid, (msgs) => { S.inbox = msgs; renderIfEcon(); });
@@ -5544,18 +5548,20 @@ function renderAgeGate(): void {
 // of value, never the killed chips→goods cash-out).
 // Pricing (from the monetization council). Anchor: $9.90 ≈ 1,000 play chips. Buy
 // actions are "Soon" until Stripe keys are wired; the catalog + trust copy ship now.
+// `id` is the store product id (App Store Connect / Play Console / RevenueCat). Must match
+// CHIP_PACKS / EDGE_PRODUCTS in functions/src/revenuecat-grants.ts.
 const PLAY_PACKS = [
-  { chips: "500", price: "$4.99" },
-  { chips: "1,000", price: "$9.90", badge: "Anchor" },
-  { chips: "2,400", price: "$19.90", bonus: "+20%" },
-  { chips: "7,000", price: "$49", bonus: "Best for Mid" },
-  { chips: "16,000", price: "$99" },
-  { chips: "40,000", price: "$199", badge: "Best value" },
+  { id: "chips_500", chips: "500", price: "$4.99" },
+  { id: "chips_1000", chips: "1,000", price: "$9.90", badge: "Anchor" },
+  { id: "chips_2400", chips: "2,400", price: "$19.90", bonus: "+20%" },
+  { id: "chips_7000", chips: "7,000", price: "$49", bonus: "Best for Mid" },
+  { id: "chips_16000", chips: "16,000", price: "$99" },
+  { id: "chips_40000", chips: "40,000", price: "$199", badge: "Best value" },
 ];
 const EDGE_TIERS = [
-  { label: "1 month · online", price: "$9.99", sub: "one-time · does not renew" },
-  { label: "Monthly", price: "$6.99/mo", sub: "Most flexible" },
-  { label: "Annual", price: "$49.99/yr", sub: "$4.17/mo · save 40%", best: true },
+  { id: "edge_1mo", label: "1 month · online", price: "$9.99", sub: "one-time · does not renew" },
+  { id: "edge_monthly", label: "Monthly", price: "$6.99/mo", sub: "Most flexible" },
+  { id: "edge_annual", label: "Annual", price: "$49.99/yr", sub: "$4.17/mo · save 40%", best: true },
 ];
 function renderStore(): void {
   cancelVillainTimer();
@@ -5563,10 +5569,12 @@ function renderStore(): void {
   const playBal = loggedIn ? S.wallet.play : S.profile.chips;
   const claimReady = canClaimWeekly();
   const daysLeft = loggedIn && S.lastWeekly ? Math.max(0, Math.ceil((WEEK_MS - (Date.now() - S.lastWeekly)) / 86_400_000)) : 0;
-  const pack = (pk: { chips: string; price: string; badge?: string; bonus?: string }, sym: string) => `
+  const iapOn = IAP.rcConfigured(); // native IAP live? else packs stay "Soon", Edge uses Stripe (web)
+  const pack = (pk: { id: string; chips: string; price: string; badge?: string; bonus?: string }, sym: string) => `
     <div class="pack ${pk.badge ? "best" : ""}">${pk.badge ? `<span class="pack-badge">${pk.badge}</span>` : ""}
       <div class="pack-amt">${sym} ${pk.chips}</div>${pk.bonus ? `<div class="pack-bonus">${pk.bonus}</div>` : ""}
-      <button class="pack-buy soon" disabled>${pk.price} · Soon</button>
+      ${iapOn ? `<button class="pack-buy" data-pid="${pk.id}">${pk.price}</button>`
+        : `<button class="pack-buy soon" disabled>${pk.price} · Soon</button>`}
     </div>`;
   app.innerHTML = `
     <div class="setup doc">
@@ -5583,7 +5591,7 @@ function renderStore(): void {
         ${!hasEdge() ? `<div class="edge-banner"><div class="eb-copy"><span class="eb-eyebrow">⚡ Edge Pass</span><span class="eb-title">Read every villain's range — live</span><span class="eb-sub">Equity · pot odds · the line, at your seat</span></div></div>` : ""}
         <div class="set-note" style="margin-bottom:9px">The real-time MCE overlay in online play + hand-history review + leak report. <strong>Solo Train stays 100% free, forever.</strong></div>
         ${hasEdge() ? `<div class="se-active">✓ Edge Pass active${S.isAdmin && !S.edgePass ? " (admin)" : ""}</div>${S.edgePass && !S.isAdmin ? `<button class="hdr-btn" id="edge-manage" style="width:100%;margin-top:8px">Manage subscription</button>` : ""}`
-          : `${EDGE_TIERS.map((t) => `<div class="edge-tier ${t.best ? "best" : ""}"><div class="et-main"><div class="et-price">${t.price}</div><div class="et-sub">${t.sub}</div></div><button class="et-buy" id="edge-buy">${S.net.busy ? '<span class="spin dark"></span>' : "Get"}</button></div>`).join("")}
+          : `${EDGE_TIERS.map((t) => `<div class="edge-tier ${t.best ? "best" : ""}"><div class="et-main"><div class="et-price">${t.price}</div><div class="et-sub">${t.sub}</div></div><button class="et-buy" data-pid="${t.id}">${S.net.busy ? '<span class="spin dark"></span>' : "Get"}</button></div>`).join("")}
           <span class="hint">7-day free trial · cancel anytime in one tap.</span>`}
       </div>
 
@@ -5592,13 +5600,52 @@ function renderStore(): void {
         <div class="pack-grid">${PLAY_PACKS.map((pk) => pack(pk, "<i class=ic-coin></i>")).join("")}</div>
       </div>
 
+      ${iapOn ? `<button class="hdr-btn" id="store-restore" style="width:100%;padding:12px;margin-top:10px">${S.net.busy ? '<span class="spin"></span>' : "Restore purchases"}</button>` : ""}
       <button class="hdr-btn" id="store-back2" style="width:100%;padding:12px;margin-top:10px">Back</button>
     </div>`;
   onId("store-back", "click", () => { S.screen = "home"; render(); });
   onId("store-back2", "click", () => { S.screen = "home"; render(); });
+  onId("store-restore", "click", () => { void doRestore(); });
   onId("store-claim", "click", () => { _weeklyShown = false; showWeeklyClaim(); });
-  onId("edge-buy", "click", () => { void startEdgePass(); });
   onId("edge-manage", "click", () => { void manageEdgePass(); });
+  // Edge tiers: native → RevenueCat IAP for the specific tier; web → Stripe Checkout (monthly).
+  app.querySelectorAll<HTMLButtonElement>(".et-buy[data-pid]").forEach((b) =>
+    b.addEventListener("click", () => { void buyEdge(b.dataset.pid!); }));
+  // Chip packs: only rendered as live buttons on native (iapOn); web shows "Soon".
+  app.querySelectorAll<HTMLButtonElement>(".pack-buy[data-pid]").forEach((b) =>
+    b.addEventListener("click", () => { void buyPack(b.dataset.pid!); }));
+}
+
+// Native chip-pack purchase via RevenueCat. The webhook credits chipsPlay; subscribeWallet then
+// refreshes the balance reactively — we never touch the wallet client-side.
+async function buyPack(pid: string): Promise<void> {
+  if (!(await ensureSignedIn())) { S.screen = "signin"; render(); return; }
+  if (S.net.busy) return;
+  S.net.busy = true; render();
+  try { await IAP.rcPurchase(pid); }
+  catch (e) { S.net.err = friendlyErr(e); }
+  S.net.busy = false; render();
+}
+
+// Restore purchases (native). Re-syncs RevenueCat; an active Edge Pass re-lands via the webhook →
+// subscribeWallet. Chip packs are permanent (consumable, not restorable).
+async function doRestore(): Promise<void> {
+  if (S.net.busy) return;
+  S.net.busy = true; render();
+  try { const any = await IAP.rcRestore(); S.net.err = any ? "" : "No active purchases to restore."; }
+  catch (e) { S.net.err = friendlyErr(e); }
+  S.net.busy = false; render();
+}
+
+// Edge Pass purchase. Native → RevenueCat IAP for the tapped tier; web → existing Stripe path.
+async function buyEdge(pid: string): Promise<void> {
+  if (!IAP.rcConfigured()) { void startEdgePass(); return; }
+  if (!(await ensureSignedIn())) { S.screen = "signin"; render(); return; }
+  if (S.net.busy) return;
+  S.net.busy = true; render();
+  try { await IAP.rcPurchase(pid); }
+  catch (e) { S.net.err = friendlyErr(e); }
+  S.net.busy = false; render();
 }
 
 // Edge Pass: redirect to Stripe Checkout (the secret keys live server-side; the
