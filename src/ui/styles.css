@@ -681,13 +681,14 @@ body::after {
   flex: 0 0 auto; height: min(48vh, 410px); min-height: 0;
   display: flex; align-items: center; justify-content: center;
 }
-/* Below the table: a scrollable region. Content is TOP-anchored (with a small
-   fixed offset so it's not jammed under the felt) and grows downward — it never
-   re-centres, so the cards/recommendation stay put when the action area appears
-   or the result panel renders. No size jumps between states. */
+/* Below the table: a scrollable region holding the read + recommendation + action buttons.
+   BOTTOM-anchored (safe flex-end) so the whole action cluster sits in the thumb zone and the
+   extra vertical space on tall phones becomes table breathing-room ABOVE — instead of a dead
+   band below the buttons. `safe` falls back to top-aligned + scroll when the content is taller
+   than the area (small phones), so nothing ever clips. */
 .controls {
   flex: 1 1 auto; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch;
-  display: flex; flex-direction: column; justify-content: flex-start;
+  display: flex; flex-direction: column; justify-content: safe flex-end;
   padding-top: 10px;
 }
 .controls-body { } /* contents flow naturally; .controls scrolls if they overflow */
@@ -718,7 +719,7 @@ body::after {
      pushed to the right (margin-left:auto). Matches the WSOP bottom action strip. */
   .controls {
     position: absolute; left: 0; right: 0; bottom: 0; height: 32%; z-index: 30;
-    display: flex; flex-direction: row; align-items: center;
+    display: flex; flex-direction: row; align-items: center; justify-content: flex-start;
     padding: 0 16px calc(2px + env(safe-area-inset-bottom));
     background: linear-gradient(to top, #060a12 70%, rgba(6,10,18,0));
     border-top: 1px solid var(--line); overflow: visible;
