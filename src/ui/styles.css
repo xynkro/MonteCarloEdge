@@ -682,14 +682,23 @@ body::after {
   display: flex; align-items: center; justify-content: center;
 }
 /* Below the table: a scrollable region holding the read + recommendation + action buttons.
-   BOTTOM-anchored (safe flex-end) so the whole action cluster sits in the thumb zone and the
-   extra vertical space on tall phones becomes table breathing-room ABOVE — instead of a dead
-   band below the buttons. `safe` falls back to top-aligned + scroll when the content is taller
-   than the area (small phones), so nothing ever clips. */
+   TOP-anchored so the cards / %win / read stay pinned just under the table and NEVER jump as
+   the content below them changes between streets/states. The action buttons are pushed to the
+   BOTTOM separately (portrait block below) so tall phones still fill — WITHOUT moving the cards. */
 .controls {
   flex: 1 1 auto; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch;
-  display: flex; flex-direction: column; justify-content: safe flex-end;
+  display: flex; flex-direction: column; justify-content: flex-start;
   padding-top: 10px;
+}
+/* Portrait only: push the action buttons to the bottom of the controls area without disturbing
+   the top-pinned read/cards. Training's .action-dock is a direct sibling of .controls-body;
+   net nests its .action-bar inside .controls-body, so make that a fill-the-height column and
+   push its action-bar down. margin-top:auto collapses to 0 when content overflows (small
+   phones) — so it only fills slack, never clips. */
+@media (orientation: portrait) {
+  .action-dock { margin-top: auto; }
+  .net-game .controls-body { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; }
+  .net-game .controls-body > .action-bar { margin-top: auto; }
 }
 .controls-body { } /* contents flow naturally; .controls scrolls if they overflow */
 /* Wrapper around the net read + MCE chip. Transparent in portrait (children stack as before);
