@@ -1,0 +1,46 @@
+{
+  "project_info": {
+    "project_number": "92656316638",
+    "project_id": "montecarloedge",
+    "storage_bucket": "montecarloedge.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:92656316638:android:c073e3b40294e1eaf6524f",
+        "android_client_info": {
+          "package_name": "com.montecarloedge.app"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "92656316638-kbi5c9ghioo5o6o3rhn91hkp664f3fka.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBqikBuPdlbvp9gSyrTn6FUO8YgnUjO1qo"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "92656316638-kbi5c9ghioo5o6o3rhn91hkp664f3fka.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "92656316638-69jgt4gor48kt157m587qog12sgtb0ct.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.montecarloedge.app"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

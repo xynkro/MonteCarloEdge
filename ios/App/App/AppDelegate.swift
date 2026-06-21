@@ -1,5 +1,6 @@
 import UIKit
 import Capacitor
+import FirebaseCore
 
 @UIApplicationMain
 class AppDelegate: UIResponder, UIApplicationDelegate {
@@ -7,7 +8,10 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     var window: UIWindow?
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
-        // Override point for customization after application launch.
+        // Initialize Firebase (reads GoogleService-Info.plist) so @capacitor-firebase/authentication
+        // can run native Google/Apple sign-in. The OAuth URL callback is forwarded to the plugin by
+        // Capacitor's ApplicationDelegateProxy in application(_:open:options:) below.
+        FirebaseApp.configure()
         return true
     }
 

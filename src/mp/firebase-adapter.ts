@@ -210,19 +210,38 @@ export async function subscribeLedger(cb: (rows: Record<string, unknown>[]) => v
   return m.onSnapshot(q, (snap: { docs: { id: string; data: () => Record<string, unknown> }[] }) => cb(snap.docs.map((d) => ({ id: d.id, ...d.data() }))), () => {});
 }
 
-/** Pop the Google account picker and sign in. */
+// True inside the Capacitor native shell (the bridge injects window.Capacitor before our
+// bundle runs). On native, OAuth popups/redirects don't work — so we use the
+// @capacitor-firebase/authentication plugin (native Google/Apple sheets) with skipNativeAuth
+// and feed the returned credential to the JS SDK via signInWithCredential, keeping the JS
+// layer the single source of auth-state truth (onAuthStateChanged, wallet sub, etc.).
+function isNativeShell(): boolean {
+  return !!(globalThis as unknown as { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor?.isNativePlatform?.();
+}
+// Best-effort profile seed after any sign-in — auth already succeeded, so a Firestore write
+// failure (e.g. rules not yet published) must NOT make sign-in look broken.
+async function seedProfile(user: MPUser): Promise<void> {
+  try { const { m, db } = await firestore(); await m.setDoc(m.doc(db, "users", user.uid), { name: user.name }, { merge: true }); } catch { /* signed in regardless */ }
+}
+
+/** Pop the Google account picker and sign in. Native → native Google sheet via the plugin. */
 export async function signInWithGoogle(): Promise<MPUser> {
   const app = await getFirebaseApp();
+  if (isNativeShell()) {
+    const { FirebaseAuthentication } = await import("@capacitor-firebase/authentication");
+    const { getAuth, GoogleAuthProvider, signInWithCredential } = await import("firebase/auth");
+    const r = await FirebaseAuthentication.signInWithGoogle({ skipNativeAuth: true });
+    const idToken = r.credential?.idToken;
+    if (!idToken) throw new Error("Google sign-in returned no credential.");
+    const res = await signInWithCredential(getAuth(app), GoogleAuthProvider.credential(idToken, r.credential?.accessToken));
+    const user = toUser(res.user);
+    await seedProfile(user);
+    return user;
+  }
   const { getAuth, GoogleAuthProvider, signInWithPopup } = await import("firebase/auth");
   const res = await signInWithPopup(getAuth(app), new GoogleAuthProvider());
   const user = toUser(res.user);
-  // Seed/refresh the user profile doc — BEST-EFFORT. Auth has already succeeded;
-  // a Firestore write failure (e.g. rules not yet published) must NOT make the
-  // whole sign-in look broken. The presence layer surfaces any rules issue.
-  try {
-    const { m, db } = await firestore();
-    await m.setDoc(m.doc(db, "users", user.uid), { name: user.name }, { merge: true });
-  } catch { /* signed in regardless */ }
+  await seedProfile(user);
   return user;
 }
 
@@ -251,15 +270,28 @@ export async function consumeRedirect(): Promise<{ user: MPUser; isNew: boolean 
   } catch (e) { return { error: e }; }
 }
 
-/** Sign in with Apple (provider enabled in the Firebase console). */
+/** Sign in with Apple. Native → native Apple sheet via the plugin (needs the Apple Developer
+ *  "Sign in with Apple" capability + the Apple provider configured in Firebase). */
 export async function signInWithApple(): Promise<MPUser> {
   const app = await getFirebaseApp();
+  if (isNativeShell()) {
+    const { FirebaseAuthentication } = await import("@capacitor-firebase/authentication");
+    const { getAuth, OAuthProvider, signInWithCredential } = await import("firebase/auth");
+    const r = await FirebaseAuthentication.signInWithApple({ skipNativeAuth: true });
+    const idToken = r.credential?.idToken;
+    if (!idToken) throw new Error("Apple sign-in returned no credential.");
+    const provider = new OAuthProvider("apple.com");
+    const res = await signInWithCredential(getAuth(app), provider.credential({ idToken, rawNonce: r.credential?.nonce }));
+    const user = toUser(res.user);
+    await seedProfile(user);
+    return user;
+  }
   const { getAuth, OAuthProvider, signInWithPopup } = await import("firebase/auth");
   const provider = new OAuthProvider("apple.com");
   provider.addScope("name"); provider.addScope("email");
   const res = await signInWithPopup(getAuth(app), provider);
   const user = toUser(res.user);
-  try { const { m, db } = await firestore(); await m.setDoc(m.doc(db, "users", user.uid), { name: user.name }, { merge: true }); } catch { /* */ }
+  await seedProfile(user);
   return user;
 }
 

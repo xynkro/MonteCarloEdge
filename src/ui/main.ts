@@ -5073,6 +5073,13 @@ function unread(): number { return S.inbox.filter((m) => !m.read).length; }
 // load finishes the job. A 12s safety clears the spinner if the redirect never starts.
 async function startOAuth(which: "google" | "apple"): Promise<void> {
   if (S.net.busy) return;
+  // Native shell: an OAuth redirect would navigate away from the bundled app, so sign in
+  // INLINE via the native plugin (FB.signInWithGoogle/Apple bridge to it) and finish here —
+  // no redirect, no consumeRedirect() resume on reload.
+  if ((window as unknown as { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor?.isNativePlatform?.()) {
+    void doSignIn(() => (which === "apple" ? FB.signInWithApple() : FB.signInWithGoogle()));
+    return;
+  }
   S.net.busy = true; S.net.err = ""; render();
   try { localStorage.setItem("mce-signed-in", "1"); localStorage.setItem("mce-auth-pending", which); } catch { /* */ }
   setTimeout(() => { if (S.net.busy && S.screen === "signin") { S.net.busy = false; render(); } }, 12000);

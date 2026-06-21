@@ -30,6 +30,12 @@ const config: CapacitorConfig = {
       showSpinner: false,
       androidScaleType: "CENTER_CROP",
     },
+    FirebaseAuthentication: {
+      // We complete the Firebase sign-in in the JS SDK (signInWithCredential) so the JS layer
+      // stays the single source of auth-state truth — the plugin only runs the native OAuth.
+      skipNativeAuth: true,
+      providers: ["google.com", "apple.com"],
+    },
   },
 };
 
