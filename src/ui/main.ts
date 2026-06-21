@@ -5077,6 +5077,9 @@ async function startOAuth(which: "google" | "apple"): Promise<void> {
   // INLINE via the native plugin (FB.signInWithGoogle/Apple bridge to it) and finish here —
   // no redirect, no consumeRedirect() resume on reload.
   if ((window as unknown as { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor?.isNativePlatform?.()) {
+    // Backstop: native has no redirect to fall back on, so if the sign-in ever hangs (stalled
+    // Firebase call) clear the spinner and offer a retry instead of spinning forever.
+    setTimeout(() => { if (S.net.busy && S.screen === "signin") { S.net.busy = false; S.net.err = "Sign-in timed out — check your connection and try again."; render(); } }, 25000);
     void doSignIn(() => (which === "apple" ? FB.signInWithApple() : FB.signInWithGoogle()));
     return;
   }

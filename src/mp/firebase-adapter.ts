@@ -33,10 +33,22 @@ const toUser = (u: { uid: string; displayName: string | null; photoURL?: string 
   strategyEntitled: false,
 });
 
+let _db: unknown = null;
 async function firestore() {
   const app = await getFirebaseApp();
   const m = await import("firebase/firestore");
-  return { m, db: m.getFirestore(app) };
+  if (!_db) {
+    // In the Capacitor WKWebView, Firestore's default WebChannel transport frequently can't
+    // connect, so reads/writes hang forever (this is what made native sign-in spin on the
+    // seedProfile write). Force long-polling on native. initializeFirestore must run before the
+    // first getFirestore and only once; fall back if it was already initialized (e.g. emulator).
+    try {
+      _db = isNativeShell()
+        ? m.initializeFirestore(app, { experimentalForceLongPolling: true })
+        : m.getFirestore(app);
+    } catch { _db = m.getFirestore(app); }
+  }
+  return { m, db: _db as ReturnType<typeof m.getFirestore> };
 }
 
 // ── Phase 2: networked tables (calls the deployed Cloud Functions) ──
@@ -235,7 +247,7 @@ export async function signInWithGoogle(): Promise<MPUser> {
     if (!idToken) throw new Error("Google sign-in returned no credential.");
     const res = await signInWithCredential(getAuth(app), GoogleAuthProvider.credential(idToken, r.credential?.accessToken));
     const user = toUser(res.user);
-    await seedProfile(user);
+    void seedProfile(user); // best-effort — never block sign-in on a profile write (it can hang in a fresh native webview)
     return user;
   }
   const { getAuth, GoogleAuthProvider, signInWithPopup } = await import("firebase/auth");
@@ -283,7 +295,7 @@ export async function signInWithApple(): Promise<MPUser> {
     const provider = new OAuthProvider("apple.com");
     const res = await signInWithCredential(getAuth(app), provider.credential({ idToken, rawNonce: r.credential?.nonce }));
     const user = toUser(res.user);
-    await seedProfile(user);
+    void seedProfile(user); // best-effort — never block sign-in on a profile write (it can hang in a fresh native webview)
     return user;
   }
   const { getAuth, OAuthProvider, signInWithPopup } = await import("firebase/auth");
