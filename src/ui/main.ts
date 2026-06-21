@@ -5518,7 +5518,7 @@ function renderAgeGate(): void {
         <div class="age-mark">🂡</div>
         <h1>MONTECARLO<b>EDGE</b></h1>
         <p class="age-lead">You must be <strong>18 or older</strong> (or your local age of majority) to use MonteCarloEdge.</p>
-        <p class="age-fine">Chips are <strong>play-money only</strong> — no cash value, never cashable or redeemable. This is a poker trainer and social game, <strong>not gambling</strong>. No real-money wagering, ever.</p>
+        <p class="age-fine">Chips are <strong>play-money only</strong> — no cash value, never cashable or redeemable. MonteCarloEdge is a poker trainer and social game <strong>for entertainment only</strong> — it is <strong>not gambling</strong> and offers no real-money wagering, prizes, or payouts of any kind. Practice or success here <strong>does not imply future success</strong> at real-money gambling.</p>
         <button class="start-btn" id="age-yes">I'm 18 or older — enter</button>
         <button class="hdr-btn" id="age-no" style="width:100%;padding:12px;margin-top:8px">Under 18 — leave</button>
         <p class="age-agree">By entering you confirm you're 18+ and agree to the <button class="age-link" id="age-terms">Terms</button> &amp; <button class="age-link" id="age-explain">How it works</button>.</p>

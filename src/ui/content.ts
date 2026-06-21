@@ -49,6 +49,7 @@ export const LEGAL_SECTIONS: Section[] = [
     body: `<p>The training mode, the fold/call/raise recommendations, win-percentage readouts, board "reads", and every other strategy output exist <strong>for practice and entertainment</strong>.</p>
     <ul>
       <li>They are <strong>not a guarantee</strong> you'll win any hand, session, or real-world game.</li>
+      <li>Practice or success in MonteCarloEdge <strong>does not imply, predict, or improve</strong> any future success at real-money gambling.</li>
       <li>They are <strong>not financial, investment, or gambling advice</strong>.</li>
       <li>Poker involves chance and incomplete information. Equity numbers and the engine's recommendations (including tuned heuristics) can be simplified, wrong, or buggy. Treat them as a study aid, not gospel.</li>
     </ul>
