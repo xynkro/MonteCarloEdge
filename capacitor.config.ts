@@ -21,6 +21,16 @@ const config: CapacitorConfig = {
   android: {
     backgroundColor: "#070a0f",
   },
+  plugins: {
+    SplashScreen: {
+      // Keep the splash up until initNative() calls hide() after the first paint — no white
+      // flash between launch image and the rendered app.
+      launchAutoHide: false,
+      backgroundColor: "#070a0f",
+      showSpinner: false,
+      androidScaleType: "CENTER_CROP",
+    },
+  },
 };
 
 export default config;

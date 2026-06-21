@@ -6065,6 +6065,12 @@ try {
 } catch { /* */ }
 render();
 initCardTilt();
+// Native (Capacitor) shell: status bar + hide launch splash. The native bridge injects
+// window.Capacitor before our bundle runs, so we gate on it — the web build never even fetches
+// the native chunk (zero web cost), and on native it lazy-loads the plugins.
+if ((window as unknown as { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor?.isNativePlatform?.()) {
+  void import("../native.js").then((m) => m.initNative()).catch(() => {});
+}
 
 // Finalize OAuth redirects + restore a previous sign-in. Only loads Firebase if the
 // user has signed in (or just initiated a redirect) — stays lazy for fresh visitors.

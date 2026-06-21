@@ -30,6 +30,8 @@
     "@capacitor/android": "^8.4.1",
     "@capacitor/core": "^8.4.1",
     "@capacitor/ios": "^8.4.1",
+    "@capacitor/splash-screen": "^8.0.1",
+    "@capacitor/status-bar": "^8.0.2",
     "@simplewebauthn/browser": "^9.0.1",
     "firebase": "^12.14.0",
     "morphdom": "^2.7.8"
