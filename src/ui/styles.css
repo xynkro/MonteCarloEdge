@@ -125,7 +125,8 @@ body::after {
 
 .setup {
   flex: 1; display: flex; flex-direction: column;
-  padding: 22px 20px 28px; gap: 15px; overflow-y: auto;
+  padding: calc(12px + env(safe-area-inset-top)) 20px calc(20px + env(safe-area-inset-bottom));
+  gap: 15px; overflow-y: auto;
 }
 
 .brand { display: flex; align-items: center; gap: 13px; justify-content: center; }
@@ -267,7 +268,7 @@ body::after {
 
 .game-topbar {
   display: flex; justify-content: space-between; align-items: center;
-  padding: 9px 16px; font-size: 12px; color: var(--muted); font-weight: 600;
+  padding: calc(9px + env(safe-area-inset-top)) 16px 9px; font-size: 12px; color: var(--muted); font-weight: 600;
   letter-spacing: .3px;
 }
 .hdr-btn {
@@ -1385,7 +1386,7 @@ body::after {
 .mc-mode.locked::before { background: var(--line-2); box-shadow: none; }
 .mc-mode.locked .mc-arrow { font-size: 17px; opacity: 1; color: var(--gold-2); }
 /* ── Sign-in (Spotify-style: providers stacked, no dead space) ── */
-.signin { position: relative; flex: 1; display: flex; flex-direction: column; align-items: stretch; gap: 9px; padding: 22px 22px calc(20px + env(safe-area-inset-bottom)); max-width: 440px; margin: 0 auto; width: 100%; overflow-y: auto; }
+.signin { position: relative; flex: 1; display: flex; flex-direction: column; align-items: stretch; gap: 9px; padding: calc(14px + env(safe-area-inset-top)) 22px calc(20px + env(safe-area-inset-bottom)); max-width: 440px; margin: 0 auto; width: 100%; overflow-y: auto; }
 .si-bg { position: absolute; inset: 0; z-index: 0; pointer-events: none; overflow: hidden; }
 .signin > *:not(.si-bg) { position: relative; z-index: 1; }
 .si-brand { text-align: center; margin: 6px 0 0; }
