@@ -4776,7 +4776,7 @@ function renderNetTable(): void {
             ${roster}
             ${specPills}
           </div>
-          ${canAddAi ? `<div class="lobby-addai"><div class="la-label">Add a practice bot</div><div class="la-btns">${[["Station", "🐟 Fish"], ["TAG", "🎯 Reg"], ["LAG", "🔥 LAG"], ["rand", "🎲 Random"]].map(([a, l]) => `<button class="hdr-btn add-ai" data-arch="${a}"${S.net.busy ? " disabled" : ""}>${l}</button>`).join("")}</div></div>`
+          ${canAddAi ? `<div class="lobby-addai"><button class="hdr-btn add-ai" data-arch="rand" style="width:100%"${S.net.busy ? " disabled" : ""}>${S.net.busy ? '<span class="spin"></span>' : "🎲 ＋ Add Bot"}</button></div>`
         : currency === "premium" ? `<div class="lobby-note"><i class=ic-gem></i> Premium room — humans only. Share the code to fill seats.</div>` : ""}
           ${assistedOn ? `<div class="lobby-mce">💡 <strong>MCE Strategy is ON</strong> — you'll get live GTO advice on your turn.</div>` : ""}
           ${isSpectator
@@ -4899,10 +4899,9 @@ function renderNetTable(): void {
   let controls = "";
   if (lobby) {
     const canAddAi = isOwner && currency === "play" && occupied.length < seats.length;
-    const aiBtns = [["Station", "🐟 Fish"], ["TAG", "🎯 Reg"], ["LAG", "🔥 LAG"], ["rand", "🎲 Random"]];
     controls = `
       <div class="net-share">Share code <button class="net-copy" id="net-copy"><strong>${code}</strong> 📋</button></div>
-      ${canAddAi ? `<div class="lobby-ai"><span class="hint">＋ AI:</span>${aiBtns.map(([a, l]) => `<button class="hdr-btn add-ai" data-arch="${a}">${l}</button>`).join("")}</div>` : currency === "premium" ? `<div class="hint" style="text-align:center">Premium room — humans only. Share the code.</div>` : ""}
+      ${canAddAi ? `<div class="lobby-ai"><button class="hdr-btn add-ai" data-arch="rand">🎲 ＋ Add Bot</button></div>` : currency === "premium" ? `<div class="hint" style="text-align:center">Premium room — humans only. Share the code.</div>` : ""}
       ${isOwner ? `<button class="start-btn" id="net-deal" ${occupied.length < 2 ? "disabled style=opacity:.5" : ""}>${S.net.busy ? '<span class="spin dark"></span>' : occupied.length < 2 ? "Waiting for players…" : "DEAL"}</button>` : `<div class="hint" style="text-align:center">Waiting for the host to deal…</div>`}`;
   } else if (status === "hand_over") {
     const shareBtn = iWonAmt > 0 ? `<button class="share-win-btn" id="net-share-win">📸 Share this win · +${mpc(iWonAmt)}</button>` : "";
@@ -4930,7 +4929,7 @@ function renderNetTable(): void {
           <div class="wr-stack"><span class="wr-final">${sym} ${mpc(myFinal)}</span>${profit > 0 ? `<span class="wr-profit">+${mpc(profit)}</span>` : ""}</div>
           ${shareBtn}
           <div class="wr-actions">
-            ${canRefill ? `<button class="hdr-btn add-ai" data-arch="TAG">＋ Add a bot</button>` : ""}
+            ${canRefill ? `<button class="hdr-btn add-ai" data-arch="rand">🎲 ＋ Add Bot</button>` : ""}
             <button class="hdr-btn" id="net-leave-win">Bank ${sym} ${mpc(myFinal)} + leave</button>
           </div>
         </div>`;

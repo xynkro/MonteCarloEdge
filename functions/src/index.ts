@@ -221,10 +221,9 @@ export const createTable = onCall(async (req) => {
   }
   const T = TIERS[tier] ?? TIERS["5/10"]!;
   const stack = Math.max(20 * T.bb, Math.min(T.max, Math.round(buyIn ?? T.max)));
-  // Full 12-max table: owner + up to 11 others (humans or bots). The engine's GTO charts
-  // are real to 10-max; 11/12 use UTG-aliased ranges for the extra early seats (no real
-  // 12-max solve exists, but it lets a big home game run).
-  const seats = 12;
+  // Full ring = 9 seats (owner + up to 8 others, humans or bots) — the real tournament/live-cash
+  // standard. The engine's GTO charts are real to full ring, so every seat trains on true ranges.
+  const seats = 9;
 
   return db.runTransaction(async (tx) => {
     const u = await tx.get(userRef(uid));
@@ -237,7 +236,7 @@ export const createTable = onCall(async (req) => {
     if ((await tx.get(stateRef(code))).exists) code = newCode();
 
     const t = createAuthTable(code, { uid, name }, { name: `${tier} Room`, blinds: { sb: T.sb, bb: T.bb }, startingStack: stack, maxSeats: Math.max(seats, 2), isPublic: isPublic !== false });
-    if (cur !== "premium") bots.slice(0, 7).forEach((arch, i) => seatAi(t, i + 1, `Bot ${i + 1}`, PROFILES[arch] ? arch : "TAG"));
+    if (cur !== "premium") bots.slice(0, 8).forEach((arch, i) => seatAi(t, i + 1, `Bot ${i + 1}`, PROFILES[arch] ? arch : "TAG"));
 
     // The owner's assisted (strategy-tool) seat flag is an Edge Pass entitlement.
     // The engine defaults it on for seats[0], so gate it explicitly here: only honor
