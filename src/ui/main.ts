@@ -960,8 +960,8 @@ function renderSetup(): void {
         <div class="field">
           <label for="tsize">Players</label>
           <select id="tsize">
-            ${[2, 3, 4, 5, 6, 7, 8, 9, 10].map(n =>
-              `<option value="${n}" ${n === S.tableSize ? "selected" : ""}>${n === 2 ? "2 (HU)" : n + " players"}</option>`
+            ${[2, 3, 4, 5, 6, 7, 8, 9].map(n =>
+              `<option value="${n}" ${n === S.tableSize ? "selected" : ""}>${n === 2 ? "Heads-Up" : n === 6 ? "6-Max" : n === 9 ? "Full Ring (9)" : n + " players"}</option>`
             ).join("")}
           </select>
         </div>
