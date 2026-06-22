@@ -1920,12 +1920,12 @@ function renderGame(): void {
       : `<div class="read-flank draws dim"><span class="flank-lead">Drawing</span><span class="flank-chip">—</span></div>`;
     const hs = S.boardRead.heroStory;
     const vs = S.boardRead.villainStory;
-    const leanWord = (l: string) => l === "call" ? "call lighter" : l === "careful" ? "be careful" : l === "raise" ? "raise-bluff spot" : "";
+    const leanWord = (l: string) => l === "call" ? "you can call lighter" : l === "careful" ? "play it careful" : l === "raise" ? "good spot to bluff-raise" : "";
     const vilLine = vs
-      ? `<div class="story-line vil ${vs.lean ? "lean-" + vs.lean : ""}">🎭 Villain reps <b>${vs.label}</b> · ~${vs.bluffPct}% bluff${vs.lean ? ` · ${leanWord(vs.lean)}` : ""}</div>`
+      ? `<div class="story-line vil ${vs.lean ? "lean-" + vs.lean : ""}">🎭 Their line looks like <b>${vs.label}</b> · ~${vs.bluffPct}% bluffs${vs.lean ? ` · ${leanWord(vs.lean)}` : ""}</div>`
       : "";
     const heroLine = hs
-      ? `<div class="story-line you ${hs.capped ? "capped" : ""}" title="${hs.cred}">🂠 Rep <b>${hs.label}</b> → bet <b>${hs.betToRep}</b>${hs.capped ? ` <span class="story-warn">capped</span>` : ""}</div>`
+      ? `<div class="story-line you ${hs.capped ? "capped" : ""}" title="${hs.cred}">🂠 To look like <b>${hs.label}</b>, bet <b>${hs.betToRep}</b>${hs.capped ? ` <span class="story-warn">can't be strong</span>` : ""}</div>`
       : "";
     storyLinesHtml = (vilLine || heroLine) ? `<div class="story-lines">${vilLine}${heroLine}</div>` : "";
   }
