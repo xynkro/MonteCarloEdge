@@ -948,7 +948,7 @@ function renderSetup(): void {
 
       <div class="field-row">
         <div class="field">
-          <label>Players</label>
+          <label for="tsize">Players</label>
           <select id="tsize">
             ${[2, 3, 4, 5, 6, 7, 8, 9, 10].map(n =>
               `<option value="${n}" ${n === S.tableSize ? "selected" : ""}>${n === 2 ? "2 (HU)" : n + " players"}</option>`
@@ -956,7 +956,7 @@ function renderSetup(): void {
           </select>
         </div>
         <div class="field">
-          <label>Game type</label>
+          <label for="gametype">Game type</label>
           <select id="gametype">
             <option value="cash" ${!S.tournament ? "selected" : ""}>Cash (chip-EV)</option>
             <option value="mtt" ${S.tournament ? "selected" : ""}>Tournament (ICM)</option>
@@ -967,7 +967,7 @@ function renderSetup(): void {
       ${S.tournament ? `
       <div class="field-row">
         <div class="field">
-          <label>Payouts</label>
+          <label for="payouts">Payouts</label>
           <select id="payouts">
             <option value="wta" ${S.payoutPreset === "wta" ? "selected" : ""}>Winner-take-all</option>
             <option value="top2" ${S.payoutPreset === "top2" ? "selected" : ""}>Top 2 (65/35)</option>
@@ -982,21 +982,21 @@ function renderSetup(): void {
         <div class="field">
           <label>Blinds <span class="lbl-sub">SB / BB</span></label>
           <div class="blinds-row">
-            <button class="tap-input" data-numpad="sb">$${fmtMoney(S.sbValue)}</button>
+            <button class="tap-input" data-numpad="sb" aria-label="Small blind, $${fmtMoney(S.sbValue)} — tap to edit">$${fmtMoney(S.sbValue)}</button>
             <span class="blind-slash">/</span>
-            <button class="tap-input" data-numpad="bb">$${fmtMoney(S.bbValue)}</button>
+            <button class="tap-input" data-numpad="bb" aria-label="Big blind, $${fmtMoney(S.bbValue)} — tap to edit">$${fmtMoney(S.bbValue)}</button>
           </div>
         </div>
         <div class="field">
           <label>Starting chips</label>
-          <button class="tap-input" data-numpad="stack">${S.stackBB}bb · $${fmtMoney(S.stackBB * S.bbValue)}</button>
+          <button class="tap-input" data-numpad="stack" aria-label="Starting chips, ${S.stackBB} big blinds — tap to edit">${S.stackBB}bb · $${fmtMoney(S.stackBB * S.bbValue)}</button>
         </div>
       </div>
       <span class="hint">${S.sbManual ? "Small blind set manually" : "Small blind auto-tracks ½ the big blind — tap it to set your own"}</span>
 
       <div class="field-row">
         <div class="field">
-          <label>Your play style</label>
+          <label for="herostyle">Your play style</label>
           <select id="herostyle">
             ${Object.entries(HERO_STYLES).map(([k, v]) =>
               `<option value="${k}" ${S.heroStyle === k ? "selected" : ""}>${v.label}</option>`
@@ -1004,7 +1004,7 @@ function renderSetup(): void {
           </select>
         </div>
         <div class="field">
-          <label>Opponent type</label>
+          <label for="arch">Opponent type</label>
           <select id="arch">
             ${Object.keys(PROFILES).map(k =>
               `<option value="${k}" ${k === S.archetype ? "selected" : ""}>${k}</option>`
