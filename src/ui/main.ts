@@ -5798,7 +5798,7 @@ function renderHome(): void {
       <div class="mc-modes">
         <button class="mc-mode train" id="home-train" style="--d:.05s"><span class="mc-mi">${ICON_TARGET}</span><span class="mc-mtext"><span class="mc-mt">Train</span><span class="mc-md">Solo vs the MCE Engine · free</span></span><span class="mc-arrow">→</span></button>
         <button class="mc-mode online ${loggedIn ? "" : "locked"}" id="home-pass" style="--d:.12s"><span class="mc-mi">${ICON_GLOBE}</span><span class="mc-mtext"><span class="mc-mt">Play Online</span><span class="mc-md">${loggedIn ? "Create a room · play for chips" : "Sign in to play"}</span></span><span class="mc-arrow">${loggedIn ? "→" : "🔒"}</span></button>
-        <button class="mc-mode pass ${loggedIn ? "" : "locked"}" id="home-store-tile" style="--d:.19s"><span class="mc-mi">${ICON_BAG}</span><span class="mc-mtext"><span class="mc-mt">Store</span><span class="mc-md">${loggedIn ? "Chips · cosmetics · Edge Pass" : "Sign in to shop"}</span></span><span class="mc-arrow">${loggedIn ? "→" : "🔒"}</span></button>
+        <button class="mc-mode pass" id="home-store-tile" style="--d:.19s"><span class="mc-mi">${ICON_BAG}</span><span class="mc-mtext"><span class="mc-mt">Store</span><span class="mc-md">Chips · cosmetics · Edge Pass</span></span><span class="mc-arrow">→</span></button>
         <button class="mc-mode profile" id="home-profile2" style="--d:.26s"><span class="mc-mi">${ICON_USER}</span><span class="mc-mtext"><span class="mc-mt">Profile</span><span class="mc-md">Avatar · name · chips</span></span><span class="mc-arrow">→</span></button>
       </div>
 
@@ -5826,7 +5826,7 @@ function renderHome(): void {
   onId("home-signin2", "click", () => { S.screen = "signin"; render(); });
   onId("home-signin-banner", "click", () => { S.screen = "signin"; render(); });
   onId("home-store", "click", () => { S.screen = "store"; render(); });
-  onId("home-store-tile", "click", () => { S.screen = loggedIn ? "store" : "signin"; render(); });
+  onId("home-store-tile", "click", () => { S.screen = "store"; render(); });
   onId("home-train", "click", () => { S.screen = "setup"; render(); });
   onId("home-pass", "click", () => {
     if (!loggedIn) { S.screen = "signin"; render(); return; }
