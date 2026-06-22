@@ -50,14 +50,16 @@ export * from "./passkey.js";
 
 const PROFILES: Record<string, OpponentProfile> = { Auto: AUTO, TAG, LAG, Station: STATION, Nit: NIT, Maniac: MANIAC };
 const TURN_SECONDS = 40;
-const DEFAULT_CHIPS = 1_000; // ~$9.90 of value at the ~100 chips/$ ratio
+const DEFAULT_CHIPS = 25_000; // generous one-time start (~1 buy-in at the 100/200 floor). Weekly top-up stays small (500) so chips feel earned/bought, not free.
+// Online stakes — smallest game is 100/200 (≈ "$200" feel at the ~1,000 chips/$ pack ratio). Each tier's
+// max buy-in = 100bb (chips buy ACCESS, never power). Training + live-in-person keep their own small blinds.
 const TIERS: Record<string, { sb: number; bb: number; max: number }> = {
-  "1/2": { sb: 1, bb: 2, max: 200 },
-  "5/10": { sb: 5, bb: 10, max: 1_000 },
-  "25/50": { sb: 25, bb: 50, max: 5_000 },
-  "50/100": { sb: 50, bb: 100, max: 10_000 },
   "100/200": { sb: 100, bb: 200, max: 20_000 },
+  "250/500": { sb: 250, bb: 500, max: 50_000 },
   "500/1000": { sb: 500, bb: 1_000, max: 100_000 },
+  "1000/2000": { sb: 1_000, bb: 2_000, max: 200_000 },
+  "2500/5000": { sb: 2_500, bb: 5_000, max: 500_000 },
+  "5000/10000": { sb: 5_000, bb: 10_000, max: 1_000_000 },
 };
 
 // ── helpers ──
@@ -212,14 +214,14 @@ function persist(tx: Transaction, code: string, t: AuthTable, version: number, b
 /** Create a private room. Returns the shareable code. Owner buys in from their wallet. */
 export const createTable = onCall(async (req) => {
   const uid = uidOf(req);
-  const { tier = "5/10", buyIn, name = "Player", bots = [], currency = "play", assisted = false, isPublic = true } = (req.data ?? {}) as
+  const { tier = "100/200", buyIn, name = "Player", bots = [], currency = "play", assisted = false, isPublic = true } = (req.data ?? {}) as
     { tier?: string; buyIn?: number; name?: string; bots?: string[]; currency?: Currency; assisted?: boolean; isPublic?: boolean };
   const cur: Currency = currency === "premium" ? "premium" : "play";
   // Premium tables are human-only (for now): no AI seats allowed.
   if (cur === "premium" && bots.length > 0) {
     throw new HttpsError("failed-precondition", "Premium rooms can't add AI players.");
   }
-  const T = TIERS[tier] ?? TIERS["5/10"]!;
+  const T = TIERS[tier] ?? TIERS["100/200"]!;
   const stack = Math.max(20 * T.bb, Math.min(T.max, Math.round(buyIn ?? T.max)));
   // Full ring = 9 seats (owner + up to 8 others, humans or bots) — the real tournament/live-cash
   // standard. The engine's GTO charts are real to full ring, so every seat trains on true ranges.

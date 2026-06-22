@@ -5,12 +5,12 @@
 // RevenueCat dashboard. Chip amounts mirror PLAY_PACKS in src/ui/main.ts — keep the two in sync.
 
 export const CHIP_PACKS: Record<string, number> = {
-  chips_500: 500,
-  chips_1000: 1000,
-  chips_2400: 2400,
-  chips_7000: 7000,
-  chips_16000: 16000,
-  chips_40000: 40000,
+  chips_5000: 5000,
+  chips_10000: 10000,
+  chips_24000: 24000,
+  chips_70000: 70000,
+  chips_160000: 160000,
+  chips_400000: 400000,
 };
 
 // Edge Pass products (auto-renewing subs + the 1-month non-renewing pass). Any grants the "edge"

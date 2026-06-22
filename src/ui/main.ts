@@ -218,12 +218,12 @@ interface AppState {
 
 const S: AppState = {
   screen: "home",
-  profile: { nickname: "You", avatar: "", chips: 1000 },
+  profile: { nickname: "You", avatar: "", chips: 25000 },
   mp: {
     table: null,
     setup: {
       players: [{ name: "You", assisted: true, ai: null }, { name: "Rey", assisted: false, ai: "TAG" }],
-      tier: 0, sb: 5, bb: 10, buyIn: 1000,
+      tier: 0, sb: 100, bb: 200, buyIn: 20000,
     },
     reveal: false,
     rec: null,
@@ -3626,12 +3626,12 @@ const capWord = (s: string): string => s.charAt(0).toUpperCase() + s.slice(1);
 // Stakes tiers — 100bb max buy-in per the monetization council (chips buy ACCESS,
 // never power; a 100bb cap defuses big-stack bullying on a friends table).
 const ROOM_TIERS = [
-  { name: "1/2", sb: 1, bb: 2, max: 200 },
-  { name: "5/10", sb: 5, bb: 10, max: 1000 },
-  { name: "25/50", sb: 25, bb: 50, max: 5000 },
-  { name: "50/100", sb: 50, bb: 100, max: 10000 },
   { name: "100/200", sb: 100, bb: 200, max: 20000 },
+  { name: "250/500", sb: 250, bb: 500, max: 50000 },
   { name: "500/1000", sb: 500, bb: 1000, max: 100000 },
+  { name: "1000/2000", sb: 1000, bb: 2000, max: 200000 },
+  { name: "2500/5000", sb: 2500, bb: 5000, max: 500000 },
+  { name: "5000/10000", sb: 5000, bb: 10000, max: 1000000 },
 ];
 // AI styles map to the trainer's opponent archetypes (keys of PROFILES).
 // "rand" = a random style assigned at room start (so you can spam-add a varied
@@ -5784,12 +5784,12 @@ function renderAgeGate(): void {
 // `id` is the store product id (App Store Connect / Play Console / RevenueCat). Must match
 // CHIP_PACKS / EDGE_PRODUCTS in functions/src/revenuecat-grants.ts.
 const PLAY_PACKS = [
-  { id: "chips_500", chips: "500", price: "$4.99" },
-  { id: "chips_1000", chips: "1,000", price: "$9.90", badge: "Anchor" },
-  { id: "chips_2400", chips: "2,400", price: "$19.90", bonus: "+20%" },
-  { id: "chips_7000", chips: "7,000", price: "$49", bonus: "Best for Mid" },
-  { id: "chips_16000", chips: "16,000", price: "$99" },
-  { id: "chips_40000", chips: "40,000", price: "$199", badge: "Best value" },
+  { id: "chips_5000", chips: "5,000", price: "$4.99" },
+  { id: "chips_10000", chips: "10,000", price: "$9.90", badge: "Anchor" },
+  { id: "chips_24000", chips: "24,000", price: "$19.90", bonus: "+20%" },
+  { id: "chips_70000", chips: "70,000", price: "$49", bonus: "Best for Mid" },
+  { id: "chips_160000", chips: "160,000", price: "$99" },
+  { id: "chips_400000", chips: "400,000", price: "$199", badge: "Best value" },
 ];
 const EDGE_TIERS = [
   { id: "edge_1mo", label: "1 month · online", price: "$9.99", sub: "one-time · does not renew" },
@@ -6261,7 +6261,7 @@ function renderSettings(): void {
   onId("set-reset-stats", "click", () => { if (confirm("Reset your session stats and best streak? Your hand history and chips stay.")) { S.gradeStats = { n: 0, pts: 0, gto: 0, mixed: 0, off: 0 }; S.streak = 0; S.bestStreak = 0; try { localStorage.removeItem("mce-beststreak"); } catch { /* */ } render(); } });
   onId("set-clear-history", "click", () => { if (confirm("Erase your saved hand + decision log? Your leak report resets to empty. Chips and profile stay.")) { clearHistory(); S.decisionLog = []; try { localStorage.removeItem(DECISIONS_KEY); } catch { /* */ } render(); } });
   onId("set-reset-profile", "click", () => { if (confirm('Reset your nickname to "You" and clear your avatar? Your chips, stats and history stay.')) { S.profile.nickname = "You"; S.profile.avatar = ""; saveProfile(); render(); } });
-  onId("set-reset-wallet", "click", () => { if (confirm("Reset your play-money chip balance to the 1,000 starting stack and your weekly-claim timer? Chips have no cash value and are never cashable — this is a local reset, not a refund.")) { S.profile.chips = 1000; saveProfile(); try { localStorage.removeItem("mce-dailychips"); } catch { /* */ } render(); } });
+  onId("set-reset-wallet", "click", () => { if (confirm("Reset your play-money chip balance to the 25,000 starting stack and your weekly-claim timer? Chips have no cash value and are never cashable — this is a local reset, not a refund.")) { S.profile.chips = 25000; saveProfile(); try { localStorage.removeItem("mce-dailychips"); } catch { /* */ } render(); } });
   onId("set-delete-all", "click", () => {
     if (confirm("Permanently delete EVERYTHING on this device — profile, chips, stats, hand history and settings — and sign you out? This cannot be undone.")) {
       ["mce-sound", "mce-motion", "mce-speed", "mce-quiz", "mce-beststreak", "mce-dailychips", "mce-player-stats", DECISIONS_KEY, "mce-profile"].forEach((k) => { try { localStorage.removeItem(k); } catch { /* */ } });

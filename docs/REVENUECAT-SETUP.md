@@ -15,14 +15,14 @@ to flip it live.
 Defined in [`functions/src/revenuecat-grants.ts`](../functions/src/revenuecat-grants.ts) (server grants)
 and `PLAY_PACKS` / `EDGE_TIERS` in [`src/ui/main.ts`](../src/ui/main.ts) (store UI).
 
-| Product ID | Type | Grants |
+| Product ID | Price | Grants |
 |---|---|---|
-| `chips_500` | Consumable | +500 play chips |
-| `chips_1000` | Consumable | +1,000 |
-| `chips_2400` | Consumable | +2,400 |
-| `chips_7000` | Consumable | +7,000 |
-| `chips_16000` | Consumable | +16,000 |
-| `chips_40000` | Consumable | +40,000 |
+| `chips_5000` | $4.99 | +5,000 play chips |
+| `chips_10000` | $9.90 | +10,000 |
+| `chips_24000` | $19.90 | +24,000 |
+| `chips_70000` | $49 | +70,000 |
+| `chips_160000` | $99 | +160,000 |
+| `chips_400000` | $199 | +400,000 |
 | `edge_1mo` | Non-renewing | Edge Pass, 1 month (entitlement `edge`) |
 | `edge_monthly` | Auto-renewing sub | Edge Pass (entitlement `edge`) |
 | `edge_annual` | Auto-renewing sub | Edge Pass (entitlement `edge`) |
