@@ -2000,6 +2000,19 @@ body::after {
 .fr-actions { display: flex; gap: 6px; align-items: center; flex: 0 0 auto; }
 .fr-actions .start-btn, .fr-row .start-btn { padding: 8px 14px; font-size: 13px; min-width: 0; }
 
+/* Direct-message thread */
+.dm-screen { display: flex; flex-direction: column; height: 100%; }
+.dm-thread { flex: 1 1 auto; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; padding: 8px 2px; }
+.dm-msg { display: flex; }
+.dm-msg.me { justify-content: flex-end; }
+.dm-msg.them { justify-content: flex-start; }
+.dm-bubble { max-width: 78%; padding: 8px 12px; border-radius: 16px; font-size: 14px; line-height: 1.35; word-break: break-word; }
+.dm-msg.me .dm-bubble { background: var(--emerald, #16bd86); color: #04210f; font-weight: 600; border-bottom-right-radius: 5px; }
+.dm-msg.them .dm-bubble { background: var(--glass); border: 1px solid var(--glass-edge); border-bottom-left-radius: 5px; }
+.dm-compose { display: flex; gap: 8px; align-items: center; padding: 8px 0 calc(8px + env(safe-area-inset-bottom)); }
+.dm-compose .si-input { flex: 1 1 auto; min-width: 0; margin: 0; }
+.dm-compose .start-btn { flex: 0 0 auto; width: auto; padding: 11px 18px; min-width: 0; }
+
 .inbox-online { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
 .inbox-online .io-chip { font-size: 12px; padding: 5px 11px; border-radius: 999px; background: var(--glass); border: 1px solid var(--glass-edge); color: var(--text); cursor: pointer; }
 

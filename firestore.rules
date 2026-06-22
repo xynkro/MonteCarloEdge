@@ -22,6 +22,13 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // ── Direct messages ── thread id = sorted-uid pair "a_b"; both participants read (Firebase uids
+    // are alphanumeric, so split("_") yields exactly the two uids). Functions are the sole writer.
+    match /dms/{thread}/messages/{msg} {
+      allow read: if signedIn() && request.auth.uid in thread.split("_");
+      allow write: if false;
+    }
+
     // ── User profiles ──
     // HARDENED: a client may write ONLY `name`. chips + strategyEntitled are
     // server-authoritative (Cloud Functions only) so a client cannot mint

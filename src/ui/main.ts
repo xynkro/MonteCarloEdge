@@ -76,7 +76,7 @@ interface UndoSnapshot {
 }
 
 interface AppState {
-  screen: "home" | "landing" | "setup" | "game" | "stats" | "leaks" | "mp-setup" | "mp-table" | "mp-lobby" | "mp-net" | "profile" | "settings" | "legal" | "explainer" | "store" | "signin" | "inbox" | "friends" | "compose" | "admin" | "onboard" | "history";
+  screen: "home" | "landing" | "setup" | "game" | "stats" | "leaks" | "mp-setup" | "mp-table" | "mp-lobby" | "mp-net" | "profile" | "settings" | "legal" | "explainer" | "store" | "signin" | "inbox" | "friends" | "dm" | "compose" | "admin" | "onboard" | "history";
   // Player profile (local-first; syncs name/avatar to Firestore when signed in).
   profile: { nickname: string; avatar: string; chips: number };
   // Multiplayer / benchmark (Phase 0 hot-seat + Phase 1 online lobby).
@@ -86,7 +86,7 @@ interface AppState {
     reveal: boolean;          // hot-seat: active player's hole cards revealed
     rec: Recommendation | null;
     auth: MPUser | null;      // signed-in Google user (Phase 1)
-    online: { uid: string; name: string; room: string | null }[]; // live presence list (room = in-game)
+    online: { uid: string; name: string; room: string | null; roomPublic: boolean }[]; // live presence (room+public = in-game)
     friends: FB.Friendship[]; // accepted + pending friendships (incoming/outgoing)
     authBusy: boolean;        // sign-in in flight
     authErr: string;
@@ -116,6 +116,7 @@ interface AppState {
   isAdmin: boolean;         // super-admin custom claim
   inbox: import("../mp/firebase-adapter.js").InboxMsg[];
   compose: { toUid: string; toName: string; text: string; giftAmt: number; busy: boolean; err: string; sent: string };
+  dm: { uid: string; name: string; msgs: FB.DmMsg[]; draft: string; busy: boolean; err: string } | null;
   ledger: Record<string, any>[];
   mode: "live" | "training";
   sessionStart: number;
@@ -242,6 +243,7 @@ const S: AppState = {
   isAdmin: false,
   inbox: [],
   compose: { toUid: "", toName: "", text: "", giftAmt: 0, busy: false, err: "", sent: "" },
+  dm: null,
   ledger: [],
   mode: "live",
   sessionStart: Date.now(),
@@ -485,6 +487,7 @@ function render(): void {
   else if (S.screen === "signin") renderSignIn();
   else if (S.screen === "inbox") renderInbox();
   else if (S.screen === "friends") renderFriends();
+  else if (S.screen === "dm") renderDm();
   else if (S.screen === "compose") renderCompose();
   else if (S.screen === "admin") renderAdmin();
   else if (S.screen === "onboard") renderOnboard();
@@ -4203,6 +4206,7 @@ function applyNetTransition(prev: Record<string, any> | null, next: Record<strin
   }
 }
 
+let _presencePubSet: boolean | null = null; // last roomPublic we wrote to presence (avoid redundant writes)
 function onNetSnapshot(pubRaw: Record<string, any> | null): void {
   const gen = ++_netReplayGen; // supersede any running replay
   if (!pubRaw) { S.net.pub = null; _netActing = false; _netBetOpen = false; if (S.screen === "mp-net") render(); return; }
@@ -4210,6 +4214,8 @@ function onNetSnapshot(pubRaw: Record<string, any> | null): void {
   const frames = (Array.isArray(pubRaw.botFrames) ? pubRaw.botFrames : []) as Array<{ seat: number; type: string; amount: number; pub: Record<string, any> }>;
   const finalPub: Record<string, any> = { ...pubRaw }; delete finalPub.botFrames;
   const prev = S.net.pub as Record<string, any> | null;
+  // Keep presence's room-public flag authoritative so friends can spectate/join PUBLIC rooms only.
+  if (S.net.code && _presencePubSet !== !!finalPub.isPublic) { _presencePubSet = !!finalPub.isPublic; void FB.setPresenceRoom(S.net.code, !!finalPub.isPublic).catch(() => {}); }
 
   // Queued leave (tapped Leave mid-hand): the instant the hand is over, bank + exit; while it's
   // still running, fold out on our turn so it resolves. Guarantees the stack is ALWAYS banked.
@@ -4448,7 +4454,7 @@ async function netLeave(): Promise<void> {
 function _leaveCleanup(): void {
   clearNetSubs(); stopNetClock(); stopAutoDeal();
   if (_bustLinger) { clearTimeout(_bustLinger); _bustLinger = null; }
-  void FB.setPresenceRoom(null).catch(() => {}); // no longer in a room → clear friends' in-game status
+  void FB.setPresenceRoom(null).catch(() => {}); _presencePubSet = null; // no longer in a room → clear friends' in-game status
   S.net.code = null; S.net.pub = null; S.net.myHand = null; S.net.myRec = null; S.net.err = "";
   _netResyncing = false; _pendingLeave = false; S.net.busy = false;
   S.screen = "mp-setup"; render();
@@ -5435,11 +5441,12 @@ function renderFriends(): void {
   const onlineFriends = accepted.filter((f) => onlineMap.has(f.otherUid));
   const offlineFriends = accepted.filter((f) => !onlineMap.has(f.otherUid));
   const addable = S.mp.online.filter((p) => p.uid !== uid && !isFriend.has(p.uid));
-  const fRow = (f: FB.Friendship, online?: { room: string | null }) => {
-    const room = online?.room;
-    const status = room ? `🎮 in ${esc(room)}` : online ? "🟢 online" : "⚪ offline";
-    const join = room ? `<button class="hdr-btn fr-join" data-code="${esc(room)}">Join</button>` : "";
-    return `<div class="fr-row">${avatarChip("", f.name, 34)}<div class="fr-info"><span class="fr-name">${esc(f.name)}</span><span class="fr-status">${status}</span></div><div class="fr-actions">${join}<button class="hdr-btn fr-remove" data-uid="${esc(f.otherUid)}" title="Remove friend" aria-label="Remove friend">✕</button></div></div>`;
+  const fRow = (f: FB.Friendship, online?: { room: string | null; roomPublic: boolean }) => {
+    // Only PUBLIC rooms are visible/joinable from the friends list; a private game shows as just "online".
+    const inPub = !!(online && online.room && online.roomPublic);
+    const status = inPub ? `🎮 in ${esc(online!.room!)}` : online ? "🟢 online" : "⚪ offline";
+    const gameBtns = inPub ? `<button class="hdr-btn fr-spectate" data-code="${esc(online!.room!)}" title="Watch" aria-label="Watch">👁</button><button class="start-btn fr-join" data-code="${esc(online!.room!)}">Join</button>` : "";
+    return `<div class="fr-row">${avatarChip("", f.name, 34)}<div class="fr-info"><span class="fr-name">${esc(f.name)}</span><span class="fr-status">${status}</span></div><div class="fr-actions">${gameBtns}<button class="hdr-btn fr-dm" data-uid="${esc(f.otherUid)}" data-name="${esc(f.name)}" title="Message" aria-label="Message">💬</button><button class="hdr-btn fr-remove" data-uid="${esc(f.otherUid)}" title="Remove friend" aria-label="Remove friend">✕</button></div></div>`;
   };
   app.innerHTML = `
     <div class="setup doc">
@@ -5449,7 +5456,7 @@ function renderFriends(): void {
       ${accepted.length === 0 ? `<div class="hint" style="margin-bottom:10px">No friends yet — add someone from the online list below.</div>` : `${onlineFriends.map((f) => fRow(f, onlineMap.get(f.otherUid))).join("")}${offlineFriends.map((f) => fRow(f)).join("")}`}
       ${outgoing.length ? `<div class="set-head" style="margin:10px 0 6px">Sent · ${outgoing.length}</div>${outgoing.map((f) => `<div class="fr-row">${avatarChip("", f.name, 34)}<div class="fr-info"><span class="fr-name">${esc(f.name)}</span><span class="fr-status">request sent</span></div><button class="hdr-btn fr-remove" data-uid="${esc(f.otherUid)}">Cancel</button></div>`).join("")}` : ""}
       <div class="set-head" style="margin:12px 0 6px">🟢 Online now · ${addable.length}</div>
-      ${addable.length ? addable.map((p) => `<div class="fr-row">${avatarChip("", p.name, 34)}<div class="fr-info"><span class="fr-name">${esc(p.name)}</span><span class="fr-status">${p.room ? `🎮 in ${esc(p.room)}` : "🟢 online"}</span></div><button class="start-btn fr-add" data-uid="${esc(p.uid)}" data-name="${esc(p.name)}">＋ Add</button></div>`).join("") : `<div class="hint">No one else online right now.</div>`}
+      ${addable.length ? addable.map((p) => `<div class="fr-row">${avatarChip("", p.name, 34)}<div class="fr-info"><span class="fr-name">${esc(p.name)}</span><span class="fr-status">${p.room && p.roomPublic ? `🎮 in ${esc(p.room)}` : "🟢 online"}</span></div><button class="start-btn fr-add" data-uid="${esc(p.uid)}" data-name="${esc(p.name)}">＋ Add</button></div>`).join("") : `<div class="hint">No one else online right now.</div>`}
       ${_friendsErr ? `<div class="room-broke" style="margin-top:10px">${esc(_friendsErr)}</div>` : ""}
     </div>`;
   const act = (fn: () => Promise<unknown>) => { _friendsErr = ""; fn().catch((e) => { _friendsErr = friendlyErr(e); render(); }); };
@@ -5459,6 +5466,47 @@ function renderFriends(): void {
   app.querySelectorAll(".fr-add").forEach((b) => onEl(b, "click", () => act(() => FB.sendFriendRequest((b as HTMLElement).dataset.uid!, (b as HTMLElement).dataset.name!, S.mp.auth?.name))));
   app.querySelectorAll(".fr-remove").forEach((b) => onEl(b, "click", () => act(() => FB.removeFriend((b as HTMLElement).dataset.uid!))));
   app.querySelectorAll(".fr-join").forEach((b) => onEl(b, "click", () => void joinNetRoom((b as HTMLElement).dataset.code!)));
+  app.querySelectorAll(".fr-spectate").forEach((b) => onEl(b, "click", () => void spectateNetRoom((b as HTMLElement).dataset.code!)));
+  app.querySelectorAll(".fr-dm").forEach((b) => onEl(b, "click", () => { const el = b as HTMLElement; openDm(el.dataset.uid!, el.dataset.name!); }));
+}
+
+// ── 1:1 direct messages ──
+let _dmUnsub: (() => void) | null = null;
+function openDm(uid: string, name: string): void {
+  S.dm = { uid, name, msgs: [], draft: "", busy: false, err: "" };
+  S.screen = "dm"; render();
+  const me = S.mp.auth?.uid; if (!me) return;
+  if (_dmUnsub) { _dmUnsub(); _dmUnsub = null; }
+  void FB.subscribeDmThread(me, uid, (msgs) => { if (S.dm) S.dm.msgs = msgs; if (S.screen === "dm") render(); }).then((u) => { _dmUnsub = u; });
+}
+function closeDm(): void { if (_dmUnsub) { _dmUnsub(); _dmUnsub = null; } S.dm = null; S.screen = "friends"; render(); }
+function renderDm(): void {
+  cancelVillainTimer();
+  const d = S.dm; if (!d) { S.screen = "friends"; render(); return; }
+  const me = S.mp.auth?.uid;
+  app.innerHTML = `
+    <div class="setup doc dm-screen">
+      <div class="doc-top"><button class="hdr-btn" id="dm-back">← Back</button><h1 style="font-size:18px">${avatarChip("", d.name, 26)} ${esc(d.name)}</h1><span style="width:54px"></span></div>
+      <div class="dm-thread" id="dm-thread">
+        ${d.msgs.length === 0 ? `<div class="hint" style="text-align:center;margin-top:20px">Say hi to ${esc(d.name)} 👋</div>`
+          : d.msgs.map((m) => `<div class="dm-msg ${m.from === me ? "me" : "them"}"><span class="dm-bubble">${esc(m.text)}</span></div>`).join("")}
+      </div>
+      ${d.err ? `<div class="room-broke" style="margin:6px 0">${esc(d.err)}</div>` : ""}
+      <div class="dm-compose">
+        <input class="si-input" id="dm-input" placeholder="Message…" maxlength="500" value="${esc(d.draft)}" autocomplete="off"/>
+        <button class="start-btn" id="dm-send" ${d.busy ? "disabled" : ""}>${d.busy ? '<span class="spin dark"></span>' : "Send"}</button>
+      </div>
+    </div>`;
+  const thread = document.getElementById("dm-thread"); if (thread) thread.scrollTop = thread.scrollHeight;
+  const input = document.getElementById("dm-input") as HTMLInputElement | null;
+  onId("dm-back", "click", closeDm);
+  const send = () => {
+    const text = (input?.value ?? "").trim(); if (!text || !S.dm) return;
+    S.dm.draft = ""; S.dm.busy = true; S.dm.err = ""; render();
+    FB.sendDm(S.dm.uid, text).then(() => { if (S.dm) S.dm.busy = false; render(); }).catch((e) => { if (S.dm) { S.dm.busy = false; S.dm.draft = text; S.dm.err = friendlyErr(e); } render(); });
+  };
+  onId("dm-send", "click", send);
+  if (input) input.addEventListener("keydown", (e) => { if ((e as KeyboardEvent).key === "Enter") { e.preventDefault(); send(); } });
 }
 
 function renderInbox(): void {

@@ -730,6 +730,24 @@ export const removeFriend = onCall(async (req) => {
   });
 });
 
+/** Send a 1:1 direct message (friends only). Thread id = the sorted-uid pair (same as friendships).
+ *  Functions are the sole writer; both participants read (firestore.rules). Rate-limited. */
+export const sendDm = onCall(async (req) => {
+  const uid = uidOf(req);
+  const { toUid, text } = (req.data ?? {}) as { toUid?: string; text?: string };
+  const body = (text ?? "").trim().slice(0, 500);
+  if (!toUid || toUid === uid) throw new HttpsError("invalid-argument", "Pick a different player.");
+  if (!body) throw new HttpsError("invalid-argument", "Empty message.");
+  return db.runTransaction(async (tx) => {
+    const rl = await rlRead(tx, uid, "dm", 30, 60_000); // ≤30/min
+    const f = await tx.get(friendshipRef(uid, toUid));
+    if (!f.exists || (f.data() as { status?: string }).status !== "accepted") throw new HttpsError("permission-denied", "You can only message friends.");
+    tx.set(rl.ref, rl.data);
+    tx.set(db.collection(`dms/${pairId(uid, toUid)}/messages`).doc(), { from: uid, text: body, createdAt: FieldValue.serverTimestamp() });
+    return { ok: true };
+  });
+});
+
 /** Super-admin only (gated by verified email): gift PLAY or PREMIUM chips, or adjust
  *  a balance (amount may be negative). The ONLY way premium chips are granted off-table. */
 export const adminGift = onCall(async (req) => {

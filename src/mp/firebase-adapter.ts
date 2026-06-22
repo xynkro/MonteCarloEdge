@@ -212,6 +212,15 @@ export async function subscribeFriends(uid: string, cb: (fs: Friendship[]) => vo
     cb(fs);
   }, () => {});
 }
+// ── 1:1 direct messages (thread id = sorted-uid pair, same as friendships) ──
+export interface DmMsg { id: string; from: string; text: string; createdAt?: unknown }
+export const sendDm = (toUid: string, text: string) => callFn<{ ok: boolean }>("sendDm", { toUid, text });
+const dmPair = (a: string, b: string) => (a < b ? `${a}_${b}` : `${b}_${a}`);
+export async function subscribeDmThread(myUid: string, otherUid: string, cb: (msgs: DmMsg[]) => void): Promise<() => void> {
+  const { m, db } = await firestore();
+  const q = m.query(m.collection(db, `dms/${dmPair(myUid, otherUid)}/messages`), m.orderBy("createdAt", "asc"), m.limit(200));
+  return m.onSnapshot(q, (snap: { docs: { id: string; data: () => Record<string, unknown> }[] }) => cb(snap.docs.map((d) => ({ id: d.id, ...d.data() } as DmMsg))), () => {});
+}
 export const claimWeekly = () => callFn<{ granted: number; balance: number }>("claimWeekly", {});
 export const adminGift = (toUid: string, currency: "play" | "premium", amount: number) => callFn<{ balance: number }>("adminGift", { toUid, currency, amount });
 export const adminSetEdgePass = (toUid: string, on: boolean) => callFn<{ edgePass: boolean }>("adminSetEdgePass", { toUid, on });
@@ -421,6 +430,7 @@ let _presenceRef: { uid: string } | null = null;
 let _presenceEpoch = 0;
 let _unloadHandler: (() => void) | null = null;
 let _presenceRoom: string | null = null; // current table code (for friends' in-game status), or null
+let _presenceRoomPublic = false;          // is that table PUBLIC? private rooms stay hidden from friends
 
 export async function startPresence(user: MPUser): Promise<void> {
   const epoch = ++_presenceEpoch;
@@ -429,7 +439,7 @@ export async function startPresence(user: MPUser): Promise<void> {
   const ref = m.doc(db, "presence", user.uid);
   _presenceRef = { uid: user.uid };
   // room persists across beats; it's set/cleared by setPresenceRoom on table enter/leave.
-  const beat = () => m.setDoc(ref, { name: user.name, lastSeen: m.serverTimestamp(), room: _presenceRoom }).catch(() => {});
+  const beat = () => m.setDoc(ref, { name: user.name, lastSeen: m.serverTimestamp(), room: _presenceRoom, roomPublic: _presenceRoomPublic }).catch(() => {});
   await beat();
   if (epoch !== _presenceEpoch) return;
   if (_beat) clearInterval(_beat);
@@ -439,16 +449,18 @@ export async function startPresence(user: MPUser): Promise<void> {
   window.addEventListener("beforeunload", _unloadHandler);
 }
 
-/** Set/clear the table code on my presence doc so friends see my in-game status. */
-export async function setPresenceRoom(code: string | null): Promise<void> {
+/** Set/clear the table code (+ whether it's public) on my presence doc so friends see my in-game
+ *  status. Private rooms are surfaced as in-a-game but NOT spectatable/joinable by friends. */
+export async function setPresenceRoom(code: string | null, isPublic = false): Promise<void> {
   _presenceRoom = code || null;
+  _presenceRoomPublic = !!code && isPublic;
   if (!_presenceRef) return;
   const { m, db } = await firestore();
-  await m.setDoc(m.doc(db, "presence", _presenceRef.uid), { room: _presenceRoom }, { merge: true }).catch(() => {});
+  await m.setDoc(m.doc(db, "presence", _presenceRef.uid), { room: _presenceRoom, roomPublic: _presenceRoomPublic }, { merge: true }).catch(() => {});
 }
 
 export async function clearPresence(): Promise<void> {
-  _presenceRoom = null;
+  _presenceRoom = null; _presenceRoomPublic = false;
   ++_presenceEpoch;
   if (_beat) { clearInterval(_beat); _beat = null; }
   if (_unloadHandler) { window.removeEventListener("beforeunload", _unloadHandler); _unloadHandler = null; }
@@ -460,14 +472,14 @@ export async function clearPresence(): Promise<void> {
 }
 
 /** Live list of users seen within the stale window. Returns an unsubscribe fn. */
-export async function subscribeOnline(cb: (online: { uid: string; name: string; room: string | null }[]) => void): Promise<() => void> {
+export async function subscribeOnline(cb: (online: { uid: string; name: string; room: string | null; roomPublic: boolean }[]) => void): Promise<() => void> {
   const { m, db } = await firestore();
-  return m.onSnapshot(m.collection(db, "presence"), (snap: { docs: { id: string; data: (opts?: { serverTimestamps?: string }) => { name?: string; room?: string | null; lastSeen?: { toMillis?: () => number } } }[] }) => {
+  return m.onSnapshot(m.collection(db, "presence"), (snap: { docs: { id: string; data: (opts?: { serverTimestamps?: string }) => { name?: string; room?: string | null; roomPublic?: boolean; lastSeen?: { toMillis?: () => number } } }[] }) => {
     const now = Date.now();
     const online = snap.docs
-      .map((d) => { const x = d.data({ serverTimestamps: "estimate" }); return { uid: d.id, name: x.name ?? "Player", room: x.room ?? null, seen: x.lastSeen?.toMillis?.() ?? 0 }; })
+      .map((d) => { const x = d.data({ serverTimestamps: "estimate" }); return { uid: d.id, name: x.name ?? "Player", room: x.room ?? null, roomPublic: !!x.roomPublic, seen: x.lastSeen?.toMillis?.() ?? 0 }; })
       .filter((x) => now - x.seen < PRESENCE_STALE_MS)
-      .map((x) => ({ uid: x.uid, name: x.name, room: x.room }));
+      .map((x) => ({ uid: x.uid, name: x.name, room: x.room, roomPublic: x.roomPublic }));
     cb(online);
   }, () => {});
 }
