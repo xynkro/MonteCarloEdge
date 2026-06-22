@@ -27,8 +27,14 @@ export interface RcEvent {
   product_id?: string;
   entitlement_ids?: string[] | null;
   expiration_at_ms?: number | null;
+  event_timestamp_ms?: number;
+  cancel_reason?: string;
   environment?: string;
 }
+
+// CANCELLATION reasons that mean the entitlement is GONE NOW (refund / forced cancel) vs a voluntary
+// auto-renew-off (UNSUBSCRIBE / PRICE_INCREASE) where the user stays entitled until EXPIRATION.
+const REVOKING_CANCEL_REASONS = new Set(["CUSTOMER_SUPPORT", "BILLING_ERROR", "DEVELOPER_INITIATED"]);
 
 export type RcGrant =
   | { kind: "chips"; amount: number }
@@ -59,7 +65,13 @@ export function grantForEvent(event: RcEvent): RcGrant {
         return { kind: "edge", active: false, status: "expired", expiresAt: null };
       case "BILLING_ISSUE":
         return { kind: "edge", active: false, status: "billing_issue", expiresAt: null };
-      // CANCELLATION = auto-renew off but STILL entitled until EXPIRATION → no change.
+      case "CANCELLATION":
+        // A refund / chargeback / support-cancel revokes NOW (RC delivers refunds as CANCELLATION
+        // with these reasons — there is no REFUND event type). A voluntary UNSUBSCRIBE / declined
+        // PRICE_INCREASE keeps the user entitled until EXPIRATION → no change.
+        return REVOKING_CANCEL_REASONS.has((event.cancel_reason ?? "").toUpperCase())
+          ? { kind: "edge", active: false, status: "refunded", expiresAt: null }
+          : null;
     }
   }
   return null;

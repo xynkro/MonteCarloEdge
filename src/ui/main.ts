@@ -5107,8 +5107,9 @@ async function doSignIn(fn: () => Promise<MPUser>, regName?: string): Promise<vo
     void FB.startPresence(u).catch(() => {});
     void startEconomySubs(u.uid);
     S.net.busy = false;
-    // Email-register is a brand-new account → onboard. Email sign-in → home.
-    S.screen = regName && !onboarded() ? "onboard" : "home";
+    // Brand-new account → onboard. Email-register passes regName; native Google/Apple sets u.isNew
+    // (the web redirect path handles its own routing in initAuth). Returning users → home.
+    S.screen = (regName || u.isNew) && !onboarded() ? "onboard" : "home";
     render();
   } catch (e) { S.net.busy = false; S.net.err = friendlyErr(e); render(); }
 }
@@ -5591,7 +5592,7 @@ function renderStore(): void {
         ${!hasEdge() ? `<div class="edge-banner"><div class="eb-copy"><span class="eb-eyebrow">⚡ Edge Pass</span><span class="eb-title">Read every villain's range — live</span><span class="eb-sub">Equity · pot odds · the line, at your seat</span></div></div>` : ""}
         <div class="set-note" style="margin-bottom:9px">The real-time MCE overlay in online play + hand-history review + leak report. <strong>Solo Train stays 100% free, forever.</strong></div>
         ${hasEdge() ? `<div class="se-active">✓ Edge Pass active${S.isAdmin && !S.edgePass ? " (admin)" : ""}</div>${S.edgePass && !S.isAdmin ? `<button class="hdr-btn" id="edge-manage" style="width:100%;margin-top:8px">Manage subscription</button>` : ""}`
-          : `${EDGE_TIERS.map((t) => `<div class="edge-tier ${t.best ? "best" : ""}"><div class="et-main"><div class="et-price">${t.price}</div><div class="et-sub">${t.sub}</div></div><button class="et-buy" data-pid="${t.id}">${S.net.busy ? '<span class="spin dark"></span>' : "Get"}</button></div>`).join("")}
+          : `${(iapOn ? EDGE_TIERS : EDGE_TIERS.filter((t) => t.id === "edge_monthly")).map((t) => `<div class="edge-tier ${t.best ? "best" : ""}"><div class="et-main"><div class="et-price">${t.price}</div><div class="et-sub">${t.sub}</div></div><button class="et-buy" data-pid="${t.id}">${S.net.busy ? '<span class="spin dark"></span>' : "Get"}</button></div>`).join("")}
           <span class="hint">7-day free trial · cancel anytime in one tap.</span>`}
       </div>
 
@@ -5630,6 +5631,7 @@ async function buyPack(pid: string): Promise<void> {
 // Restore purchases (native). Re-syncs RevenueCat; an active Edge Pass re-lands via the webhook →
 // subscribeWallet. Chip packs are permanent (consumable, not restorable).
 async function doRestore(): Promise<void> {
+  if (!(await ensureSignedIn())) { S.screen = "signin"; render(); return; }
   if (S.net.busy) return;
   S.net.busy = true; render();
   try { const any = await IAP.rcRestore(); S.net.err = any ? "" : "No active purchases to restore."; }
@@ -6067,6 +6069,7 @@ async function goOnline(): Promise<void> {
 async function goOffline(): Promise<void> {
   if (_onlineUnsub) { _onlineUnsub(); _onlineUnsub = null; }
   await FB.signOutUser().catch(() => {});
+  void IAP.rcLogout();
   stopEconomySubs();
   S.mp.auth = null; S.net.serverChips = null;
   try { localStorage.removeItem("mce-signed-in"); } catch { /* */ }
@@ -6130,6 +6133,9 @@ initCardTilt();
 // the native chunk (zero web cost), and on native it lazy-loads the plugins.
 if ((window as unknown as { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor?.isNativePlatform?.()) {
   void import("../native.js").then((m) => m.initNative()).catch(() => {});
+  // Safety net: if the native chunk fails to import (or initNative throws), never leave the launch
+  // splash stuck up. Hide it unconditionally after a few seconds via an independent dynamic import.
+  setTimeout(() => { void import("@capacitor/splash-screen").then((m) => m.SplashScreen.hide()).catch(() => {}); }, 4000);
 }
 
 // Finalize OAuth redirects + restore a previous sign-in. Only loads Firebase if the
@@ -6158,7 +6164,7 @@ async function initAuth(): Promise<void> {
   // 2) Keep auth state live for returning sessions / sign-out elsewhere.
   void FB.onAuthChanged((u) => {
     if (u && !S.mp.auth) { S.mp.auth = u; if (!S.profile.nickname || S.profile.nickname === "You") { S.profile.nickname = u.name; saveProfile(); } void FB.startPresence(u).catch(() => {}); void startEconomySubs(u.uid); if (S.screen === "home" || S.screen === "signin") render(); }
-    else if (!u && S.mp.auth) { S.mp.auth = null; stopEconomySubs(); try { localStorage.removeItem("mce-signed-in"); } catch { /* */ } if (S.screen === "home") render(); }
+    else if (!u && S.mp.auth) { S.mp.auth = null; void IAP.rcLogout(); stopEconomySubs(); try { localStorage.removeItem("mce-signed-in"); } catch { /* */ } if (S.screen === "home") render(); }
   });
 }
 void initAuth();

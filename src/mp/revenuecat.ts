@@ -74,6 +74,17 @@ export async function rcPurchase(productId: string): Promise<boolean> {
   }
 }
 
+/** Log the RevenueCat SDK out of the current user on sign-out, so its identity tracks the auth
+ *  state (the next sign-in re-identifies via rcConfigure). Safe no-op on web / placeholder keys. */
+export async function rcLogout(): Promise<void> {
+  if (!rcConfigured() || _configuredUid == null) return;
+  try {
+    const { Purchases } = await import("@revenuecat/purchases-capacitor");
+    await Purchases.logOut();
+  } catch { /* RC throws if already anonymous — ignore */ }
+  _configuredUid = null;
+}
+
 /** Restore purchases — Apple/Play require this for subscriptions & non-consumables. Re-syncs RC's
  *  view of the user's receipts; an active Edge Pass entitlement is reflected server-side via the
  *  webhook. Consumable chip packs are not restorable (they're permanent once granted). Resolves

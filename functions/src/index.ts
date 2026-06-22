@@ -720,7 +720,10 @@ export const adminDeleteUser = onCall(async (req) => {
     to: toUid, toName, at: FieldValue.serverTimestamp(),
   });
 
-  // Wipe inbox + presence + per-table seats subcollection-by-subcollection.
+  // Wipe inbox + presence + profile + Auth. NOTE: this does NOT reconcile per-table seats — an
+  // admin should only delete a user who is not currently seated (have them leave first), else a
+  // ghost seat reference + their staked chips are stranded at that table. (Tracked in the code
+  // audit; a safe seat-reconcile needs the table schema + emulator testing, like leaveTable.)
   const wipeCollection = async (snapDocs: FirebaseFirestore.DocumentSnapshot[]): Promise<void> => {
     if (snapDocs.length === 0) return;
     const batch = db.batch();

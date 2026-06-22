@@ -241,12 +241,13 @@ export async function signInWithGoogle(): Promise<MPUser> {
   const app = await getFirebaseApp();
   if (isNativeShell()) {
     const { FirebaseAuthentication } = await import("@capacitor-firebase/authentication");
-    const { getAuth, GoogleAuthProvider, signInWithCredential } = await import("firebase/auth");
+    const { getAuth, GoogleAuthProvider, signInWithCredential, getAdditionalUserInfo } = await import("firebase/auth");
     const r = await FirebaseAuthentication.signInWithGoogle({ skipNativeAuth: true });
     const idToken = r.credential?.idToken;
     if (!idToken) throw new Error("Google sign-in returned no credential.");
     const res = await signInWithCredential(getAuth(app), GoogleAuthProvider.credential(idToken, r.credential?.accessToken));
     const user = toUser(res.user);
+    user.isNew = getAdditionalUserInfo(res)?.isNewUser ?? false; // → onboarding for brand-new accounts
     void seedProfile(user); // best-effort — never block sign-in on a profile write (it can hang in a fresh native webview)
     return user;
   }
@@ -293,13 +294,14 @@ export async function signInWithApple(): Promise<MPUser> {
   const app = await getFirebaseApp();
   if (isNativeShell()) {
     const { FirebaseAuthentication } = await import("@capacitor-firebase/authentication");
-    const { getAuth, OAuthProvider, signInWithCredential } = await import("firebase/auth");
+    const { getAuth, OAuthProvider, signInWithCredential, getAdditionalUserInfo } = await import("firebase/auth");
     const r = await FirebaseAuthentication.signInWithApple({ skipNativeAuth: true });
     const idToken = r.credential?.idToken;
     if (!idToken) throw new Error("Apple sign-in returned no credential.");
     const provider = new OAuthProvider("apple.com");
     const res = await signInWithCredential(getAuth(app), provider.credential({ idToken, rawNonce: r.credential?.nonce }));
     const user = toUser(res.user);
+    user.isNew = getAdditionalUserInfo(res)?.isNewUser ?? false; // → onboarding for brand-new accounts
     void seedProfile(user); // best-effort — never block sign-in on a profile write (it can hang in a fresh native webview)
     return user;
   }

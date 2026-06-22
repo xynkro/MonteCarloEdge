@@ -21,6 +21,7 @@ export interface MPUser {
   name: string;
   chips: number;            // server-authoritative play-money balance (NEVER cashable)
   strategyEntitled: boolean; // has the user unlocked the GTO tool (paywall)?
+  isNew?: boolean;          // brand-new account this sign-in (→ route to onboarding); native social path only
 }
 
 // A seat as seen by EVERYONE (public). No hole cards here.

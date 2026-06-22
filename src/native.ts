@@ -9,6 +9,14 @@ export async function initNative(): Promise<void> {
   if (!Capacitor.isNativePlatform()) return;
   const platform = Capacitor.getPlatform();
 
+  // Hide the launch splash FIRST, now that the first render() has painted. Doing this before the
+  // (cosmetic) status-bar work means a status-bar failure can never leave the splash stuck up.
+  // The config keeps the splash up (launchAutoHide:false) until this call, so there's no flash.
+  try {
+    const { SplashScreen } = await import("@capacitor/splash-screen");
+    await SplashScreen.hide();
+  } catch { /* */ }
+
   // Status bar: light (white) glyphs on the dark shell. Note the @capacitor/status-bar naming
   // is inverted — Style.Dark means "light text for dark backgrounds", which is what we want.
   try {
@@ -19,11 +27,4 @@ export async function initNative(): Promise<void> {
       await StatusBar.setOverlaysWebView({ overlay: true });
     }
   } catch { /* status bar is cosmetic — never block boot on it */ }
-
-  // Hide the launch splash now that the first render() has painted. The config keeps the
-  // splash up (launchAutoHide:false) until this call, so there's no white flash in between.
-  try {
-    const { SplashScreen } = await import("@capacitor/splash-screen");
-    await SplashScreen.hide();
-  } catch { /* */ }
 }

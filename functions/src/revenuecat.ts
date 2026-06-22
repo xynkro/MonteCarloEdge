@@ -55,28 +55,45 @@ export const revenueCatWebhook = onRequest(
     const userRef = db.doc(`users/${uid}`);
     const eventRef = db.doc(`rcEvents/${eventId}`);
 
+    // SANDBOX gate: StoreKit/Play sandbox + TestFlight purchases must NOT grant real chips/Edge Pass
+    // in production (a jailbroken / StoreKit-test client could otherwise mint entitlements). Sandbox
+    // events are honoured only when RC_ALLOW_SANDBOX=true (set in functions/.env during go-live
+    // sandbox testing, then removed). The event is still recorded so RC stops retrying.
+    const isSandbox = (event.environment ?? "").toUpperCase() === "SANDBOX";
+    const sandboxBlocked = isSandbox && process.env.RC_ALLOW_SANDBOX !== "true";
+
     try {
       await db.runTransaction(async (tx) => {
         // Idempotency: RevenueCat retries webhooks until it gets a 2xx; never double-apply an
         // event (critical for chip increments). The eventRef doubles as the processed-marker.
         if ((await tx.get(eventRef)).exists) return;
+        const userSnap = await tx.get(userRef);
+        const prev = userSnap.exists ? (userSnap.data() as Record<string, unknown>) : {};
 
-        const grant = grantForEvent(event);
+        const grant = sandboxBlocked ? null : grantForEvent(event);
+        const eventMs = event.event_timestamp_ms ?? 0;
         const update: Record<string, unknown> = {};
         if (grant?.kind === "chips") {
+          // Additive credit → order-independent; idempotency (eventRef) prevents double-credit.
           update.chipsPlay = FieldValue.increment(grant.amount);
         } else if (grant?.kind === "edge") {
-          update.edgePass = grant.active;
-          update.subStatus = grant.status;
-          if (grant.expiresAt) update.edgeExpiresAt = grant.expiresAt;
+          // Out-of-order guard: ignore a stale edge event that predates the last one we applied
+          // (e.g. a late EXPIRATION arriving after a newer RENEWAL). Missing timestamp → always apply.
+          const lastEdgeMs = (prev.lastEdgeEventMs as number) ?? 0;
+          if (eventMs === 0 || eventMs >= lastEdgeMs) {
+            update.edgePass = grant.active;
+            update.subStatus = grant.status;
+            update.edgeExpiresAt = grant.expiresAt ?? null;
+            update.lastEdgeEventMs = eventMs;
+          }
         }
 
         if (Object.keys(update).length) {
           update.iapProvider = "revenuecat";
           tx.set(userRef, update, { merge: true });
         }
-        // Always record the event (even no-op types) so retries are cheap no-ops.
-        tx.set(eventRef, { uid, type: event.type ?? "", productId: event.product_id ?? "", env: event.environment ?? null, at: FieldValue.serverTimestamp() });
+        // Always record the event (even no-op / blocked / stale) so retries are cheap no-ops.
+        tx.set(eventRef, { uid, type: event.type ?? "", productId: event.product_id ?? "", env: event.environment ?? null, blocked: sandboxBlocked, at: FieldValue.serverTimestamp() });
       });
       res.json({ received: true });
     } catch (e) {

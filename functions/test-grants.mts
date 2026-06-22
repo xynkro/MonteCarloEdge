@@ -23,8 +23,13 @@ ok("edge BILLING_ISSUE → inactive+status", (() => { const g = grantForEvent({ 
 // — edge_1mo one-time pass grants edge (entitlement via product membership, no entitlement_ids) —
 ok("edge_1mo non-renewing → edge active (not chips)", (grantForEvent({ type: "NON_RENEWING_PURCHASE", product_id: "edge_1mo" }) as any)?.kind === "edge");
 
-// — No-ops: CANCELLATION keeps entitlement; unmapped product; missing fields —
-ok("CANCELLATION → no change", grantForEvent({ type: "CANCELLATION", product_id: "edge_monthly", entitlement_ids: ["edge"] }) === null);
+// — Refunds: CANCELLATION revokes only for refund/forced reasons, not voluntary unsubscribe —
+ok("CANCELLATION/UNSUBSCRIBE → no change (entitled until expiry)", grantForEvent({ type: "CANCELLATION", product_id: "edge_monthly", entitlement_ids: ["edge"], cancel_reason: "UNSUBSCRIBE" }) === null);
+ok("CANCELLATION/PRICE_INCREASE → no change", grantForEvent({ type: "CANCELLATION", product_id: "edge_monthly", cancel_reason: "PRICE_INCREASE" }) === null);
+ok("CANCELLATION (no reason) → no change", grantForEvent({ type: "CANCELLATION", product_id: "edge_monthly", entitlement_ids: ["edge"] }) === null);
+ok("CANCELLATION/CUSTOMER_SUPPORT (refund) → edge revoked", (() => { const g = grantForEvent({ type: "CANCELLATION", product_id: "edge_monthly", entitlement_ids: ["edge"], cancel_reason: "CUSTOMER_SUPPORT" }) as any; return g?.kind === "edge" && g.active === false && g.status === "refunded"; })());
+ok("CANCELLATION/BILLING_ERROR → edge revoked", (grantForEvent({ type: "CANCELLATION", product_id: "edge_annual", entitlement_ids: ["edge"], cancel_reason: "BILLING_ERROR" }) as any)?.active === false);
+ok("CANCELLATION/DEVELOPER_INITIATED → edge revoked", (grantForEvent({ type: "CANCELLATION", product_id: "edge_monthly", entitlement_ids: ["edge"], cancel_reason: "DEVELOPER_INITIATED" }) as any)?.active === false);
 ok("unknown product → null", grantForEvent({ type: "INITIAL_PURCHASE", product_id: "mystery_box" }) === null);
 ok("empty event → null", grantForEvent({}) === null);
 ok("chip pack RENEWAL (impossible) → null", grantForEvent({ type: "RENEWAL", product_id: "chips_500" }) === null);

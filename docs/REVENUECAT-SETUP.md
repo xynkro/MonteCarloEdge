@@ -50,10 +50,23 @@ and `PLAY_PACKS` / `EDGE_TIERS` in [`src/ui/main.ts`](../src/ui/main.ts) (store 
    - Get the URL (`https://us-central1-montecarloedge.cloudfunctions.net/revenueCatWebhook`).
    - RevenueCat → Project → Integrations → **Webhooks** → URL = that, **Authorization header** = the
      same token you set as the secret.
-6. **Sandbox test** (iOS sandbox tester / Play license tester): buy each product, confirm the webhook
-   fires (Functions logs) and `users/{uid}.chipsPlay` / `.edgePass` update, the wallet refreshes live,
-   and **Restore purchases** re-grants the sub. Re-send a webhook event → confirm no double-credit
-   (idempotency via `rcEvents/{eventId}`).
+6. **Sandbox test** (iOS sandbox tester / Play license tester):
+   - **First set `RC_ALLOW_SANDBOX=true` in `functions/.env` and redeploy** — the webhook BLOCKS
+     sandbox-environment grants by default (so a StoreKit-test client can't mint real chips/Edge Pass
+     in production). With the flag on, sandbox purchases credit normally for testing. **Remove the flag
+     (or set it false) and redeploy before public launch.**
+   - Buy each product, confirm the webhook fires (Functions logs) and `users/{uid}.chipsPlay` /
+     `.edgePass` update, the wallet refreshes live, and **Restore purchases** re-grants the sub.
+   - Refund an Edge Pass in the sandbox → confirm `edgePass` flips false (delivered as `CANCELLATION`
+     with `cancel_reason=CUSTOMER_SUPPORT`).
+   - Re-send a webhook event → confirm no double-credit (idempotency via `rcEvents/{eventId}`).
+
+## Known deferred items (from the 2026-06-22 code audit)
+- **`TRANSFER` events** (entitlement moves between Apple/Google accounts, e.g. family sharing) are
+  recorded but not yet acted on — handling them needs the RevenueCat **secret REST API key** to
+  re-derive the destination user's entitlement. Add that key + a reconcile when wiring the dashboard.
+- **Consumable chip-pack refunds** are intentionally not clawed back (chips may already be spent).
+- The webhook is `us-central1` (its URL is registered in RC) — do not move it once configured.
 
 ## Architecture notes
 - **Web is untouched** — it keeps Stripe (`stripe.ts`). Only native uses RevenueCat.
