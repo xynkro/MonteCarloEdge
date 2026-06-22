@@ -6122,6 +6122,8 @@ function renderSettings(): void {
       <div class="set-group"><div class="set-head">Gameplay</div>
         ${row("Table speed", `<select class="set-select" id="set-speed">${SPEED_TIERS.map((t) => `<option value="${t}" ${speed === t ? "selected" : ""}>${SPEED_LABEL[t]}</option>`).join("")}</select>`, "Villain timing &amp; deal animations.")}
         ${row("Quiz mode", toggle("set-quiz", quizMode()), "Hide the recommendation until after you act, then grade you.")}
+        ${row("Range reads", toggle("set-reads", readsOn()), "Show what beats you &amp; what's drawing on each board. Off keeps the table clean while you learn.")}
+        ${row("Replay tutorial", `<button class="hdr-btn" id="set-replay-coach">Replay</button>`, "Show the first-hand walkthrough again next time you train.")}
       </div>
       <div class="set-group"><div class="set-head">Account</div>
         ${auth
@@ -6148,6 +6150,8 @@ function renderSettings(): void {
   app.querySelectorAll("[data-motion]").forEach((b) => onEl(b, "click", () => { try { localStorage.setItem("mce-motion", (b as HTMLElement).dataset.motion!); } catch { /* */ } render(); }));
   onId("set-speed", "change", (e) => { try { localStorage.setItem("mce-speed", (e.target as HTMLSelectElement).value); } catch { /* */ } });
   onId("set-quiz", "click", () => { toggleQuiz(); render(); });
+  onId("set-reads", "click", () => { try { localStorage.setItem("mce-reads", readsOn() ? "0" : "1"); } catch { /* */ } render(); });
+  onId("set-replay-coach", "click", () => { try { localStorage.removeItem("mce-coach-1"); } catch { /* */ } alert("Tutorial reset — the first-hand walkthrough will show next time you start a training hand."); });
   onId("set-signin", "click", () => { void goOnline(); });
   onId("set-signout", "click", () => { if (confirm("Sign out of online play? Your profile, chips and stats on this device are NOT touched.")) void goOffline().then(render); });
   onId("set-reset-stats", "click", () => { if (confirm("Reset your session stats and best streak? Your hand history and chips stay.")) { S.gradeStats = { n: 0, pts: 0, gto: 0, mixed: 0, off: 0 }; S.streak = 0; S.bestStreak = 0; try { localStorage.removeItem("mce-beststreak"); } catch { /* */ } render(); } });
