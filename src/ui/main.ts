@@ -4892,7 +4892,7 @@ function renderNetTable(): void {
     const cogSheet = netCogSheetHtml(pub, seats as CogSeat[], uid);
     app.innerHTML = `
       <div class="net-game lobby-screen">
-        <div class="game-topbar"><span>Room <strong>${code}</strong> · ${sym} ${currency === "premium" ? "premium" : "play"} · ${isPublic ? "🌐" : "🔒"}</span><div class="topbar-btns"><button class="hdr-btn ch-toggle" id="net-chat" title="Chat">💬${unread > 0 ? `<span class="ch-badge">${unread}</span>` : ""}</button><button class="hdr-btn" id="net-cog" title="Settings">⚙</button><button class="hdr-btn" id="net-leave">Leave</button></div></div>
+        <div class="game-topbar"><span>Room <strong>${code}</strong> · ${sym} ${currency === "premium" ? "premium" : "play"} · ${isPublic ? "🌐" : "🔒"}</span><div class="topbar-btns"><button class="hdr-btn" id="net-gloss" title="What do these poker terms mean?" aria-label="Poker glossary">❔</button><button class="hdr-btn ch-toggle" id="net-chat" title="Chat">💬${unread > 0 ? `<span class="ch-badge">${unread}</span>` : ""}</button><button class="hdr-btn" id="net-cog" title="Settings">⚙</button><button class="hdr-btn" id="net-leave">Leave</button></div></div>
         <div class="lobby-wrap">
           <div class="lobby-hero">
             <div class="lobby-badge">● WAITING ROOM</div>
@@ -4920,6 +4920,7 @@ function renderNetTable(): void {
         ${chatDrawer}
       </div>`;
     onId("net-leave", "click", () => void netLeave());
+    onId("net-gloss", "click", showGlossary);
     onId("net-seat", "click", () => { if (S.net.code) void joinNetRoom(S.net.code); });
     onId("net-copy", "click", (e) => copyCodeWithFeedback(code, e));
     onId("net-deal", "click", () => void netDeal());
