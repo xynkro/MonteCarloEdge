@@ -31,7 +31,7 @@ export const LEGAL_SECTIONS: Section[] = [
     heading: "1. Play-money only — chips have NO cash value",
     body: `<p>The chips in MonteCarloEdge are play-money only: they have no monetary value and can never be cashed out, withdrawn, redeemed, sold, or transferred for money or anything of value — whether you received them free or bought them in a chip pack — and the app offers no real-money wagering and no opportunity to win money or anything of value. It is not gambling.</p>
     <ul>
-      <li>Free chips (daily chips, starting balance, bonuses) and any chips you might buy in a chip pack are <strong>the same thing</strong>: a non-redeemable in-app counter. If chip-pack purchases launch, buying one is buying a licence to use more in-app chips — like a free-to-play title (WSOP-style social poker). It is <strong>never a deposit, never a stake, and never entitles you to a payout or withdrawal</strong>.</li>
+      <li>Free chips (weekly chips, starting balance, bonuses) and any chips you might buy in a chip pack are <strong>the same thing</strong>: a non-redeemable in-app counter. If chip-pack purchases launch, buying one is buying a licence to use more in-app chips — like a free-to-play title (WSOP-style social poker). It is <strong>never a deposit, never a stake, and never entitles you to a payout or withdrawal</strong>.</li>
       <li>Chips you "win" at a table are a number going up in a game. They have no value and create no claim against the developer or anyone else.</li>
       <li>We may adjust, reset, or remove chip balances to fix bugs, stop abuse, or balance the game.</li>
       <li>You may <strong>not sell, buy, gift, or trade chips or your account</strong> for money or anything of value, on or off the app — doing so is grounds for an immediate ban.</li>
@@ -151,7 +151,7 @@ export const EXPLAINER_SECTIONS: Section[] = [
   },
   {
     heading: "The chip economy (play-money only)",
-    body: `<p>Chips here are <strong>play-money — full stop</strong>. You start with a stack, top up with <strong>free daily chips</strong>, and (soon) optionally grab <strong>chip packs</strong> for a bigger bankroll to mess around with.</p>
+    body: `<p>Chips here are <strong>play-money — full stop</strong>. You start with a stack, top up with <strong>free weekly chips</strong>, and (soon) optionally grab <strong>chip packs</strong> for a bigger bankroll to mess around with.</p>
     <p>To be completely clear: <strong>chips have no cash value</strong> and are never cashable, withdrawable, redeemable, or transferable. A chip pack buys non-redeemable in-app chips and nothing else — exactly like free-to-play WSOP. There is no real-money wagering anywhere in MonteCarloEdge. This is a training-and-fun app, not gambling.</p>`,
   },
   {

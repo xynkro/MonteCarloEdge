@@ -458,6 +458,7 @@ function render(): void {
   // readable from the gate itself before confirming.
   if (!ageConfirmed() && S.screen !== "legal" && S.screen !== "explainer") { renderAgeGate(); return; }
   _markScreenTransition();
+  trackNav();
   if (S.screen === "home") renderHome();
   else if (S.screen === "landing") renderLanding();
   else if (S.screen === "profile") renderProfile();
@@ -1047,10 +1048,10 @@ function renderSetup(): void {
         </div>
       </div>
 
-      <button class="start-btn" id="start-training" style="background:linear-gradient(135deg,var(--violet),var(--violet-2));color:#fff;box-shadow:0 8px 22px rgba(124,92,255,.3)">TRAINING MODE</button>
-      <span class="hint" style="text-align:center">Training: practice against the AI. It deals cards, makes villain decisions, reveals hands at showdown.</span>
-      <button class="start-btn" id="start">🃏 LIVE IN PERSON</button>
-      <span class="hint" style="text-align:center">Live game tracker: you're at a real table — tap each opponent's action and the app calls your play in real time.</span>
+      <button class="start-btn" id="start-training" style="background:linear-gradient(135deg,var(--violet),var(--violet-2));color:#fff;box-shadow:0 8px 22px rgba(124,92,255,.3)">🎯 Start Training</button>
+      <span class="hint" style="text-align:center">Practice vs the AI — it deals, plays the villains, and calls your GTO line in real time.</span>
+      <button class="hdr-btn" id="start" style="width:100%;margin-top:4px">🃏 At a real table? Use the Live Tracker</button>
+      <span class="hint" style="text-align:center">Track a physical game: tap each opponent's action and the app calls your play live.</span>
 
       <div class="help-banner" id="help-toggle">
         <span class="help-icon">?</span> How does this work?
@@ -1115,18 +1116,7 @@ function renderSetup(): void {
     onEl(btn, "click", () => { S.heroSeat = +(btn as HTMLElement).dataset.seat!; render(); }),
   );
   onEl($("#start"), "click", () => { endRoom(); S.mode = "live"; S.currency = "usd"; startHand(); });
-  onId("start-training", "click", () => {
-    endRoom();
-    S.mode = "training";
-    S.currency = "usd";
-    S.trainingOver = null;
-    S.trainingStartSize = S.tableSize;
-    S.dealerSeat = -1;
-    S.handNumber = 0;
-    S.seatStacks = []; // fresh tournament stacks
-    S.streak = 0; // fresh streak for a new training session
-    startTrainingHand();
-  });
+  onId("start-training", "click", () => { beginTraining(); });
   onId("view-stats", "click", () => {
     S.screen = "stats"; render();
   });
@@ -1192,6 +1182,22 @@ function shuffleDeck(): Card[] {
     const tmp = deck[i]!; deck[i] = deck[j]!; deck[j] = tmp;
   }
   return deck;
+}
+
+// Start a fresh training session and deal the first hand immediately, using the current (default)
+// table settings. Used by the setup "TRAINING MODE" button AND the landing "Start Training — Free"
+// CTA, so a first-time user goes straight from the landing into a live hand (one tap, no config wall).
+function beginTraining(): void {
+  endRoom();
+  S.mode = "training";
+  S.currency = "usd";
+  S.trainingOver = null;
+  S.trainingStartSize = S.tableSize;
+  S.dealerSeat = -1;
+  S.handNumber = 0;
+  S.seatStacks = [];
+  S.streak = 0;
+  startTrainingHand();
 }
 
 function startTrainingHand(): void {
@@ -3831,6 +3837,11 @@ function friendlyErr(e: unknown): string {
     if (/^illegal\b/i.test(clean) || /^(check|call|bet|raise|fold)$/i.test(clean)) return "That move just became invalid — the table updated.";
     return clean;
   }
+  // Default: pass through intentional app/server messages, but never surface raw SDK noise
+  // (Firebase/Functions/Stripe internals, network errors) — those are technical, not user-facing.
+  if (/firebase:|auth\/|functions\/|\(internal\)|failed to fetch|networkerror|stripe|xhr/i.test(m)) {
+    return "Something went wrong — please try again.";
+  }
   return m;
 }
 
@@ -5734,7 +5745,7 @@ function renderLanding(): void {
       </div>
     </div>`;
   onId("lp-watch", "click", () => openIntroFilm());
-  onId("lp-train", "click", () => { markIntroSeen(); S.screen = "setup"; render(); });
+  onId("lp-train", "click", () => { markIntroSeen(); beginTraining(); });
   onId("lp-signin", "click", () => { markIntroSeen(); S.screen = "signin"; render(); });
   onId("lp-skip", "click", () => { markIntroSeen(); S.screen = "home"; render(); });
 }
@@ -5790,14 +5801,14 @@ function renderHome(): void {
         <span class="mce-body">
           <span class="mce-eyebrow">What is MCE Strategy?</span>
           <span class="mce-title">Your edge at every table</span>
-          <span class="mce-sub">A live, in-hand GTO read on your villain's range — equity, pot odds, recommended line. Learn how it gives you the edge.</span>
+          <span class="mce-sub">A live, in-hand GTO read on your villain's range — equity, pot odds, recommended line. <strong>Solo training + leak report is free forever</strong>; Edge Pass adds the live overlay to online play.</span>
         </span>
         <span class="mce-cta">Learn →</span>
       </button>
 
       <div class="mc-modes">
         <button class="mc-mode train" id="home-train" style="--d:.05s"><span class="mc-mi">${ICON_TARGET}</span><span class="mc-mtext"><span class="mc-mt">Train</span><span class="mc-md">Solo vs the MCE Engine · free</span></span><span class="mc-arrow">→</span></button>
-        <button class="mc-mode online ${loggedIn ? "" : "locked"}" id="home-pass" style="--d:.12s"><span class="mc-mi">${ICON_GLOBE}</span><span class="mc-mtext"><span class="mc-mt">Play Online</span><span class="mc-md">${loggedIn ? "Create a room · play for chips" : "Sign in to play"}</span></span><span class="mc-arrow">${loggedIn ? "→" : "🔒"}</span></button>
+        <button class="mc-mode online" id="home-pass" style="--d:.12s"><span class="mc-mi">${ICON_GLOBE}</span><span class="mc-mtext"><span class="mc-mt">Play Online</span><span class="mc-md">${loggedIn ? "Create a room · play for chips" : "Rooms with friends · play for chips"}</span></span><span class="mc-arrow">→</span></button>
         <button class="mc-mode pass" id="home-store-tile" style="--d:.19s"><span class="mc-mi">${ICON_BAG}</span><span class="mc-mtext"><span class="mc-mt">Store</span><span class="mc-md">Chips · cosmetics · Edge Pass</span></span><span class="mc-arrow">→</span></button>
         <button class="mc-mode profile" id="home-profile2" style="--d:.26s"><span class="mc-mi">${ICON_USER}</span><span class="mc-mtext"><span class="mc-mt">Profile</span><span class="mc-md">Avatar · name · chips</span></span><span class="mc-arrow">→</span></button>
       </div>
@@ -5997,7 +6008,7 @@ function renderSettings(): void {
         ${auth
           ? row("Signed in", `<button class="hdr-btn" id="set-signout">Sign out</button>`, `${auth.name} · Google. Sign-out keeps your local data.`)
             + (_passkeyOk ? row("Face ID sign-in", `<button class="hdr-btn" id="set-passkey">${passkeyEnrolled() ? "Re-enroll" : "Set up"}</button>`, _passkeyMsg || "One Face ID tap restores online play — even after iOS signs you out. Uses your device passkey.") : "")
-          : row("Online play", `<button class="hdr-btn" id="set-signin">Sign in</button>`, "Sign in with Google for presence &amp; sync. No ads, no data selling.")}
+          : row("Online play", `<button class="hdr-btn" id="set-signin">Sign in</button>`, "Sign in to save your chips &amp; play online — Google, Apple, email, or Face ID. No ads, no data selling.")}
       </div>
       <div class="set-group"><div class="set-head">Your data</div>
         <div class="set-note" style="margin-bottom:9px">Everything below lives in your browser. We don't sell it or show ads. Wipe any of it, any time.</div>
@@ -6023,7 +6034,7 @@ function renderSettings(): void {
   onId("set-reset-stats", "click", () => { if (confirm("Reset your session stats and best streak? Your hand history and chips stay.")) { S.gradeStats = { n: 0, pts: 0, gto: 0, mixed: 0, off: 0 }; S.streak = 0; S.bestStreak = 0; try { localStorage.removeItem("mce-beststreak"); } catch { /* */ } render(); } });
   onId("set-clear-history", "click", () => { if (confirm("Erase your saved hand + decision log? Your leak report resets to empty. Chips and profile stay.")) { clearHistory(); S.decisionLog = []; try { localStorage.removeItem(DECISIONS_KEY); } catch { /* */ } render(); } });
   onId("set-reset-profile", "click", () => { if (confirm('Reset your nickname to "You" and clear your avatar? Your chips, stats and history stay.')) { S.profile.nickname = "You"; S.profile.avatar = ""; saveProfile(); render(); } });
-  onId("set-reset-wallet", "click", () => { if (confirm("Reset your play-money chip balance to the 1,000 starting stack and your daily-claim timer? Chips have no cash value and are never cashable — this is a local reset, not a refund.")) { S.profile.chips = 1000; saveProfile(); try { localStorage.removeItem("mce-dailychips"); } catch { /* */ } render(); } });
+  onId("set-reset-wallet", "click", () => { if (confirm("Reset your play-money chip balance to the 1,000 starting stack and your weekly-claim timer? Chips have no cash value and are never cashable — this is a local reset, not a refund.")) { S.profile.chips = 1000; saveProfile(); try { localStorage.removeItem("mce-dailychips"); } catch { /* */ } render(); } });
   onId("set-delete-all", "click", () => {
     if (confirm("Permanently delete EVERYTHING on this device — profile, chips, stats, hand history and settings — and sign you out? This cannot be undone.")) {
       ["mce-sound", "mce-motion", "mce-speed", "mce-quiz", "mce-beststreak", "mce-dailychips", "mce-player-stats", DECISIONS_KEY, "mce-profile"].forEach((k) => { try { localStorage.removeItem(k); } catch { /* */ } });
@@ -6143,6 +6154,12 @@ if ((window as unknown as { Capacitor?: { isNativePlatform?: () => boolean } }).
   // Safety net: if the native chunk fails to import (or initNative throws), never leave the launch
   // splash stuck up. Hide it unconditionally after a few seconds via an independent dynamic import.
   setTimeout(() => { void import("@capacitor/splash-screen").then((m) => m.SplashScreen.hide()).catch(() => {}); }, 4000);
+  // Android hardware Back → navigate within the app; only exit when there's nowhere to go back to
+  // (a root screen). Without this, system Back closes the whole app from any screen — a Play Store
+  // rejection. Same goBack() the edge-swipe uses, so the two never disagree.
+  void import("@capacitor/app").then(({ App }) => {
+    App.addListener("backButton", () => { if (!goBack()) void App.exitApp(); });
+  }).catch(() => {});
 }
 
 // Finalize OAuth redirects + restore a previous sign-in. Only loads Firebase if the
@@ -6268,23 +6285,50 @@ function initCardTilt(): void {
   document.addEventListener("pointercancel", reset);
 }
 
+// ── Screen-history stack — ONE source of truth for Back ───────────────────────
+// Drives the edge-swipe gesture AND the Android hardware Back button (so Back navigates instead of
+// closing the app — a Play Store requirement) AND fixes the Stats/Leaks dead-ends. Push the previous
+// screen on each forward navigation; goBack() pops it. Table screens are never recorded as back
+// destinations (you don't get dropped back into an abandoned hand). The explicit on-screen Back
+// buttons still work — they set S.screen and are tracked here like any other navigation.
+const ROOT_SCREENS = new Set(["home", "landing", "signin"]);
+const TABLE_SCREENS = new Set(["game", "mp-net", "mp-table"]);
+let _navStack: string[] = [];
+let _navLast: string | null = null;
+let _navBack = false;
+function trackNav(): void {
+  if (_navLast === S.screen) return;
+  if (_navBack) { _navBack = false; }
+  else if (_navLast != null && !TABLE_SCREENS.has(_navLast)) {
+    _navStack.push(_navLast);
+    if (_navStack.length > 40) _navStack.shift();
+  }
+  _navLast = S.screen;
+}
+/** Navigate back one screen. Returns true if it consumed the action, false at a root screen (so the
+ *  OS may exit at home). Wired to the swipe gesture and the Android hardware Back. */
+function goBack(): boolean {
+  // A modal/overlay owns Back first — dismiss it rather than leaving the screen.
+  const modal = document.querySelector(".modal-backdrop") as HTMLElement | null;
+  if (modal) { modal.click(); return true; }
+  // At a game table, use the real leave/home control so chip + room cleanup runs correctly.
+  if (TABLE_SCREENS.has(S.screen)) {
+    const leave = (document.getElementById("home-btn") ?? document.getElementById("net-leave")) as HTMLElement | null;
+    if (leave) { leave.click(); return true; }
+  }
+  if (ROOT_SCREENS.has(S.screen)) return false; // nothing to go back to
+  const prev = _navStack.pop();
+  _navBack = true;
+  S.screen = (prev && !TABLE_SCREENS.has(prev) && prev !== S.screen) ? prev : "home";
+  render();
+  return true;
+}
+
 // ── iOS-style edge-swipe back gesture ─────────────────────────────────────────
 // Active on menu / non-game screens (home, settings, store, profile, mp-setup, lobby, etc.).
 // BLOCKED at the game table (training, online, live-in-person) so you can't accidentally swipe
 // out mid-hand. Also blocked at root screens (home/landing/signin) and while a modal is open.
 const BACK_BLOCKED_SCREENS = new Set(["game", "mp-net", "mp-table", "home", "landing", "signin", "onboard"]);
-// Try the standard back-button ids in order; whichever exists on this screen, click it.
-// Falls back to S.screen → "home" if no back button is found.
-function _navigateBackForSwipe(): boolean {
-  const ids = ["mp-back", "doc-back", "store-back", "pf-back", "hh-back", "ib-back", "co-back", "ad-back", "si-back", "set-back", "lobby-back", "mp-home", "home-btn"];
-  for (const id of ids) {
-    const el = document.getElementById(id);
-    if (el) { (el as HTMLElement).click(); return true; }
-  }
-  // Fallback for screens whose Back button is inside a modal/sub-route.
-  S.screen = "home"; render();
-  return true;
-}
 function initSwipeBack(): void {
   if (typeof window === "undefined") return;
   const app = document.getElementById("app");
@@ -6336,7 +6380,7 @@ function initSwipeBack(): void {
       setTimeout(() => {
         app.style.transition = ""; app.style.transform = ""; app.style.opacity = "";
         active = false; dx = 0;
-        _navigateBackForSwipe();
+        goBack();
       }, 200);
     } else {
       reset(true);
