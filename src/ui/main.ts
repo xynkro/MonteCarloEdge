@@ -76,7 +76,7 @@ interface UndoSnapshot {
 }
 
 interface AppState {
-  screen: "home" | "landing" | "setup" | "game" | "stats" | "leaks" | "mp-setup" | "mp-table" | "mp-lobby" | "mp-net" | "profile" | "settings" | "legal" | "explainer" | "store" | "signin" | "inbox" | "compose" | "admin" | "onboard" | "history";
+  screen: "home" | "landing" | "setup" | "game" | "stats" | "leaks" | "mp-setup" | "mp-table" | "mp-lobby" | "mp-net" | "profile" | "settings" | "legal" | "explainer" | "store" | "signin" | "inbox" | "friends" | "compose" | "admin" | "onboard" | "history";
   // Player profile (local-first; syncs name/avatar to Firestore when signed in).
   profile: { nickname: string; avatar: string; chips: number };
   // Multiplayer / benchmark (Phase 0 hot-seat + Phase 1 online lobby).
@@ -86,7 +86,8 @@ interface AppState {
     reveal: boolean;          // hot-seat: active player's hole cards revealed
     rec: Recommendation | null;
     auth: MPUser | null;      // signed-in Google user (Phase 1)
-    online: { uid: string; name: string }[]; // live presence list
+    online: { uid: string; name: string; room: string | null }[]; // live presence list (room = in-game)
+    friends: FB.Friendship[]; // accepted + pending friendships (incoming/outgoing)
     authBusy: boolean;        // sign-in in flight
     authErr: string;
   };
@@ -228,6 +229,7 @@ const S: AppState = {
     rec: null,
     auth: null,
     online: [],
+    friends: [],
     authBusy: false,
     authErr: "",
   },
@@ -482,6 +484,7 @@ function render(): void {
   else if (S.screen === "store") renderStore();
   else if (S.screen === "signin") renderSignIn();
   else if (S.screen === "inbox") renderInbox();
+  else if (S.screen === "friends") renderFriends();
   else if (S.screen === "compose") renderCompose();
   else if (S.screen === "admin") renderAdmin();
   else if (S.screen === "onboard") renderOnboard();
@@ -3993,6 +3996,7 @@ async function ensureSignedIn(): Promise<boolean> {
 async function enterRoom(code: string): Promise<void> {
   clearNetSubs();
   S.net.code = code; S.net.pub = null; S.net.myHand = null; S.net.myRec = null; S.net.err = "";
+  void FB.setPresenceRoom(code).catch(() => {}); // friends see my in-game status
   S.screen = "mp-net"; render();
   // Push the user's chosen Bluff-Lab style to the server seat so the MCE rec for THIS player
   // tilts the same way as their Training table. Fire-and-forget — failure is silent (the
@@ -4444,6 +4448,7 @@ async function netLeave(): Promise<void> {
 function _leaveCleanup(): void {
   clearNetSubs(); stopNetClock(); stopAutoDeal();
   if (_bustLinger) { clearTimeout(_bustLinger); _bustLinger = null; }
+  void FB.setPresenceRoom(null).catch(() => {}); // no longer in a room → clear friends' in-game status
   S.net.code = null; S.net.pub = null; S.net.myHand = null; S.net.myRec = null; S.net.err = "";
   _netResyncing = false; _pendingLeave = false; S.net.busy = false;
   S.screen = "mp-setup"; render();
@@ -5193,7 +5198,7 @@ function renderNetTable(): void {
 let _signinMode: "signin" | "register" = "signin";
 // Live economy subscriptions: two-wallet balance + Edge Pass, the inbox, and the
 // admin claim. Started on sign-in / restore; torn down on sign-out.
-let _walletUnsub: (() => void) | null = null, _inboxUnsub: (() => void) | null = null;
+let _walletUnsub: (() => void) | null = null, _inboxUnsub: (() => void) | null = null, _friendsUnsub: (() => void) | null = null;
 // NOTE: "mp-setup" is deliberately EXCLUDED — presence/online heartbeats fire every
 // few seconds, and re-rendering Play Online mid-typing wiped the join-code input.
 // Wallet changes still must show live there (the balance, buy-in slider max, and
@@ -5202,7 +5207,7 @@ let _walletUnsub: (() => void) | null = null, _inboxUnsub: (() => void) | null =
 // focus, and caret across the rebuild. Wallet snapshots only fire on real wallet
 // changes (claims, purchases, settlements), never on heartbeats, so this can't
 // reintroduce the mid-typing wipe.
-const ECON_SCREENS = new Set(["home", "inbox", "compose", "admin", "store", "profile", "settings"]);
+const ECON_SCREENS = new Set(["home", "inbox", "compose", "admin", "store", "profile", "settings", "friends"]);
 function renderIfEcon(): void { if (ECON_SCREENS.has(S.screen)) render(); }
 function renderMpSetupLive(): void {
   if (S.screen !== "mp-setup") return;
@@ -5223,7 +5228,8 @@ function stopEconomySubs(): void {
   if (_walletUnsub) { _walletUnsub(); _walletUnsub = null; }
   if (_inboxUnsub) { _inboxUnsub(); _inboxUnsub = null; }
   if (_onlineUnsub) { _onlineUnsub(); _onlineUnsub = null; }
-  S.wallet = { play: null, premium: null }; S.inbox = []; S.isAdmin = false; S.edgePass = false; S.mp.online = [];
+  if (_friendsUnsub) { _friendsUnsub(); _friendsUnsub = null; }
+  S.wallet = { play: null, premium: null }; S.inbox = []; S.isAdmin = false; S.edgePass = false; S.mp.online = []; S.mp.friends = [];
   _walletLoaded = false; _weeklyShown = false;
 }
 async function startEconomySubs(uid: string): Promise<void> {
@@ -5235,6 +5241,7 @@ async function startEconomySubs(uid: string): Promise<void> {
     _walletUnsub = await FB.subscribeWallet(uid, (w) => { S.wallet = { play: w.play, premium: w.premium }; S.edgePass = w.edgePass; S.lastWeekly = w.lastWeekly; S.weeklyStreak = w.weeklyStreak; S.collectibles = w.collectibles; _walletLoaded = true; renderIfEcon(); renderMpSetupLive(); maybeShowWeekly(); });
     _inboxUnsub = await FB.subscribeInbox(uid, (msgs) => { S.inbox = msgs; renderIfEcon(); });
     _onlineUnsub = await FB.subscribeOnline((list) => { S.mp.online = list.filter((p) => p.uid !== uid); renderIfEcon(); });
+    _friendsUnsub = await FB.subscribeFriends(uid, (fs) => { S.mp.friends = fs; renderIfEcon(); });
     FB.isAdminClaim().then((a) => {
       S.isAdmin = a; renderIfEcon();
       // Admins auto-get a real Edge Pass entitlement (server-side) so the live MCE
@@ -5415,6 +5422,45 @@ function effectiveAdmin(): boolean { return S.isAdmin && !_viewAsPlayer; }
 function setViewAsPlayer(v: boolean): void { _viewAsPlayer = v; try { localStorage.setItem("mce-view-as-player", v ? "1" : "0"); } catch { /* */ } S.screen = "home"; render(); }
 
 let _inboxErr = ""; // transient delete/action error shown on the inbox screen
+let _friendsErr = "";
+function renderFriends(): void {
+  cancelVillainTimer();
+  const uid = S.mp.auth?.uid;
+  const friends = S.mp.friends;
+  const onlineMap = new Map(S.mp.online.map((p) => [p.uid, p]));
+  const accepted = friends.filter((f) => f.status === "accepted");
+  const incoming = friends.filter((f) => f.status === "pending" && f.incoming);
+  const outgoing = friends.filter((f) => f.status === "pending" && !f.incoming);
+  const isFriend = new Set(friends.map((f) => f.otherUid));
+  const onlineFriends = accepted.filter((f) => onlineMap.has(f.otherUid));
+  const offlineFriends = accepted.filter((f) => !onlineMap.has(f.otherUid));
+  const addable = S.mp.online.filter((p) => p.uid !== uid && !isFriend.has(p.uid));
+  const fRow = (f: FB.Friendship, online?: { room: string | null }) => {
+    const room = online?.room;
+    const status = room ? `🎮 in ${esc(room)}` : online ? "🟢 online" : "⚪ offline";
+    const join = room ? `<button class="hdr-btn fr-join" data-code="${esc(room)}">Join</button>` : "";
+    return `<div class="fr-row">${avatarChip("", f.name, 34)}<div class="fr-info"><span class="fr-name">${esc(f.name)}</span><span class="fr-status">${status}</span></div><div class="fr-actions">${join}<button class="hdr-btn fr-remove" data-uid="${esc(f.otherUid)}" title="Remove friend" aria-label="Remove friend">✕</button></div></div>`;
+  };
+  app.innerHTML = `
+    <div class="setup doc">
+      <div class="doc-top"><button class="hdr-btn" id="fr-back">← Back</button><h1>👥 Friends</h1><span style="width:54px"></span></div>
+      ${incoming.length ? `<div class="set-head" style="margin:4px 0 6px">Requests · ${incoming.length}</div>${incoming.map((f) => `<div class="fr-row req">${avatarChip("", f.name, 34)}<div class="fr-info"><span class="fr-name">${esc(f.name)}</span><span class="fr-status">wants to be friends</span></div><div class="fr-actions"><button class="start-btn fr-accept" data-uid="${esc(f.otherUid)}">Accept</button><button class="hdr-btn fr-decline" data-uid="${esc(f.otherUid)}" aria-label="Decline">✕</button></div></div>`).join("")}` : ""}
+      <div class="set-head" style="margin:10px 0 6px">Your friends · ${accepted.length}</div>
+      ${accepted.length === 0 ? `<div class="hint" style="margin-bottom:10px">No friends yet — add someone from the online list below.</div>` : `${onlineFriends.map((f) => fRow(f, onlineMap.get(f.otherUid))).join("")}${offlineFriends.map((f) => fRow(f)).join("")}`}
+      ${outgoing.length ? `<div class="set-head" style="margin:10px 0 6px">Sent · ${outgoing.length}</div>${outgoing.map((f) => `<div class="fr-row">${avatarChip("", f.name, 34)}<div class="fr-info"><span class="fr-name">${esc(f.name)}</span><span class="fr-status">request sent</span></div><button class="hdr-btn fr-remove" data-uid="${esc(f.otherUid)}">Cancel</button></div>`).join("")}` : ""}
+      <div class="set-head" style="margin:12px 0 6px">🟢 Online now · ${addable.length}</div>
+      ${addable.length ? addable.map((p) => `<div class="fr-row">${avatarChip("", p.name, 34)}<div class="fr-info"><span class="fr-name">${esc(p.name)}</span><span class="fr-status">${p.room ? `🎮 in ${esc(p.room)}` : "🟢 online"}</span></div><button class="start-btn fr-add" data-uid="${esc(p.uid)}" data-name="${esc(p.name)}">＋ Add</button></div>`).join("") : `<div class="hint">No one else online right now.</div>`}
+      ${_friendsErr ? `<div class="room-broke" style="margin-top:10px">${esc(_friendsErr)}</div>` : ""}
+    </div>`;
+  const act = (fn: () => Promise<unknown>) => { _friendsErr = ""; fn().catch((e) => { _friendsErr = friendlyErr(e); render(); }); };
+  onId("fr-back", "click", () => { _friendsErr = ""; S.screen = "home"; render(); });
+  app.querySelectorAll(".fr-accept").forEach((b) => onEl(b, "click", () => act(() => FB.respondFriendRequest((b as HTMLElement).dataset.uid!, true))));
+  app.querySelectorAll(".fr-decline").forEach((b) => onEl(b, "click", () => act(() => FB.respondFriendRequest((b as HTMLElement).dataset.uid!, false))));
+  app.querySelectorAll(".fr-add").forEach((b) => onEl(b, "click", () => act(() => FB.sendFriendRequest((b as HTMLElement).dataset.uid!, (b as HTMLElement).dataset.name!, S.mp.auth?.name))));
+  app.querySelectorAll(".fr-remove").forEach((b) => onEl(b, "click", () => act(() => FB.removeFriend((b as HTMLElement).dataset.uid!))));
+  app.querySelectorAll(".fr-join").forEach((b) => onEl(b, "click", () => void joinNetRoom((b as HTMLElement).dataset.code!)));
+}
+
 function renderInbox(): void {
   cancelVillainTimer();
   const uid = S.mp.auth?.uid;
@@ -5927,6 +5973,7 @@ function renderHome(): void {
   if (loggedIn && S.net.publicRooms === null && !S.net.publicRoomsBusy) {
     setTimeout(() => { if (S.mp.auth && S.net.publicRooms === null && !S.net.publicRoomsBusy) void netRefreshPublic(); }, 0);
   }
+  const friendReqs = loggedIn ? S.mp.friends.filter((f) => f.status === "pending" && f.incoming).length : 0;
   app.innerHTML = `
     <div class="mc-home">
       <div class="mc-bg" aria-hidden="true">
@@ -5942,6 +5989,7 @@ function renderHome(): void {
           ${loggedIn ? `<span class="mc-pmeta2"><span class="mc-pname">${esc(S.mp.auth!.name)}</span><span class="mc-bal2"><i class=ic-coin></i> ${fmtBal(S.wallet.play)}${(S.wallet.premium ?? 0) > 0 ? ` · <i class=ic-gem></i> ${fmtBal(S.wallet.premium)}` : ""}</span></span>` : `<span class="mc-pchips-big locked">🔒 Sign in</span>`}
         </button>
         <div class="mc-top-right">
+          ${loggedIn ? `<button class="mc-gear" id="home-friends" aria-label="Friends">👥${friendReqs ? `<span class="ib-badge">${friendReqs}</span>` : ""}</button>` : ""}
           ${loggedIn ? `<button class="mc-gear" id="home-inbox" aria-label="Inbox">✉️${unreadCount() ? `<span class="ib-badge">${unreadCount()}</span>` : ""}</button>` : ""}
           <button class="mc-gear" id="home-settings" aria-label="Settings">⚙</button>
           ${loggedIn ? `<button class="mc-store" id="home-store">＋ Chips</button>` : `<button class="mc-store" id="home-signin2">Sign in</button>`}
@@ -5992,6 +6040,7 @@ function renderHome(): void {
       </div>
     </div>`;
   onId("home-inbox", "click", () => { S.screen = "inbox"; render(); });
+  onId("home-friends", "click", () => { S.screen = "friends"; render(); });
   onId("home-exit-preview", "click", () => setViewAsPlayer(false));
   onId("home-admin", "click", () => { S.compose = { toUid: "", toName: "", text: "", giftAmt: 0, busy: false, err: "", sent: "" }; S.screen = "admin"; render(); });
   onId("home-settings", "click", () => { S.screen = "settings"; render(); });

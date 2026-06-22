@@ -1990,6 +1990,15 @@ body::after {
 .admin-user .au-actions { display: flex; gap: 5px; flex-shrink: 0; }
 .admin-user .au-actions .hdr-btn { padding: 6px 8px; font-size: 11px; }
 .admin-user .au-edge.on { background: color-mix(in srgb, var(--emerald) 22%, transparent); border-color: var(--emerald); color: var(--emerald); }
+/* Friends list rows */
+.fr-row { display: flex; align-items: center; gap: 10px; padding: 9px 10px; border-radius: 12px; background: var(--glass); border: 1px solid var(--glass-edge); margin-bottom: 7px; }
+.fr-row.req { border-color: rgba(124,92,255,.45); background: rgba(124,92,255,.08); }
+.fr-info { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.fr-name { font-weight: 700; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fr-status { font-size: 11px; color: var(--muted); }
+.fr-actions { display: flex; gap: 6px; align-items: center; flex: 0 0 auto; }
+.fr-actions .start-btn, .fr-row .start-btn { padding: 8px 14px; font-size: 13px; min-width: 0; }
+
 .inbox-online { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
 .inbox-online .io-chip { font-size: 12px; padding: 5px 11px; border-radius: 999px; background: var(--glass); border: 1px solid var(--glass-edge); color: var(--text); cursor: pointer; }
 

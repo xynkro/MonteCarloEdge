@@ -15,6 +15,13 @@ service cloud.firestore {
       allow write: if signedIn() && request.auth.uid == uid;
     }
 
+    // ── Friendships ── one doc per pair (sorted uids). Functions are the SOLE writer
+    // (sendFriendRequest / respondFriendRequest / removeFriend); a participant may read theirs.
+    match /friendships/{id} {
+      allow read: if signedIn() && request.auth.uid in resource.data.users;
+      allow write: if false;
+    }
+
     // ── User profiles ──
     // HARDENED: a client may write ONLY `name`. chips + strategyEntitled are
     // server-authoritative (Cloud Functions only) so a client cannot mint

@@ -655,6 +655,79 @@ export const sendMessage = onCall(async (req) => {
   });
 });
 
+// ── friends ──
+// One doc per pair (sorted uids) dedupes A→B / B→A. Functions are the sole writer; clients read
+// the docs they're a participant in (firestore.rules). `users` is an array for array-contains queries.
+const pairId = (a: string, b: string) => (a < b ? `${a}_${b}` : `${b}_${a}`);
+const friendshipRef = (a: string, b: string) => db.doc(`friendships/${pairId(a, b)}`);
+
+/** Send (or re-send) a friend request. If THEY already requested ME, this accepts → mutual friends. */
+export const sendFriendRequest = onCall(async (req) => {
+  const uid = uidOf(req);
+  const { toUid, toName, fromName } = (req.data ?? {}) as { toUid?: string; toName?: string; fromName?: string };
+  if (!toUid || toUid === uid) throw new HttpsError("invalid-argument", "Pick a different player.");
+  return db.runTransaction(async (tx) => {
+    const rl = await rlRead(tx, uid, "friendreq", 30, 60_000); // ≤30/min
+    const fromSnap = await tx.get(userRef(uid));
+    const toSnap = await tx.get(userRef(toUid));
+    const ref = friendshipRef(uid, toUid);
+    const cur = await tx.get(ref);
+    const d = cur.exists ? (cur.data() as { status?: string; requester?: string }) : null;
+    if (d?.status === "accepted") throw new HttpsError("already-exists", "Already friends.");
+    // Denormalize both names so the list shows offline friends too. Prefer the authoritative users-doc
+    // name; fall back to the client-supplied name (from the presence list) — a user who skipped
+    // onboarding has no users doc yet, so we can't require it. Names are display-only (truncated).
+    const clean = (s: unknown) => String(s ?? "").trim().slice(0, 24);
+    const names = {
+      [uid]: clean((fromSnap.data()?.name as string) || fromName) || "Player",
+      [toUid]: clean((toSnap.data()?.name as string) || toName) || "Player",
+    };
+    tx.set(rl.ref, rl.data);
+    // They already invited me → accept it (mutual).
+    if (d?.status === "pending" && d.requester === toUid) {
+      tx.set(ref, { status: "accepted", acceptedAt: FieldValue.serverTimestamp(), names }, { merge: true });
+      return { ok: true, status: "accepted" };
+    }
+    tx.set(ref, { users: [uid, toUid], requester: uid, status: "pending", createdAt: FieldValue.serverTimestamp(), names }, { merge: true });
+    return { ok: true, status: "pending" };
+  });
+});
+
+/** Accept or decline a pending request. Only the NON-requester may respond. */
+export const respondFriendRequest = onCall(async (req) => {
+  const uid = uidOf(req);
+  const { fromUid, accept } = (req.data ?? {}) as { fromUid?: string; accept?: boolean };
+  if (!fromUid || fromUid === uid) throw new HttpsError("invalid-argument", "Bad request.");
+  return db.runTransaction(async (tx) => {
+    const ref = friendshipRef(uid, fromUid);
+    const cur = await tx.get(ref);
+    if (!cur.exists) throw new HttpsError("not-found", "Request not found.");
+    const d = cur.data() as { status?: string; requester?: string };
+    if (d.status !== "pending") throw new HttpsError("failed-precondition", "No pending request.");
+    if (d.requester !== fromUid) throw new HttpsError("permission-denied", "You sent this — you can't accept it yourself.");
+    if (accept) tx.set(ref, { status: "accepted", acceptedAt: FieldValue.serverTimestamp() }, { merge: true });
+    else tx.delete(ref);
+    return { ok: true };
+  });
+});
+
+/** Remove a friend, or cancel an outgoing / decline an incoming request. Either party may delete. */
+export const removeFriend = onCall(async (req) => {
+  const uid = uidOf(req);
+  const { otherUid } = (req.data ?? {}) as { otherUid?: string };
+  if (!otherUid || otherUid === uid) throw new HttpsError("invalid-argument", "Bad request.");
+  return db.runTransaction(async (tx) => {
+    const ref = friendshipRef(uid, otherUid);
+    const cur = await tx.get(ref);
+    if (cur.exists) {
+      const users = (cur.data() as { users?: string[] }).users ?? [];
+      if (!users.includes(uid)) throw new HttpsError("permission-denied", "Not your friendship.");
+      tx.delete(ref);
+    }
+    return { ok: true };
+  });
+});
+
 /** Super-admin only (gated by verified email): gift PLAY or PREMIUM chips, or adjust
  *  a balance (amount may be negative). The ONLY way premium chips are granted off-table. */
 export const adminGift = onCall(async (req) => {
