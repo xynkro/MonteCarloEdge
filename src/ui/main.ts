@@ -5642,6 +5642,11 @@ function canClaimWeekly(): boolean { return !!S.mp.auth && _walletLoaded && (!S.
 function maybeShowWeekly(): void {
   if (_weeklyShown || S.screen !== "home" || !canClaimWeekly()) return;
   _weeklyShown = true;
+  // Auto-pop AT MOST ONCE per claim-window (keyed to lastWeekly, which changes on each claim) so it
+  // never nags every session / re-pops after it's been dismissed. The Store keeps a manual Claim button.
+  let marker = ""; try { marker = localStorage.getItem("mce-weekly-pop") ?? ""; } catch { /* */ }
+  if (marker === String(S.lastWeekly)) return;
+  try { localStorage.setItem("mce-weekly-pop", String(S.lastWeekly)); } catch { /* */ }
   showWeeklyClaim();
 }
 function countUp(el: HTMLElement | null, to: number, instant: boolean): void {
@@ -5685,7 +5690,7 @@ function showWeeklyClaim(): void {
       S.lastWeekly = Date.now(); // kill any re-show race immediately (don't wait for the sub)
       const card = wrap.querySelector(".weekly-card")!;
       card.classList.add("claimed");
-      if (!reduce) coinBurst(card as HTMLElement, 18);
+      if (!reduce) coinBurst(card as HTMLElement, 8);
       try { playSound("chip"); } catch { /* */ }
       countUp(wrap.querySelector("#wk-num"), r.granted ?? amt, reduce);
       btn.textContent = "✓ Claimed!";
@@ -5697,7 +5702,7 @@ function showWeeklyClaim(): void {
       const sub = wrap.querySelector(".wk-sub"); if (sub) sub.textContent = /already|precondition/i.test(msg) ? "Already claimed — see you next week!" : msg;
       btn.textContent = "OK"; btn.disabled = false;
       btn.onclick = close;
-      setTimeout(close, 2400);
+      setTimeout(close, 1600);
     }
   });
 }
