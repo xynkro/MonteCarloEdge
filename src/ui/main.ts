@@ -4581,7 +4581,7 @@ function netCogSheetHtml(pub: Record<string, any>, seats: CogSeat[], uid: string
         <div class="cog-row"><span>Visibility</span>
           <button class="mce-toggle ${isPublic ? "on" : ""}" id="cog-priv">${isPublic ? "🌐 Public" : "🔒 Private"}</button>
         </div>
-        ${botSeats.length > 0 && status === "waiting" ? `<div class="cog-row"><span>Kick a bot</span>
+        ${botSeats.length > 0 && status !== "in_hand" ? `<div class="cog-row"><span>Kick a bot</span>
           <div class="cog-kick-list">${botSeats.map(({ s, ti }) => `<button class="hdr-btn cog-kick" data-seat="${ti}">${COG_BOT_LABEL(s.ai!)}</button>`).join("")}</div>
         </div>` : ""}
       </div>` : ""}
@@ -4824,12 +4824,18 @@ function renderNetTable(): void {
 
   // Rebuy sheet — shown on bust (auto) or via cog (manual). Same UI in lobby + table view.
   const mySeatLocal = seats.find((s) => s.uid === uid);
-  const busted = !!mySeatLocal && mySeatLocal.chips === 0 && status === "hand_over";
+  // PERSISTENT busted = seated, 0 chips, NOT in the current live hand (excludes an all-in seat that
+  // is chips=0-behind but inHand). Persisting across in_hand/hand_over keeps the rebuy affordance
+  // alive so a busted player never has to leave + rejoin to top up (the old hand_over-only gate
+  // vanished the instant the next hand dealt). The AUTO-open still only fires at hand_over (below)
+  // so the sheet never pops over a live hand the player is watching.
+  const seatedBroke = !!mySeatLocal && mySeatLocal.chips === 0 && !(mySeatLocal as { inHand?: boolean }).inHand;
+  const busted = seatedBroke;
   // Suppress auto-reopen for 4s after submit so the snapshot has time to reflect new
   // stack; without this guard, "rebuy submitted ↔ snapshot still shows chips=0" races and
   // the sheet pops right back open, masking the success.
   const recentlyRebought = (Date.now() - _rebuySubmittedAt) < 4000;
-  if (busted && !S.net.rebuy.open && !S.net.cog && !recentlyRebought) {
+  if (busted && status === "hand_over" && !S.net.rebuy.open && !S.net.cog && !recentlyRebought) {
     const hid = String(pub.handId ?? "");
     if (_bustHandId !== hid) { _bustHandId = hid; _bustShownAt = Date.now(); }
     const waited = Date.now() - _bustShownAt;
@@ -5100,6 +5106,16 @@ function renderNetTable(): void {
         <button class="action-btn ${cur > 0 ? "raise" : "bet"}" id="na-bet">${cur > 0 ? "Raise" : "Bet"}</button>
       </div>`;
     }
+  } else if (seatedBroke) {
+    // Dealt out (0 chips, not in this hand): grey the action area and show a PERSISTENT rebuy CTA so
+    // the player tops up + rejoins next hand without leaving + rejoining. No stale last-hand cards.
+    controls = `<div class="net-dealt-out">
+      <div class="ndo-msg">💥 You're out of chips — dealt out this hand 👀</div>
+      <div class="ndo-actions">
+        <button class="start-btn" id="na-rebuy">${S.net.busy ? '<span class="spin dark"></span>' : "Rebuy to keep playing"}</button>
+        <button class="hdr-btn" id="na-leave-broke">Leave table</button>
+      </div>
+    </div>`;
   } else {
     controls = `${heroRead}<div class="net-wait"><span class="spin"></span><span>${esc(seats[pub.toAct]?.name || "Opponent")} to act…</span></div>`;
   }
@@ -5114,6 +5130,7 @@ function renderNetTable(): void {
   app.innerHTML = `
     <div class="game net-game">
       <div class="game-topbar"><span>Room <strong>${code}</strong> · ${sym} ${currency === "premium" ? "premium" : "play"}${spectators.length ? ` · 👁 ${spectators.length}` : ""}${sidelined.length ? ` · 💤 ${sidelined.length}` : ""}${isSpectator ? " · watching" : ""}</span><div class="topbar-btns">${!isSpectator ? `<button class="hdr-btn style-pill style-${S.heroStyle}" id="net-style-btn" title="Your play style — tap to cycle. LAG/Maniac bluff more, Nit bluffs less.">${HERO_STYLE_SHORT[S.heroStyle] ?? "Bal"}</button>` : ""}<button class="hdr-btn ch-toggle" id="net-chat" title="Chat">💬${unread > 0 ? `<span class="ch-badge">${unread}</span>` : ""}</button><button class="hdr-btn" id="net-cog" title="Settings">⚙</button><button class="hdr-btn" id="net-leave">Leave</button></div></div>
+      ${spectators.length ? specPills : ""}
       <div class="stage">
         <div class="table-wrap"><div class="poker-table" style="--seat-scale:${seatScale((seats as unknown[]).length)}"><div class="felt"></div>${seatHtml}<div class="board-center">${center}</div>${potHtml}</div></div>
         <div class="controls"><div class="controls-body">${upsellHtml}${_pendingLeave ? `<div class="hint" style="text-align:center;margin-bottom:6px">⏳ Banking your chips & leaving after this hand…</div>` : ""}${controls}${S.net.err ? `<div class="room-broke" style="margin-top:8px">${esc(S.net.err)}</div>` : ""}</div></div>
@@ -5151,6 +5168,8 @@ function renderNetTable(): void {
   onId("na-fold", "click", () => void netAct({ type: "fold" }));
   onId("na-check", "click", () => void netAct({ type: "check" }));
   onId("na-call", "click", () => void netAct({ type: "call" }));
+  onId("na-rebuy", "click", openRebuySheet);
+  onId("na-leave-broke", "click", () => void netLeave());
   onId("na-bet", "click", () => {
     const seat = seats[pub.toAct]!; const cur = (pub.currentBet as number) || 0;
     const myMax = seat.chips + seat.bet; const bb = ((pub.blinds as { bb?: number })?.bb) || 2;

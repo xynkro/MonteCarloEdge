@@ -457,9 +457,14 @@ export const kickBot = onCall(async (req) => {
 /** Public lobby: ~20 open public rooms in waiting. Unauthenticated callers are fine —
  *  the data is the same projection already broadcast to subscribers. */
 export const listPublicRooms = onCall(async (_req) => {
+  // List public rooms in ANY live state — not just "waiting". The status lifecycle is one-way
+  // (waiting → in_hand → hand_over and never back), so a "waiting"-only filter dropped every room
+  // the instant its first hand dealt, making in-progress rooms invisible. joinTable already supports
+  // mid-hand join (open seat → dealt next hand, or spectate if full); the occupied>=seats drop below
+  // keeps only rooms with an open seat. (Equality + `in` is served by the existing isPublic+status index.)
   const snap = await db.collection("tables")
-    .where("status", "==", "waiting")
     .where("isPublic", "==", true)
+    .where("status", "in", ["waiting", "in_hand", "hand_over"])
     .limit(50)
     .get();
   const rooms: Array<{ code: string; name: string; sb: number; bb: number; occupied: number; max: number; currency: string }> = [];

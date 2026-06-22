@@ -735,20 +735,22 @@ body::after {
   /* Felt region: full width, top ~68%. The action bar owns the bottom strip. */
   .table-wrap {
     position: absolute; top: 0; left: 0; right: 0; height: 68%;
-    padding: 2px 18px 0; display: flex; align-items: center; justify-content: center;
+    /* env() insets keep corner seats clear of the Dynamic Island / notch in landscape (0 on non-notch). */
+    padding: 2px calc(18px + env(safe-area-inset-right)) 0 calc(18px + env(safe-area-inset-left)); display: flex; align-items: center; justify-content: center;
   }
   .poker-table { height: 100%; width: 100%; max-width: 100%; aspect-ratio: auto; }
   /* WSOP stadium: flat-ish top/bottom + rounded ends (vs portrait's near-circle). */
   .felt, .felt::after { border-radius: 15% / 42%; }
-  .board-center { top: 36%; }
-  .pot-line { top: 52%; } /* well above the lifted hero seat so it never sits on the avatar */
+  .board-center { top: 30%; }
+  .pot-line { top: 54%; } /* widened gap (was 52%) + smaller board cards so the pot pill never overlaps the cards */
+  .poker-table .board-card { width: 34px; height: 48px; font-size: 16px; }
   /* Controls = full-width bottom bar. Everything is flattened into ONE horizontal row:
      hand read + hole cards + MCE recommendation flow left; the action buttons are
      pushed to the right (margin-left:auto). Matches the WSOP bottom action strip. */
   .controls {
     position: absolute; left: 0; right: 0; bottom: 0; height: 32%; z-index: 30;
     display: flex; flex-direction: row; align-items: center; justify-content: flex-start;
-    padding: 0 16px calc(2px + env(safe-area-inset-bottom));
+    padding: 0 calc(16px + env(safe-area-inset-right)) calc(2px + env(safe-area-inset-bottom)) calc(16px + env(safe-area-inset-left));
     background: linear-gradient(to top, #060a12 70%, rgba(6,10,18,0));
     border-top: 1px solid var(--line); overflow: visible;
   }
@@ -760,7 +762,11 @@ body::after {
   .hand-summary { flex-direction: column; align-items: flex-start; gap: 1px; flex: 0 0 auto; }
   .hero-read-row { flex: 0 0 auto; margin: 0; }
   .rec-row { flex: 1 1 auto; min-width: 0; margin: 0; }
-  .rec-panel, .net-mce { max-height: 74px; max-width: 210px; overflow: hidden; }
+  .rec-panel { max-height: 74px; max-width: 210px; overflow: hidden; }
+  /* Online rec: float it LEFT (order:-1, like the trainer's .rec-row) and make IT the shrinkable
+     element so it stays on-screen instead of being shoved into the horizontal-scroll overflow. */
+  .net-readwrap .net-mce { order: -1; flex: 1 1 200px; min-width: 160px; max-width: 280px; max-height: 74px; overflow: hidden; }
+  .net-readwrap .story-lines, .net-readwrap .hand-summary { flex: 0 1 auto; min-width: 0; }
   /* Net table: its hero/read/mce/wait blocks flow inline too. */
   .net-hero, .net-read, .net-wait { flex: 0 0 auto; margin: 0; }
   .hero-cards { margin: 0; }
@@ -781,7 +787,7 @@ body::after {
   .modal-content:has(.betpad-grid) {
     width: min(46vw, 360px); max-width: 360px; height: 100%; max-height: 100%;
     border-radius: 16px 0 0 16px; border: 1px solid var(--line-2); border-right: none;
-    padding: 10px 14px calc(8px + env(safe-area-inset-bottom));
+    padding: 10px calc(14px + env(safe-area-inset-right)) calc(8px + env(safe-area-inset-bottom)) 14px;
     display: flex; flex-direction: column; justify-content: center; gap: 7px;
   }
   .modal-content:has(.betpad-grid) > h3 { margin: 0; }
@@ -2286,6 +2292,11 @@ body::after {
 .net-mce { background: linear-gradient(160deg, rgba(245,196,81,.13), rgba(124,92,255,.07)); border: 1px solid rgba(245,196,81,.34); border-radius: 13px; padding: 10px 13px; margin-bottom: 9px; }
 /* Shown to a player who has folded — out of the hand, so no read/recommendation, just watching. */
 .net-folded { text-align: center; color: var(--muted, #9aa4b2); font-size: .9rem; padding: 11px 12px; opacity: .85; }
+/* Busted/dealt-out: greyed action area with a persistent rebuy CTA (replaces the live controls). */
+.net-dealt-out { display: flex; flex-direction: column; align-items: center; gap: 10px; width: 100%; padding: 6px 0; text-align: center; }
+.net-dealt-out .ndo-msg { color: var(--muted, #9aa4b2); font-size: .92rem; font-weight: 700; opacity: .9; }
+.net-dealt-out .ndo-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; justify-content: center; }
+.net-dealt-out .start-btn { min-width: 200px; }
 .nm-row { display: flex; align-items: center; gap: 9px; }
 .nm-tag { font-size: .64rem; font-weight: 800; letter-spacing: .5px; color: #1a1305; background: var(--gold-2); padding: 3px 7px; border-radius: 6px; }
 .nm-action { flex: 1; font-size: 1.05rem; font-weight: 800; color: var(--gold-2); }
