@@ -2,7 +2,7 @@
 // - App shell / navigations: network-first (so updates land immediately when
 //   online), falling back to cache when offline.
 // - Hashed assets & others: stale-while-revalidate (instant, refresh in bg).
-const CACHE = "mce-v129";
+const CACHE = "mce-v130";
 
 self.addEventListener("install", () => {
   self.skipWaiting();
