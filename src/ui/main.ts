@@ -453,6 +453,15 @@ function _markScreenTransition(): void {
   void app.offsetWidth; // force reflow so the animation restarts
   app.classList.add("screen-in");
 }
+// Screen-history state for back navigation (see trackNav/goBack below). Declared HERE — above
+// render() — because the boot-time render() calls trackNav() before module evaluation reaches the
+// nav section; a `let` declared later would be in the temporal dead zone and throw, blanking the app.
+const ROOT_SCREENS = new Set(["home", "landing", "signin"]);
+const TABLE_SCREENS = new Set(["game", "mp-net", "mp-table"]);
+let _navStack: string[] = [];
+let _navLast: string | null = null;
+let _navBack = false;
+
 function render(): void {
   // Age gate blocks everything EXCEPT the Terms/How-it-works docs, so they're
   // readable from the gate itself before confirming.
@@ -6291,11 +6300,9 @@ function initCardTilt(): void {
 // screen on each forward navigation; goBack() pops it. Table screens are never recorded as back
 // destinations (you don't get dropped back into an abandoned hand). The explicit on-screen Back
 // buttons still work — they set S.screen and are tracked here like any other navigation.
-const ROOT_SCREENS = new Set(["home", "landing", "signin"]);
-const TABLE_SCREENS = new Set(["game", "mp-net", "mp-table"]);
-let _navStack: string[] = [];
-let _navLast: string | null = null;
-let _navBack = false;
+// NOTE: the ROOT_SCREENS/TABLE_SCREENS/_nav* state is declared ABOVE render() (not here) — trackNav()
+// runs inside the very first boot-time render(), so those bindings must be initialised before then
+// (else a temporal-dead-zone ReferenceError blanks the app for returning users).
 function trackNav(): void {
   if (_navLast === S.screen) return;
   if (_navBack) { _navBack = false; }

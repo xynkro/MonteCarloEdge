@@ -247,7 +247,8 @@ export async function signInWithGoogle(): Promise<MPUser> {
     if (!idToken) throw new Error("Google sign-in returned no credential.");
     const res = await signInWithCredential(getAuth(app), GoogleAuthProvider.credential(idToken, r.credential?.accessToken));
     const user = toUser(res.user);
-    user.isNew = getAdditionalUserInfo(res)?.isNewUser ?? false; // → onboarding for brand-new accounts
+    // isNew is a nice-to-have (onboarding routing) — it must NEVER break a successful sign-in.
+    try { user.isNew = getAdditionalUserInfo(res)?.isNewUser ?? false; } catch { /* non-fatal */ }
     void seedProfile(user); // best-effort — never block sign-in on a profile write (it can hang in a fresh native webview)
     return user;
   }
@@ -301,7 +302,8 @@ export async function signInWithApple(): Promise<MPUser> {
     const provider = new OAuthProvider("apple.com");
     const res = await signInWithCredential(getAuth(app), provider.credential({ idToken, rawNonce: r.credential?.nonce }));
     const user = toUser(res.user);
-    user.isNew = getAdditionalUserInfo(res)?.isNewUser ?? false; // → onboarding for brand-new accounts
+    // isNew is a nice-to-have (onboarding routing) — it must NEVER break a successful sign-in.
+    try { user.isNew = getAdditionalUserInfo(res)?.isNewUser ?? false; } catch { /* non-fatal */ }
     void seedProfile(user); // best-effort — never block sign-in on a profile write (it can hang in a fresh native webview)
     return user;
   }
