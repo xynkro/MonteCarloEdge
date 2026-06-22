@@ -40,20 +40,24 @@ export function mixFreqOf(
   return mix.filter((m) => m.action === action).reduce((s, m) => s + m.freq, 0);
 }
 
+// Plain-language verb for the grade label (names the better play to a learner).
+const ACT_WORD: Record<string, string> = { fold: "Fold", check: "Check", call: "Call", bet: "Bet", raise: "Raise" };
+
 export function gradeDecision(d: {
   chosen: ActionType;
   chosenAmt: number;
   rec: Recommendation;
 }): Grade {
   const rec = d.rec;
+  // Beginner-readable labels — name the correction instead of an "off-tree %" error code. The
+  // structured cls/score/bucket below are unchanged (all logic keys off those, not the text).
+  const better = `try ${ACT_WORD[rec.action] ?? rec.action}`;
   if (rec.mix && rec.mix.length > 0) {
     const f = mixFreqOf(rec.mix, d.chosen, d.chosenAmt);
-    const pct = Math.round(f * 100);
-    if (f >= 0.15) return { label: `✓ GTO line · ${pct}%`, cls: "g-ok", score: 1, bucket: "gto" };
-    if (f >= 0.02) return { label: `≈ rare GTO mix · ${pct}%`, cls: "g-mix", score: 0.6, bucket: "mixed" };
-    return { label: `✗ off-tree · ~${pct}%`, cls: "g-bad", score: 0, bucket: "off" };
+    if (f >= 0.15) return { label: "✓ Solid play", cls: "g-ok", score: 1, bucket: "gto" };
+    if (f >= 0.02) return { label: "≈ Playable, but rarely best", cls: "g-mix", score: 0.6, bucket: "mixed" };
+    return { label: `✗ Not the best — ${better}`, cls: "g-bad", score: 0, bucket: "off" };
   }
-  const src = SRC_WORD[rec.source ?? "heuristic"] ?? "strategy";
-  if (d.chosen === rec.action) return { label: `✓ matches ${src}`, cls: "g-ok", score: 1, bucket: "gto" };
-  return { label: `✗ off ${src}`, cls: "g-bad", score: 0, bucket: "off" };
+  if (d.chosen === rec.action) return { label: "✓ Solid play", cls: "g-ok", score: 1, bucket: "gto" };
+  return { label: `✗ Not the best — ${better}`, cls: "g-bad", score: 0, bucket: "off" };
 }

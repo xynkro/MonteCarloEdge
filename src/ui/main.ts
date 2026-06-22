@@ -968,11 +968,12 @@ function renderSetup(): void {
         <div class="field">
           <label for="gametype">Game type</label>
           <select id="gametype">
-            <option value="cash" ${!S.tournament ? "selected" : ""}>Cash (chip-EV)</option>
-            <option value="mtt" ${S.tournament ? "selected" : ""}>Tournament (ICM)</option>
+            <option value="cash" ${!S.tournament ? "selected" : ""}>Cash game</option>
+            <option value="mtt" ${S.tournament ? "selected" : ""}>Tournament</option>
           </select>
         </div>
       </div>
+      <span class="hint">${S.tournament ? "Tournament: survival matters — short stacks play tighter (ICM)." : "Cash game: every chip is worth its face value."}</span>
 
       ${S.tournament ? `
       <div class="field-row">
@@ -1817,7 +1818,7 @@ function renderGame(): void {
     handSummaryHtml = `<div class="hand-summary">
       <span class="hand-label ${d.strong ? "strong" : ""}">${d.label}${draws}</span>
       ${eqStr ? `<span class="hand-strength"><strong>${eqStr}</strong> win</span>` : ""}
-      ${odds > 0 ? `<span class="hand-odds"><strong>${(odds * 100).toFixed(0)}%</strong> to call</span>` : ""}
+      ${odds > 0 ? `<span class="hand-odds">need <strong>${(odds * 100).toFixed(0)}%</strong> to call</span>` : ""}
     </div>`;
   }
 
@@ -1855,11 +1856,12 @@ function renderGame(): void {
   // the big action label above it. Strip that leading "<action> — " prefix.
   const recReason = S.rec ? S.rec.reasoning.replace(/^\s*[A-Za-z][A-Za-z\s/-]*\s—\s/, "") : "";
   // Source badge — be honest about where the advice comes from.
+  // Plain "how sure is the engine" trust ladder, not solver acronyms (CFR/Nash mean nothing to a newcomer).
   const SRC: Record<string, { txt: string; cls: string }> = {
-    solver: { txt: "🧠 MCE · solved (CFR)", cls: "src-solver" },
-    nash: { txt: "Nash push/fold", cls: "src-nash" },
-    chart: { txt: "reference chart", cls: "src-chart" },
-    heuristic: { txt: "equity heuristic", cls: "src-heur" },
+    solver: { txt: "🧠 Rock-solid (exact math)", cls: "src-solver" },
+    nash: { txt: "Rock-solid (proven chart)", cls: "src-nash" },
+    chart: { txt: "Trusted chart", cls: "src-chart" },
+    heuristic: { txt: "Smart estimate", cls: "src-heur" },
   };
   const _solveSpot = liveSolverSpot();
   const solvingNow = !!_solveSpot && !liveSolveCache.has(_solveSpot);
@@ -1972,7 +1974,7 @@ function renderGame(): void {
           ${S.mode === "live" && S.undoStack.length > 0
             ? `<button class="hdr-btn undo" id="undo-btn" title="Undo ${S.undoStack[S.undoStack.length - 1]!.label}">↩ Undo</button>`
             : ""}
-          <button class="hdr-btn" id="new-hand">New Hand</button>
+          <button class="hdr-btn" id="new-hand">⚙ New Table</button>
         </div>
       </div>
 
@@ -5732,7 +5734,7 @@ function renderLanding(): void {
       <div class="lp-wrap">
         <div class="lp-hero">
           <h1 class="mc-wordmark"><span>MONTECARLO</span><b>EDGE</b></h1>
-          <p class="lp-sub">The GTO poker trainer that reads the table with you — live equity, pot odds, and the exact line, right in your hand.</p>
+          <p class="lp-sub">Practice Texas Hold'em against a smart AI that shows you the best move — and why — on every hand. Free, no real money.</p>
         </div>
         <button class="lp-film" id="lp-watch" aria-label="Play the welcome film">
           <img class="lp-poster" src="${B}textures/welcome.jpg" alt="">
@@ -5809,13 +5811,13 @@ function renderHome(): void {
         <span class="mce-body">
           <span class="mce-eyebrow">What is MCE Strategy?</span>
           <span class="mce-title">Your edge at every table</span>
-          <span class="mce-sub">A live, in-hand GTO read on your villain's range — equity, pot odds, recommended line. <strong>Solo training + leak report is free forever</strong>; Edge Pass adds the live overlay to online play.</span>
+          <span class="mce-sub">Every hand, the engine shows the best move and tells you why — what beats you, your odds, the play to make. <strong>Solo training is free forever</strong>; Edge Pass adds it to online play.</span>
         </span>
         <span class="mce-cta">Learn →</span>
       </button>
 
       <div class="mc-modes">
-        <button class="mc-mode train" id="home-train" style="--d:.05s"><span class="mc-mi">${ICON_TARGET}</span><span class="mc-mtext"><span class="mc-mt">Train</span><span class="mc-md">Solo vs the MCE Engine · free</span></span><span class="mc-arrow">→</span></button>
+        <button class="mc-mode train" id="home-train" style="--d:.05s"><span class="mc-mi">${ICON_TARGET}</span><span class="mc-mtext"><span class="mc-mt">Train</span><span class="mc-md">Learn solo vs the AI · start here · free</span></span><span class="mc-arrow">→</span></button>
         <button class="mc-mode online" id="home-pass" style="--d:.12s"><span class="mc-mi">${ICON_GLOBE}</span><span class="mc-mtext"><span class="mc-mt">Play Online</span><span class="mc-md">${loggedIn ? "Create a room · play for chips" : "Rooms with friends · play for chips"}</span></span><span class="mc-arrow">→</span></button>
         <button class="mc-mode pass" id="home-store-tile" style="--d:.19s"><span class="mc-mi">${ICON_BAG}</span><span class="mc-mtext"><span class="mc-mt">Store</span><span class="mc-md">Chips · cosmetics · Edge Pass</span></span><span class="mc-arrow">→</span></button>
         <button class="mc-mode profile" id="home-profile2" style="--d:.26s"><span class="mc-mi">${ICON_USER}</span><span class="mc-mtext"><span class="mc-mt">Profile</span><span class="mc-md">Avatar · name · chips</span></span><span class="mc-arrow">→</span></button>

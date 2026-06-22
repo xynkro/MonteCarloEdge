@@ -55,10 +55,11 @@ describe("gradeDecision — frequency-aware (solver mix)", () => {
 });
 
 describe("gradeDecision — match-based (heuristic / chart)", () => {
-  it("matching the recommended action scores 1 and names the source", () => {
+  it("matching the recommended action scores 1 (positive plain-language grade)", () => {
     const g = gradeDecision({ chosen: "raise", chosenAmt: 6, rec: rec({ source: "chart", action: "raise", amount: 6 }) });
     expect(g.score).toBe(1);
-    expect(g.label.toLowerCase()).toContain("chart");
+    expect(g.bucket).toBe("gto");
+    expect(g.label.startsWith("✓")).toBe(true);
   });
   it("deviating from the heuristic scores 0", () => {
     const g = gradeDecision({ chosen: "fold", chosenAmt: 0, rec: rec({ source: "heuristic", action: "call" }) });
