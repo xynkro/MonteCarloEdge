@@ -5325,8 +5325,15 @@ function renderOnboard(): void {
       </div>
       <div class="field"><label>Region (optional)</label><input class="si-input" id="ob-region" placeholder="e.g. Singapore" value="${esc(region)}"/></div>
       <button class="si-btn primary" id="ob-done">Let's play →</button>
+      <button class="si-skip" id="ob-skip">Skip — set up later</button>
     </div>`;
   onId("ob-av-auto", "click", () => { S.profile.avatar = ""; saveProfile(); render(); });
+  onId("ob-skip", "click", () => {
+    // Nothing required post-auth: keep the prefilled (OAuth) name, mark onboarded, go play.
+    if ((S.profile.nickname === "You" || !S.profile.nickname) && S.mp.auth?.name) { S.profile.nickname = S.mp.auth.name; saveProfile(); }
+    try { localStorage.setItem("mce-onboarded", "1"); } catch { /* */ }
+    S.screen = "home"; render();
+  });
   app.querySelectorAll("[data-ob-av]").forEach((b) => onEl(b, "click", () => { S.profile.avatar = (b as HTMLElement).dataset.obAv!; saveProfile(); render(); }));
   onId("ob-done", "click", () => {
     const nick = (document.getElementById("ob-nick") as HTMLInputElement | null)?.value.trim() || S.mp.auth?.name || "Player";
@@ -5713,8 +5720,8 @@ function renderStore(): void {
       </div>
 
       <div class="set-group"><div class="set-head">Edge Pass · the Monte Carlo Edge, live</div>
-        ${!hasEdge() ? `<div class="edge-banner"><div class="eb-copy"><span class="eb-eyebrow">⚡ Edge Pass</span><span class="eb-title">Read every villain's range — live</span><span class="eb-sub">Equity · pot odds · the line, at your seat</span></div></div>` : ""}
-        <div class="set-note" style="margin-bottom:9px">The real-time MCE overlay in online play + hand-history review + leak report. <strong>Solo Train stays 100% free, forever.</strong></div>
+        ${!hasEdge() ? `<div class="edge-banner"><div class="eb-copy"><span class="eb-eyebrow">⚡ Edge Pass</span><span class="eb-title">Your coach — now in real games</span><span class="eb-sub">The best move &amp; why, live, every online hand</span></div></div>` : ""}
+        <div class="set-note" style="margin-bottom:9px">The same live best-move advice you get free in <strong>Training</strong>, now in your <strong>online games</strong> — plus hand-history review &amp; your leak report. <strong>Solo Training stays 100% free, forever.</strong></div>
         ${hasEdge() ? `<div class="se-active">✓ Edge Pass active${S.isAdmin && !S.edgePass ? " (admin)" : ""}</div>${S.edgePass && !S.isAdmin ? `<button class="hdr-btn" id="edge-manage" style="width:100%;margin-top:8px">Manage subscription</button>` : ""}`
           : `${(iapOn ? EDGE_TIERS : EDGE_TIERS.filter((t) => t.id === "edge_monthly")).map((t) => `<div class="edge-tier ${t.best ? "best" : ""}"><div class="et-main"><div class="et-price">${t.price}</div><div class="et-sub">${t.sub}</div></div><button class="et-buy" data-pid="${t.id}" ${S.net.busy && S.net.busyId !== t.id ? "disabled" : ""}>${S.net.busy && S.net.busyId === t.id ? '<span class="spin dark"></span>' : "Get"}</button></div>`).join("")}
           <span class="hint">7-day free trial · cancel anytime in one tap.</span>`}
