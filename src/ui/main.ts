@@ -1693,6 +1693,78 @@ function avatarHtml(seat: number, isHero: boolean): string {
   return `<div class="seat-avatar img" style="color:${color}"><img src="/avatars/${name}.webp" alt="" loading="lazy" draggable="false"></div>`;
 }
 
+// ── In-hand glossary: plain-English poker terms, one tap away (the '?' in the trainer topbar). ──
+const GLOSSARY: Array<[string, string]> = [
+  ["Win %", "Your chance of holding the best hand if every remaining card were dealt out. Higher = you're ahead right now."],
+  ["Pot odds / “need X% to call”", "The win% you NEED for a call to break even. If your Win% is higher than this number, calling pays off over time."],
+  ["Position (BTN, CO, SB, BB…)", "Where you sit relative to the dealer button (BTN). Acting LATER — closer to the button — is a big edge: you see what everyone does before you decide."],
+  ["GTO", "“Game-Theory Optimal” — the mathematically balanced strategy nobody can exploit. The engine's advice aims for this."],
+  ["Range", "ALL the hands an opponent could have right now, not just one. Strong players read ranges, not single hands."],
+  ["Big blind (bb)", "The forced bet that sets the stakes. Stacks and bets are counted in big blinds so they compare across any limit."],
+];
+function showGlossary(): void {
+  document.getElementById("glossary-modal")?.remove();
+  const ov = document.createElement("div");
+  ov.className = "modal-backdrop"; ov.id = "glossary-modal";
+  ov.innerHTML = `<div class="modal-content gloss">
+    <h3>Poker terms, in plain English</h3>
+    <div class="gloss-list">${GLOSSARY.map(([t, d]) => `<div class="gloss-item"><span class="gloss-term">${t}</span><span class="gloss-def">${d}</span></div>`).join("")}</div>
+    <div class="modal-actions"><button class="confirm-btn" id="gloss-close">Got it 👍</button></div>
+  </div>`;
+  document.body.appendChild(ov);
+  onId("gloss-close", "click", () => ov.remove());
+  ov.addEventListener("click", (e) => { if (e.target === ov) ov.remove(); });
+}
+
+// ── First-hand coachmark: a one-time 3-step walkthrough on a beginner's very first dealt hand. ──
+// Lives on document.body (survives the morphdom re-render) and gates on a localStorage flag so it
+// shows exactly once, ever. The whole reason a newcomer froze before: zero teaching on hand one.
+const COACH_STEPS: Array<{ sel: string; text: string }> = [
+  { sel: ".hero-cards", text: "These two cards are <b>yours</b> — everyone else's are hidden. Your job: make the best of them." },
+  { sel: ".rec-panel", text: "This is the engine's <b>advice</b> for right now: the best move and a one-line reason. It updates every street." },
+  { sel: ".action-bar", text: "<b>Fold</b> = give up the hand. <b>Call</b> = match the bet. <b>Raise</b> = bet more. It's free practice — <b>no real money, ever</b>." },
+];
+function maybeShowFirstHandCoach(): void {
+  try { if (localStorage.getItem("mce-coach-1") === "1") return; } catch { return; }
+  if (document.getElementById("coach-overlay")) return;
+  if (S.mode !== "training" || S.handOver || S.trainingOver || !S.heroCards) return;
+  let step = 0;
+  const ov = document.createElement("div");
+  ov.className = "coach-overlay"; ov.id = "coach-overlay";
+  document.body.appendChild(ov);
+  const clearSpot = () => document.querySelectorAll(".coach-spot").forEach((e) => e.classList.remove("coach-spot"));
+  const finish = () => { try { localStorage.setItem("mce-coach-1", "1"); } catch { /* */ } clearSpot(); ov.remove(); };
+  const draw = () => {
+    clearSpot();
+    const s = COACH_STEPS[step]!;
+    const target = document.querySelector(s.sel) as HTMLElement | null;
+    let top = window.innerHeight * 0.42;
+    if (target) {
+      target.classList.add("coach-spot");
+      const r = target.getBoundingClientRect();
+      top = r.top > window.innerHeight * 0.5 ? r.top - 168 : r.bottom + 18;
+    }
+    top = Math.max(64, Math.min(top, window.innerHeight - 220));
+    ov.innerHTML = `<div class="coach-bubble" style="top:${top.toFixed(0)}px">
+      <div class="coach-step">Step ${step + 1} of ${COACH_STEPS.length}</div>
+      <div class="coach-text">${s.text}</div>
+      <div class="coach-actions">${step > 0 ? '<button class="coach-skip" id="coach-skip">Skip</button>' : '<button class="coach-skip" id="coach-skip">Skip</button>'}<button class="confirm-btn coach-next" id="coach-next">${step < COACH_STEPS.length - 1 ? "Next →" : "Got it 👍"}</button></div>
+    </div>`;
+    document.getElementById("coach-next")!.addEventListener("click", () => { step++; if (step >= COACH_STEPS.length) finish(); else draw(); });
+    document.getElementById("coach-skip")!.addEventListener("click", finish);
+  };
+  draw();
+}
+
+// ── Beginner mode: brand-new users start WITHOUT the dense range-reads (story-lines + Beats-you /
+// Drawing flanks) so hand one isn't a wall of jargon; a one-tap nudge reveals them. Returning users
+// (any play history) keep the reads on — no regression. The preference, once set, is sticky.
+function readsOn(): boolean {
+  // Default OFF: a learner starts with the dense range-reads hidden (hand one isn't a jargon wall),
+  // then taps the "Show range reads" nudge once to reveal them — sticky from then on.
+  try { return localStorage.getItem("mce-reads") === "1"; } catch { return false; }
+}
+
 function renderGame(): void {
   if (!S.gs && !S.heroCards) {
     app.innerHTML = `<div class="game"><div class="status-bar">Picking cards...</div></div>`;
@@ -1836,7 +1908,7 @@ function renderGame(): void {
   // Compact read: "Beats you" boxes flank the LEFT of the hero cards, "Drawing"
   // the RIGHT, freeing the row below for the story lines (Villain reps / Bet-to-rep).
   let beatsFlank = "", drawsFlank = "", storyLinesHtml = "";
-  if (S.boardRead && !S.handOver && !S.trainingOver) {
+  if (S.boardRead && !S.handOver && !S.trainingOver && readsOn()) {
     const made = S.boardRead.made.slice(0, 2);
     const draws = S.boardRead.draws.slice(0, 2);
     const tag = (t: Threat) => `<span class="flank-chip">${t.label}</span>`;
@@ -1857,6 +1929,10 @@ function renderGame(): void {
       : "";
     storyLinesHtml = (vilLine || heroLine) ? `<div class="story-lines">${vilLine}${heroLine}</div>` : "";
   }
+  // Beginner mode: when the dense reads are hidden, offer a one-tap nudge to turn them on (postflop only).
+  const readsNudge = (S.boardRead && !readsOn() && !S.handOver && !S.trainingOver && gs && gs.board.length >= 3)
+    ? `<button class="reads-nudge" id="reads-on">👁 Show range reads — what beats you &amp; what's drawing</button>`
+    : "";
 
   // ── Recommendation ──
   // The reason text leads with "Fold — …" / "Raise — …" etc, which just repeats
@@ -1978,6 +2054,9 @@ function renderGame(): void {
           ${S.mode === "training"
             ? `<button class="hdr-btn" id="speed-btn" title="Playback speed">${SPEED_LABEL[trainingSpeed()]}</button>`
             : ""}
+          ${S.mode === "training"
+            ? `<button class="hdr-btn" id="gloss-btn" title="What do these poker terms mean?" aria-label="Poker glossary">❔</button>`
+            : ""}
           ${S.mode === "live" && S.undoStack.length > 0
             ? `<button class="hdr-btn undo" id="undo-btn" title="Undo ${S.undoStack[S.undoStack.length - 1]!.label}">↩ Undo</button>`
             : ""}
@@ -2011,7 +2090,7 @@ function renderGame(): void {
           <div class="hero-area">
             ${handSummaryHtml}
             <div class="hero-read-row">${beatsFlank}<div class="hero-cards">${heroHtml}</div>${drawsFlank}</div>
-            ${storyLinesHtml}
+            ${storyLinesHtml}${readsNudge}
             <div class="rec-row">${recHtml}${canSolveGto() ? `<button class="gto-btn" id="gto-solve">${S.gtoSolving ? "Solving…" : "🧠 Solve"}</button>` : ""}</div>
           </div>
         </div>
@@ -2053,6 +2132,8 @@ function renderGame(): void {
     render();
   });
   onId("quiz-btn", "click", () => { toggleQuiz(); render(); });
+  onId("gloss-btn", "click", showGlossary);
+  onId("reads-on", "click", () => { try { localStorage.setItem("mce-reads", "1"); } catch { /* */ } render(); });
   onId("undo-btn", "click", undo);
   onId("next-hand", "click", nextHand);
   onId("train-again", "click", () => {
@@ -2201,6 +2282,13 @@ function renderGame(): void {
       }),
     );
   }
+
+  // First-hand coachmark — once ever, on a beginner's first training hand (after the deal settles).
+  try {
+    if (S.mode === "training" && localStorage.getItem("mce-coach-1") !== "1" && !document.getElementById("coach-overlay")) {
+      setTimeout(maybeShowFirstHandCoach, 480);
+    }
+  } catch { /* */ }
 }
 
 // Batch the obvious action for every opponent up to the hero (live mode).

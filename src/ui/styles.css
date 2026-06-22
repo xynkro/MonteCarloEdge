@@ -1160,6 +1160,39 @@ body::after {
 }
 .confirm-btn { background: linear-gradient(135deg, var(--emerald), var(--emerald-2)); color: #042018; }
 .cancel-btn { background: var(--surface-2); color: var(--muted) !important; border: 1px solid var(--line-2) !important; }
+
+/* In-hand glossary sheet */
+.modal-content.gloss { max-width: 420px; text-align: left; }
+.gloss-list { max-height: 56vh; overflow-y: auto; margin: 8px 0 4px; }
+.gloss-item { padding: 10px 2px; border-bottom: 1px solid var(--line); }
+.gloss-item:last-child { border-bottom: none; }
+.gloss-term { display: block; font-weight: 800; color: var(--gold); margin-bottom: 3px; font-size: .95rem; }
+.gloss-def { display: block; font-size: 13.5px; color: var(--muted); line-height: 1.45; }
+
+/* First-hand coachmark (one-time, on the first training hand) */
+.coach-overlay { position: fixed; inset: 0; z-index: 200; background: rgba(4,7,12,.55); }
+.coach-bubble {
+  position: absolute; left: 50%; transform: translateX(-50%); width: min(340px, 88vw);
+  background: linear-gradient(180deg, #1d2536, #141b2b); border: 1px solid var(--glass-edge);
+  border-radius: 16px; padding: 16px 16px 14px; box-shadow: var(--shadow-pop); text-align: center;
+  animation: coachIn .25s cubic-bezier(.2,.9,.3,1.2);
+}
+@keyframes coachIn { from { opacity: 0; transform: translateX(-50%) translateY(8px) scale(.97); } to { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); } }
+.coach-step { font-size: 11px; letter-spacing: 1.2px; text-transform: uppercase; color: var(--gold); font-weight: 800; margin-bottom: 7px; }
+.coach-text { font-size: 15px; line-height: 1.5; color: var(--text); margin-bottom: 14px; }
+.coach-text b { color: var(--gold); }
+.coach-actions { display: flex; gap: 8px; align-items: center; }
+.coach-actions .coach-next { flex: 1; padding: 13px; border: none; border-radius: var(--radius); font-weight: 800; cursor: pointer; }
+.coach-skip { background: transparent; border: none; color: var(--muted); font-size: 13px; padding: 9px 12px; cursor: pointer; }
+.coach-spot { box-shadow: 0 0 0 3px var(--gold), 0 0 30px 8px rgba(237,192,90,.55) !important; border-radius: 12px; position: relative; z-index: 201; }
+
+/* Beginner mode: nudge to reveal the dense range-reads */
+.reads-nudge {
+  display: block; margin: 6px auto 0; padding: 7px 14px; border-radius: 999px;
+  background: rgba(124,92,255,.14); border: 1px solid rgba(124,92,255,.4);
+  color: #b3a4ff; font-size: 12px; font-weight: 700; cursor: pointer;
+}
+@media (prefers-reduced-motion: reduce) { .coach-bubble { animation: none; } }
 .remove-player-btn {
   width: 100%; margin: 4px 0 10px; padding: 11px; border-radius: var(--radius);
   background: rgba(224,86,106,.12); border: 1px solid rgba(224,86,106,.45);
