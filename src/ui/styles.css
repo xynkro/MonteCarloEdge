@@ -1274,6 +1274,8 @@ body::after {
   border-radius: 999px; background: rgba(255,149,0,.16); color: #ff9f1c;
   animation: streakPop .35s cubic-bezier(.2,.8,.3,1.4) both;
 }
+/* Running session score in the training topbar — momentum on hands 2-10 / a broken streak. */
+.sess-acc { font-size: 11px; font-weight: 800; color: var(--muted); margin-left: 4px; }
 .streak-t2 { background: rgba(255,120,0,.22); color: #ff8800; box-shadow: 0 0 10px rgba(255,140,0,.35); }
 .streak-t3 { background: rgba(255,70,0,.28); color: #ff6a00;
   box-shadow: 0 0 16px rgba(255,90,0,.6); animation: streakBlaze 1s ease-in-out infinite; }

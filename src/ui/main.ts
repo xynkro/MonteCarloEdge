@@ -2010,7 +2010,7 @@ function renderGame(): void {
   // — but NOT in quiz mode (the size would give the answer away).
   const recAmt = S.rec && S.rec.amount > 0 ? roundBet(S.rec.amount) : 0;
   const betLabel = !quizHide && recAmt > 0 && S.rec?.action === "bet" ? `Bet ${chipsBet(recAmt)}` : "Bet";
-  const raiseLabel = !quizHide && recAmt > 0 && S.rec?.action === "raise" ? `Raise ${chipsBet(recAmt)}` : "Raise";
+  const raiseLabel = !quizHide && recAmt > 0 && S.rec?.action === "raise" ? `Raise to ${chipsBet(recAmt)}` : "Raise";
 
   // Multiway logging shortcuts: when it's an opponent's turn (live mode), batch
   // the obvious action for everyone up to the hero.
@@ -2055,6 +2055,11 @@ function renderGame(): void {
         <span>Hand #${S.handNumber}${S.mode === "training" ? " · <strong style=\"color:var(--violet)\">TRAINING</strong>" : ""}${
           S.mode === "training" && S.streak >= 2
             ? ` <span class="streak streak-t${S.streak >= 10 ? 3 : S.streak >= 5 ? 2 : 1}">🔥 ${S.streak}</span>`
+            : ""
+        }${
+          // Running session score — momentum on hands 2-10 / a broken streak, when the 🔥 pill is hidden.
+          S.mode === "training" && S.gradeStats.n >= 2
+            ? ` <span class="sess-acc">${Math.round((S.gradeStats.pts / S.gradeStats.n) * 100)}% GTO</span>`
             : ""
         }</span>
         <div class="topbar-btns">
@@ -2412,6 +2417,9 @@ function doAction(seat: number, type: ActionType): void {
     // verdict. A "fine mix" keeps the streak; a clear mistake breaks it.
     if (S.mode === "training") {
       if (g.bucket === "off") {
+        // Make the cost of a mistake legible: a broken hot streak gets called out on the verdict
+        // (loss aversion makes the streak feel worth protecting) instead of the 🔥 pill silently vanishing.
+        if (S.streak >= 2 && S.lastGrade) S.lastGrade = { ...S.lastGrade, label: `${S.lastGrade.label} · 🔥${S.streak} lost` };
         S.streak = 0;
         S.flashVerdict = "bad";
       } else {
@@ -2552,9 +2560,15 @@ function renderHandResult(positions: readonly string[]): string {
     ? `<button class="action-btn check" id="review-hand" style="flex:0 0 auto;padding:16px 14px">📋 Review</button>`
     : "";
 
+  // If the hero's hand-ENDING move was a clear mistake (e.g. a wrong fold), surface the verdict here —
+  // otherwise it's replaced by this result panel and only reachable via the opt-in 📋 Review.
+  const endMistake = S.mode === "training" && S.lastGrade && S.lastGrade.cls === "g-bad"
+    ? `<div class="last-grade g-bad" style="margin-top:6px">${S.lastGrade.label}</div>`
+    : "";
   return `
     <div class="result-panel">
       <div class="result-text">${S.handResult}</div>
+      ${endMistake}
       <div class="action-bar" style="margin-top:10px">
         ${reviewBtn}
         <button class="action-btn raise" id="next-hand" style="font-size:16px;padding:16px">NEXT HAND</button>
