@@ -29,6 +29,10 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // ── Friend codes ── shareable player ID → uid reverse index. Functions resolve codes server-side
+    // (addFriendByCode), so clients never read this (avoids enumerating who owns a code).
+    match /friendCodes/{code} { allow read, write: if false; }
+
     // ── User profiles ──
     // HARDENED: a client may write ONLY `name`. chips + strategyEntitled are
     // server-authoritative (Cloud Functions only) so a client cannot mint

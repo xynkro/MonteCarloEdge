@@ -198,6 +198,8 @@ export const sendMessage = (toUid: string, text: string) => callFn<{ ok: boolean
 export const sendFriendRequest = (toUid: string, toName?: string, fromName?: string) => callFn<{ ok: boolean; status: string }>("sendFriendRequest", { toUid, toName, fromName });
 export const respondFriendRequest = (fromUid: string, accept: boolean) => callFn<{ ok: boolean }>("respondFriendRequest", { fromUid, accept });
 export const removeFriend = (otherUid: string) => callFn<{ ok: boolean }>("removeFriend", { otherUid });
+export const getFriendCode = () => callFn<{ code: string }>("getOrCreateFriendCode", {});
+export const addFriendByCode = (code: string) => callFn<{ ok: boolean; status: string; name: string }>("addFriendByCode", { code });
 export interface Friendship { otherUid: string; name: string; status: "pending" | "accepted"; requester: string; incoming: boolean }
 /** Live friendships where I'm a participant — accepted + incoming/outgoing pending (incoming = they invited me). */
 export async function subscribeFriends(uid: string, cb: (fs: Friendship[]) => void): Promise<() => void> {

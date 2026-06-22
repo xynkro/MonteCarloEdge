@@ -748,6 +748,56 @@ export const sendDm = onCall(async (req) => {
   });
 });
 
+// ── friend codes (shareable player ID — the WSOP/Mobile-Legends model) ──
+const FCODE_ALPHA = "ACDEFGHJKLMNPQRSTUVWXYZ23456789"; // no ambiguous 0/O/1/I/B/8
+function genFriendCode(): string { let s = ""; for (let i = 0; i < 6; i++) s += FCODE_ALPHA[Math.floor(cryptoRng() * FCODE_ALPHA.length)]; return s; }
+
+/** Return my shareable friend code, generating + reserving a unique one on first call. */
+export const getOrCreateFriendCode = onCall(async (req) => {
+  const uid = uidOf(req);
+  const existing = (await userRef(uid).get()).data()?.friendCode as string | undefined;
+  if (existing) return { code: existing };
+  for (let i = 0; i < 8; i++) {
+    const code = genFriendCode();
+    try {
+      await db.runTransaction(async (tx) => {
+        const cref = db.doc(`friendCodes/${code}`);
+        if ((await tx.get(cref)).exists) throw new Error("collision");
+        tx.set(cref, { uid });
+        tx.set(userRef(uid), { friendCode: code }, { merge: true });
+      });
+      return { code };
+    } catch { /* collision → retry */ }
+  }
+  throw new HttpsError("internal", "Couldn't generate a code — try again.");
+});
+
+/** Send a friend request to whoever owns this code (mutual request auto-accepts). */
+export const addFriendByCode = onCall(async (req) => {
+  const uid = uidOf(req);
+  const norm = String((req.data as { code?: string })?.code ?? "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+  if (norm.length < 4) throw new HttpsError("invalid-argument", "Enter a valid friend code.");
+  const cdoc = await db.doc(`friendCodes/${norm}`).get();
+  if (!cdoc.exists) throw new HttpsError("not-found", "No player has that code.");
+  const toUid = (cdoc.data() as { uid: string }).uid;
+  if (!toUid || toUid === uid) throw new HttpsError("invalid-argument", "That's your own code.");
+  return db.runTransaction(async (tx) => {
+    const rl = await rlRead(tx, uid, "friendreq", 30, 60_000);
+    const fromSnap = await tx.get(userRef(uid));
+    const toSnap = await tx.get(userRef(toUid));
+    const ref = friendshipRef(uid, toUid);
+    const cur = await tx.get(ref);
+    const d = cur.exists ? (cur.data() as { status?: string; requester?: string }) : null;
+    if (d?.status === "accepted") throw new HttpsError("already-exists", "Already friends.");
+    const clean = (s: unknown) => String(s ?? "").trim().slice(0, 24);
+    const names = { [uid]: clean(fromSnap.data()?.name) || "Player", [toUid]: clean(toSnap.data()?.name) || "Player" };
+    tx.set(rl.ref, rl.data);
+    if (d?.status === "pending" && d.requester === toUid) { tx.set(ref, { status: "accepted", acceptedAt: FieldValue.serverTimestamp(), names }, { merge: true }); return { ok: true, status: "accepted", name: names[toUid] }; }
+    tx.set(ref, { users: [uid, toUid], requester: uid, status: "pending", createdAt: FieldValue.serverTimestamp(), names }, { merge: true });
+    return { ok: true, status: "pending", name: names[toUid] };
+  });
+});
+
 /** Super-admin only (gated by verified email): gift PLAY or PREMIUM chips, or adjust
  *  a balance (amount may be negative). The ONLY way premium chips are granted off-table. */
 export const adminGift = onCall(async (req) => {

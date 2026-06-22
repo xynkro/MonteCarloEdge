@@ -5429,9 +5429,12 @@ function setViewAsPlayer(v: boolean): void { _viewAsPlayer = v; try { localStora
 
 let _inboxErr = ""; // transient delete/action error shown on the inbox screen
 let _friendsErr = "";
+let _myFriendCode = ""; // my shareable player ID (fetched lazily on the Friends screen)
+let _codeCopied = false;
 function renderFriends(): void {
   cancelVillainTimer();
   const uid = S.mp.auth?.uid;
+  if (uid && !_myFriendCode) { FB.getFriendCode().then((r) => { _myFriendCode = r.code; if (S.screen === "friends") render(); }).catch(() => {}); }
   const friends = S.mp.friends;
   const onlineMap = new Map(S.mp.online.map((p) => [p.uid, p]));
   const accepted = friends.filter((f) => f.status === "accepted");
@@ -5451,6 +5454,10 @@ function renderFriends(): void {
   app.innerHTML = `
     <div class="setup doc">
       <div class="doc-top"><button class="hdr-btn" id="fr-back">← Back</button><h1>👥 Friends</h1><span style="width:54px"></span></div>
+      <div class="fr-codecard">
+        <div class="fr-code-row"><span class="fr-code-label">Your friend code — share it</span><button class="fr-code-val" id="fr-copy">${_myFriendCode ? esc(_myFriendCode) : "…"} <span class="fr-code-ic">${_codeCopied ? "✓ copied" : "📋"}</span></button></div>
+        <div class="fr-addrow"><input class="si-input" id="fr-code-in" placeholder="Enter a friend's code" maxlength="8" autocomplete="off" autocapitalize="characters" spellcheck="false"/><button class="start-btn" id="fr-code-add">Add</button></div>
+      </div>
       ${incoming.length ? `<div class="set-head" style="margin:4px 0 6px">Requests · ${incoming.length}</div>${incoming.map((f) => `<div class="fr-row req">${avatarChip("", f.name, 34)}<div class="fr-info"><span class="fr-name">${esc(f.name)}</span><span class="fr-status">wants to be friends</span></div><div class="fr-actions"><button class="start-btn fr-accept" data-uid="${esc(f.otherUid)}">Accept</button><button class="hdr-btn fr-decline" data-uid="${esc(f.otherUid)}" aria-label="Decline">✕</button></div></div>`).join("")}` : ""}
       <div class="set-head" style="margin:10px 0 6px">Your friends · ${accepted.length}</div>
       ${accepted.length === 0 ? `<div class="hint" style="margin-bottom:10px">No friends yet — add someone from the online list below.</div>` : `${onlineFriends.map((f) => fRow(f, onlineMap.get(f.otherUid))).join("")}${offlineFriends.map((f) => fRow(f)).join("")}`}
@@ -5461,6 +5468,18 @@ function renderFriends(): void {
     </div>`;
   const act = (fn: () => Promise<unknown>) => { _friendsErr = ""; fn().catch((e) => { _friendsErr = friendlyErr(e); render(); }); };
   onId("fr-back", "click", () => { _friendsErr = ""; S.screen = "home"; render(); });
+  onId("fr-copy", "click", () => {
+    if (!_myFriendCode) return;
+    try { void navigator.clipboard?.writeText(_myFriendCode); } catch { /* */ }
+    try { void (navigator as { share?: (d: { text: string }) => Promise<void> }).share?.({ text: `Add me on MonteCarloEdge — my friend code is ${_myFriendCode}` }); } catch { /* */ }
+    _codeCopied = true; render();
+    setTimeout(() => { _codeCopied = false; if (S.screen === "friends") render(); }, 1600);
+  });
+  onId("fr-code-add", "click", () => {
+    const code = (document.getElementById("fr-code-in") as HTMLInputElement | null)?.value.trim() ?? "";
+    if (!code) return;
+    act(() => FB.addFriendByCode(code).then(() => { const i = document.getElementById("fr-code-in") as HTMLInputElement | null; if (i) i.value = ""; }));
+  });
   app.querySelectorAll(".fr-accept").forEach((b) => onEl(b, "click", () => act(() => FB.respondFriendRequest((b as HTMLElement).dataset.uid!, true))));
   app.querySelectorAll(".fr-decline").forEach((b) => onEl(b, "click", () => act(() => FB.respondFriendRequest((b as HTMLElement).dataset.uid!, false))));
   app.querySelectorAll(".fr-add").forEach((b) => onEl(b, "click", () => act(() => FB.sendFriendRequest((b as HTMLElement).dataset.uid!, (b as HTMLElement).dataset.name!, S.mp.auth?.name))));
@@ -6063,16 +6082,16 @@ function renderHome(): void {
       ${loggedIn ? "" : `<button class="mc-login-banner" id="home-signin-banner">🔒 <strong>Not logged in</strong> — sign in to save your chips &amp; play online. <span>Train is free →</span></button>`}
       ${S.isAdmin && _viewAsPlayer ? `<button class="mc-login-banner preview" id="home-exit-preview">👁 <strong>Player preview</strong> — you're seeing the app as a normal player. <span>Exit →</span></button>` : ""}
 
-      <button class="mce-card" id="home-mce">
+      <button class="mce-card compact" id="home-mce">
         <span class="mce-shimmer" aria-hidden="true"></span>
         <span class="mce-icon">${ICON_BOLT}</span>
-        <span class="mce-body">
-          <span class="mce-eyebrow">What is MCE Strategy?</span>
-          <span class="mce-title">Your edge at every table</span>
-          <span class="mce-sub">Every hand, the engine shows the best move and tells you why — what beats you, your odds, the play to make. <strong>Solo training is free forever</strong>; Edge Pass adds it to online play.</span>
-        </span>
+        <span class="mce-line">Each hand, the engine shows you the <strong>best move</strong></span>
         <span class="mce-cta">Learn →</span>
       </button>
+
+      ${_acc !== null
+        ? `<button class="mc-progress" id="home-stats" style="--d:.05s"><span class="mp-acc"><strong>${_acc}%</strong> GTO accuracy</span><span class="mp-mid">· ${_decs.length} hand${_decs.length === 1 ? "" : "s"}</span><span class="mp-cta">Leaks →</span></button>`
+        : `<button class="mc-stats" id="home-stats" style="--d:.05s">${ICON_CHART} Stats &amp; Leak Report</button>`}
 
       <div class="mc-modes">
         <button class="mc-mode train" id="home-train" style="--d:.05s"><span class="mc-mi">${ICON_TARGET}</span><span class="mc-mtext"><span class="mc-mt">Train</span><span class="mc-md">Learn solo vs the AI · start here · free</span></span><span class="mc-arrow">→</span></button>
@@ -6081,9 +6100,6 @@ function renderHome(): void {
         <button class="mc-mode profile" id="home-profile2" style="--d:.26s"><span class="mc-mi">${ICON_USER}</span><span class="mc-mtext"><span class="mc-mt">Profile</span><span class="mc-md">Avatar · name · chips</span></span><span class="mc-arrow">→</span></button>
       </div>
 
-      ${_acc !== null
-        ? `<button class="mc-progress" id="home-stats" style="--d:.33s"><span class="mp-acc"><strong>${_acc}%</strong> GTO accuracy</span><span class="mp-mid">· ${_decs.length} hand${_decs.length === 1 ? "" : "s"}</span><span class="mp-cta">Leaks →</span></button>`
-        : `<button class="mc-stats" id="home-stats" style="--d:.33s">${ICON_CHART} Stats &amp; Leak Report</button>`}
       <div class="mc-foot">
         <button class="mc-foot-link" id="home-proof">The Proof</button><span>·</span>
         <button class="mc-foot-link" id="home-explainer">How it works</button><span>·</span>
