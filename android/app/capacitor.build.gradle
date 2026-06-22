@@ -12,6 +12,7 @@ dependencies {
     implementation project(':capacitor-firebase-authentication')
     implementation project(':capacitor-splash-screen')
     implementation project(':capacitor-status-bar')
+    implementation project(':revenuecat-purchases-capacitor')
 
 }
 
