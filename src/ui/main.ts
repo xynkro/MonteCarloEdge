@@ -1497,6 +1497,12 @@ function seatCoord(seatIdx: number): { left: number; top: number } {
   const vis = (seatIdx - S.heroSeat + n) % n;
   return tableSeatPos(vis, n);
 }
+// Uniform shrink for crowded tables: full size up to 6 seats (the common case — unchanged), then
+// ramp down to ~0.78 at 10-max so seat chips/avatars/reveal-cards don't overlap the felt edge or
+// each other on a narrow phone. Applied as a CSS scale() on .table-seat via --seat-scale.
+function seatScale(n: number): number {
+  return n <= 6 ? 1 : Math.max(0.78, +(1 - (n - 6) * 0.055).toFixed(3));
+}
 
 // A small head-and-shoulders silhouette avatar so opponents read as people, not
 // just labels. Colour varies per seat for distinction; hero is emerald.
@@ -1957,7 +1963,7 @@ function renderGame(): void {
 
       <div class="stage">
       <div class="table-wrap">
-        <div class="poker-table" id="poker-table">
+        <div class="poker-table" id="poker-table" style="--seat-scale:${seatScale(S.tableSize)}">
           <div class="felt"></div>
           ${seats}
           <div class="board-center" id="board-area">${boardHtml}</div>
@@ -4961,7 +4967,7 @@ function renderNetTable(): void {
     <div class="game net-game">
       <div class="game-topbar"><span>Room <strong>${code}</strong> · ${sym} ${currency === "premium" ? "premium" : "play"}${spectators.length ? ` · 👁 ${spectators.length}` : ""}${sidelined.length ? ` · 💤 ${sidelined.length}` : ""}${isSpectator ? " · watching" : ""}</span><div class="topbar-btns">${!isSpectator ? `<button class="hdr-btn style-pill style-${S.heroStyle}" id="net-style-btn" title="Your play style — tap to cycle. LAG/Maniac bluff more, Nit bluffs less.">${HERO_STYLE_SHORT[S.heroStyle] ?? "Bal"}</button>` : ""}<button class="hdr-btn ch-toggle" id="net-chat" title="Chat">💬${unread > 0 ? `<span class="ch-badge">${unread}</span>` : ""}</button><button class="hdr-btn" id="net-cog" title="Settings">⚙</button><button class="hdr-btn" id="net-leave">Leave</button></div></div>
       <div class="stage">
-        <div class="table-wrap"><div class="poker-table"><div class="felt"></div>${seatHtml}<div class="board-center">${center}</div>${potHtml}</div></div>
+        <div class="table-wrap"><div class="poker-table" style="--seat-scale:${seatScale((seats as unknown[]).length)}"><div class="felt"></div>${seatHtml}<div class="board-center">${center}</div>${potHtml}</div></div>
         <div class="controls"><div class="controls-body">${upsellHtml}${_pendingLeave ? `<div class="hint" style="text-align:center;margin-bottom:6px">⏳ Banking your chips & leaving after this hand…</div>` : ""}${controls}${S.net.err ? `<div class="room-broke" style="margin-top:8px">${esc(S.net.err)}</div>` : ""}</div></div>
       </div>
       ${netCogSheetHtml(pub, seats as CogSeat[], uid)}

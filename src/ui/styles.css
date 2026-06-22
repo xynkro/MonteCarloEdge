@@ -401,7 +401,7 @@ body::after {
   color: rgba(255,255,255,.55); margin-top: 3px;
 }
 
-.table-seat { position: absolute; transform: translate(-50%, -50%); z-index: 2; text-align: center; }
+.table-seat { position: absolute; transform: translate(-50%, -50%) scale(var(--seat-scale, 1)); z-index: 2; text-align: center; }
 
 /* Player silhouette (training) — sits above the seat chip */
 .seat-avatar {
