@@ -516,6 +516,8 @@ function renderNumpad(): void {
     : target === "seatstack" ? (S.seatStacks[S.numpadSeat] ?? S.stackBB) : S.stackBB;
   const display = S.numpadRaw || String(current);
   const unit = target === "sb" || target === "bb" ? "$" : "";
+  // Live mode: let the user name the real player sitting in this seat (replaces the random name).
+  const nameThisSeat = target === "seatstack" && S.mode === "live" && S.numpadSeat !== S.heroSeat;
 
   const overlay = document.createElement("div");
   overlay.className = "modal-backdrop";
@@ -523,6 +525,7 @@ function renderNumpad(): void {
   overlay.innerHTML = `
     <div class="modal-content">
       <h3>${title}</h3>
+      ${nameThisSeat ? `<input class="si-input np-name" id="np-name" placeholder="Player name" maxlength="14" autocomplete="off" value="${esc(seatName(S.numpadSeat))}" style="margin:0 0 12px" />` : ""}
       <div class="betpad-display">${unit}${display}</div>
       <div class="betpad-grid">
         ${["1","2","3","4","5","6","7","8","9",".","0","⌫"].map(k =>
@@ -561,6 +564,10 @@ function renderNumpad(): void {
     document.getElementById("numpad-modal")?.remove();
   });
   onId("np-confirm", "click", () => {
+    if (nameThisSeat) {
+      const nm = (document.getElementById("np-name") as HTMLInputElement | null)?.value.trim();
+      if (nm) S.seatNames[S.numpadSeat] = nm; // rename this real player (kept until table size changes)
+    }
     const v = parseFloat(S.numpadRaw);
     if (!isNaN(v) && v > 0) {
       if (target === "sb") {
