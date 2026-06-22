@@ -99,6 +99,7 @@ interface AppState {
     serverChips: number | null;      // server-held balance
     joinCode: string;
     busy: boolean;
+    busyId: string;        // which store action is pending (product id / "restore") — scopes the spinner
     err: string;
     cog: boolean;          // in-lobby settings sheet visible
     publicRooms: Array<{ code: string; name: string; sb: number; bb: number; occupied: number; max: number; currency: string }> | null;
@@ -230,7 +231,7 @@ const S: AppState = {
     authBusy: false,
     authErr: "",
   },
-  net: { code: null, pub: null, myHand: null, myRec: null, serverChips: null, joinCode: "", busy: false, err: "", cog: false, publicRooms: null, publicRoomsBusy: false, rebuy: { open: false, amount: 0, err: "" }, chat: { open: false, msgs: [], draft: "", lastReadTs: 0 } },
+  net: { code: null, pub: null, myHand: null, myRec: null, serverChips: null, joinCode: "", busy: false, busyId: "", err: "", cog: false, publicRooms: null, publicRoomsBusy: false, rebuy: { open: false, amount: 0, err: "" }, chat: { open: false, msgs: [], draft: "", lastReadTs: 0 } },
   edgePass: false,
   wallet: { play: null, premium: null },
   lastWeekly: 0,
@@ -3328,7 +3329,7 @@ async function renderStats(): Promise<void> {
         <div class="stat-label">All Time: ${allStats.hands} hands, ${fmt(allStats.totalPnl)}</div>
       </div>` : "")}
 
-      <button class="start-btn" id="leak-report" style="background:linear-gradient(135deg,#7c3aed,#5b21b6);color:#fff">🔍 Leak Report</button>
+      <button class="start-btn" id="leak-report" style="background:linear-gradient(135deg,var(--violet),var(--violet-2));color:#fff">🔍 Leak Report</button>
       <button class="start-btn" id="back-setup" style="margin-top:8px">Back to Table</button>
       ${allHands.length > 0 ? `<button class="hdr-btn" id="export-csv" style="width:100%;padding:12px;margin-top:4px;font-size:13px">Export CSV</button>` : ""}
       ${allHands.length > 0 ? `<button class="hdr-btn" id="clear-hist" style="width:100%;padding:12px;margin-top:4px;font-size:13px;color:var(--red)">Clear All History</button>` : ""}
@@ -4412,7 +4413,7 @@ function netCogSheetHtml(pub: Record<string, any>, seats: CogSeat[], uid: string
   return `
     <div class="cog-backdrop" id="cog-close"></div>
     <div class="cog-sheet">
-      <div class="cog-head"><span>Room settings</span><button class="hdr-btn" id="cog-x">✕</button></div>
+      <div class="cog-head"><span>Room settings</span><button class="hdr-btn" id="cog-x" aria-label="Close room settings">✕</button></div>
       <div class="cog-section"><div class="cog-label">Your seat</div>
         <div class="cog-row"><span>MCE Strategy</span>
           <button class="mce-toggle ${hasEdge() && assistedOn ? "on" : ""} ${!hasEdge() ? "locked" : ""}" id="cog-mce">${!hasEdge() ? "🔒 Edge Pass" : assistedOn ? "🧠 ON" : "OFF"}</button>
@@ -4654,7 +4655,7 @@ function renderNetTable(): void {
   const chatDrawer = chat.open ? `
     <div class="cog-backdrop" id="ch-close"></div>
     <div class="chat-drawer">
-      <div class="cog-head"><span>💬 Room chat</span><button class="hdr-btn" id="ch-x">✕</button></div>
+      <div class="cog-head"><span>💬 Room chat</span><button class="hdr-btn" id="ch-x" aria-label="Close chat">✕</button></div>
       <div class="ch-stream" id="ch-stream">
         ${chat.msgs.length === 0
           ? `<div class="hint" style="text-align:center;padding:20px 0">Say hi — your messages go to seated players and spectators.</div>`
@@ -4696,7 +4697,7 @@ function renderNetTable(): void {
     ${lobby ? `<div class="cog-backdrop" id="rb-close"></div>`
       : !busted ? `<div class="cog-backdrop cog-backdrop-clear" id="rb-close"></div>` : ""}
     <div class="cog-sheet rebuy-sheet${!lobby ? " rebuy-floating" : ""}">
-      <div class="cog-head"><span>${busted ? "💥 Busted — top up" : "Top up your stack"}</span><button class="hdr-btn" id="rb-x">✕</button></div>
+      <div class="cog-head"><span>${busted ? "💥 Busted — top up" : "Top up your stack"}</span><button class="hdr-btn" id="rb-x" aria-label="Close">✕</button></div>
       <div class="rb-display">
         <span class="rb-sym">${sym}</span><span class="rb-amt">${mpc(rebuyAmt)}</span>
         <span class="rb-bb">${(rebuyAmt / myBb).toFixed(1)} bb · new stack ${sym} ${mpc(newStack)}</span>
@@ -5254,7 +5255,7 @@ function renderInbox(): void {
           <div class="ib-body"><div class="ib-from">${esc(m.fromName)}</div><div class="ib-text">${body}</div></div>
           <div class="ib-actions">
             ${m.from && m.from !== "admin" ? `<button class="hdr-btn ib-reply" data-uid="${esc(m.from)}" data-name="${esc(m.fromName)}">Reply</button>` : ""}
-            <button class="hdr-btn ib-delete" data-id="${esc(m.id)}" title="Delete">✕</button>
+            <button class="hdr-btn ib-delete" data-id="${esc(m.id)}" title="Delete" aria-label="Delete message">✕</button>
           </div>
         </div>`;
       }).join("")}
@@ -5574,7 +5575,7 @@ function renderStore(): void {
   const pack = (pk: { id: string; chips: string; price: string; badge?: string; bonus?: string }, sym: string) => `
     <div class="pack ${pk.badge ? "best" : ""}">${pk.badge ? `<span class="pack-badge">${pk.badge}</span>` : ""}
       <div class="pack-amt">${sym} ${pk.chips}</div>${pk.bonus ? `<div class="pack-bonus">${pk.bonus}</div>` : ""}
-      ${iapOn ? `<button class="pack-buy" data-pid="${pk.id}">${pk.price}</button>`
+      ${iapOn ? `<button class="pack-buy" data-pid="${pk.id}" ${S.net.busy && S.net.busyId !== pk.id ? "disabled" : ""}>${S.net.busy && S.net.busyId === pk.id ? '<span class="spin dark"></span>' : pk.price}</button>`
         : `<button class="pack-buy soon" disabled>${pk.price} · Soon</button>`}
     </div>`;
   app.innerHTML = `
@@ -5592,16 +5593,16 @@ function renderStore(): void {
         ${!hasEdge() ? `<div class="edge-banner"><div class="eb-copy"><span class="eb-eyebrow">⚡ Edge Pass</span><span class="eb-title">Read every villain's range — live</span><span class="eb-sub">Equity · pot odds · the line, at your seat</span></div></div>` : ""}
         <div class="set-note" style="margin-bottom:9px">The real-time MCE overlay in online play + hand-history review + leak report. <strong>Solo Train stays 100% free, forever.</strong></div>
         ${hasEdge() ? `<div class="se-active">✓ Edge Pass active${S.isAdmin && !S.edgePass ? " (admin)" : ""}</div>${S.edgePass && !S.isAdmin ? `<button class="hdr-btn" id="edge-manage" style="width:100%;margin-top:8px">Manage subscription</button>` : ""}`
-          : `${(iapOn ? EDGE_TIERS : EDGE_TIERS.filter((t) => t.id === "edge_monthly")).map((t) => `<div class="edge-tier ${t.best ? "best" : ""}"><div class="et-main"><div class="et-price">${t.price}</div><div class="et-sub">${t.sub}</div></div><button class="et-buy" data-pid="${t.id}">${S.net.busy ? '<span class="spin dark"></span>' : "Get"}</button></div>`).join("")}
+          : `${(iapOn ? EDGE_TIERS : EDGE_TIERS.filter((t) => t.id === "edge_monthly")).map((t) => `<div class="edge-tier ${t.best ? "best" : ""}"><div class="et-main"><div class="et-price">${t.price}</div><div class="et-sub">${t.sub}</div></div><button class="et-buy" data-pid="${t.id}" ${S.net.busy && S.net.busyId !== t.id ? "disabled" : ""}>${S.net.busy && S.net.busyId === t.id ? '<span class="spin dark"></span>' : "Get"}</button></div>`).join("")}
           <span class="hint">7-day free trial · cancel anytime in one tap.</span>`}
       </div>
 
       <div class="set-group"><div class="set-head"><i class=ic-coin></i> Play chips</div>
-        <div class="set-note" style="margin-bottom:9px">Practice currency · refills free every Monday (+streak). AI rooms + learning tables. Buy-in capped at 100bb, so chips never buy an edge.</div>
+        <div class="set-note" style="margin-bottom:9px">Practice currency · refills free every Monday (+streak). AI rooms + learning tables. Buy-in capped at 100bb, so chips never buy an edge.${iapOn ? "" : " <em>Chip packs arrive with the mobile app — Edge Pass is available now.</em>"}</div>
         <div class="pack-grid">${PLAY_PACKS.map((pk) => pack(pk, "<i class=ic-coin></i>")).join("")}</div>
       </div>
 
-      ${iapOn ? `<button class="hdr-btn" id="store-restore" style="width:100%;padding:12px;margin-top:10px">${S.net.busy ? '<span class="spin"></span>' : "Restore purchases"}</button>` : ""}
+      ${iapOn ? `<button class="hdr-btn" id="store-restore" style="width:100%;padding:12px;margin-top:10px" ${S.net.busy && S.net.busyId !== "restore" ? "disabled" : ""}>${S.net.busy && S.net.busyId === "restore" ? '<span class="spin"></span>' : "Restore purchases"}</button>` : ""}
       <button class="hdr-btn" id="store-back2" style="width:100%;padding:12px;margin-top:10px">Back</button>
     </div>`;
   onId("store-back", "click", () => { S.screen = "home"; render(); });
@@ -5622,10 +5623,10 @@ function renderStore(): void {
 async function buyPack(pid: string): Promise<void> {
   if (!(await ensureSignedIn())) { S.screen = "signin"; render(); return; }
   if (S.net.busy) return;
-  S.net.busy = true; render();
+  S.net.busy = true; S.net.busyId = pid; render();
   try { await IAP.rcPurchase(pid); }
   catch (e) { S.net.err = friendlyErr(e); }
-  S.net.busy = false; render();
+  S.net.busy = false; S.net.busyId = ""; render();
 }
 
 // Restore purchases (native). Re-syncs RevenueCat; an active Edge Pass re-lands via the webhook →
@@ -5633,21 +5634,21 @@ async function buyPack(pid: string): Promise<void> {
 async function doRestore(): Promise<void> {
   if (!(await ensureSignedIn())) { S.screen = "signin"; render(); return; }
   if (S.net.busy) return;
-  S.net.busy = true; render();
+  S.net.busy = true; S.net.busyId = "restore"; render();
   try { const any = await IAP.rcRestore(); S.net.err = any ? "" : "No active purchases to restore."; }
   catch (e) { S.net.err = friendlyErr(e); }
-  S.net.busy = false; render();
+  S.net.busy = false; S.net.busyId = ""; render();
 }
 
 // Edge Pass purchase. Native → RevenueCat IAP for the tapped tier; web → existing Stripe path.
 async function buyEdge(pid: string): Promise<void> {
-  if (!IAP.rcConfigured()) { void startEdgePass(); return; }
+  if (!IAP.rcConfigured()) { S.net.busyId = pid; void startEdgePass(); return; }
   if (!(await ensureSignedIn())) { S.screen = "signin"; render(); return; }
   if (S.net.busy) return;
-  S.net.busy = true; render();
+  S.net.busy = true; S.net.busyId = pid; render();
   try { await IAP.rcPurchase(pid); }
   catch (e) { S.net.err = friendlyErr(e); }
-  S.net.busy = false; render();
+  S.net.busy = false; S.net.busyId = ""; render();
 }
 
 // Edge Pass: redirect to Stripe Checkout (the secret keys live server-side; the
