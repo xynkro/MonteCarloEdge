@@ -379,9 +379,14 @@ Object.defineProperty(app, "innerHTML", {
       // #board-area's openBoardPicker only when needsBoard) would otherwise
       // linger after the condition turns false. render() re-runs ALL wiring
       // immediately after this morph, so every handler still needed is re-added.
-      onBeforeElUpdated(fromEl: HTMLElement): boolean {
+      onBeforeElUpdated(fromEl: HTMLElement, toEl: HTMLElement): boolean {
         if (fromEl.onclick) fromEl.onclick = null;
         if (fromEl.onchange) fromEl.onchange = null;
+        // Preserve the transient coach spotlight across re-renders: the template never carries
+        // .coach-spot, so morphdom's attribute sync would strip it (and its pointer-events:none)
+        // mid-tutorial, making the highlight vanish + the spotlit controls clickable again.
+        // clearSpot()/finish() remove it on teardown.
+        if (fromEl.classList.contains("coach-spot")) toEl.classList.add("coach-spot");
         return true;
       },
     });
@@ -608,6 +613,12 @@ function removePlayer(seat: number): void {
   const newStacks: number[] = [];
   for (let i = 0; i < n; i++) if (i !== seat) newStacks.push(S.seatStacks[i] ?? S.stackBB);
   S.seatStacks = newStacks;
+
+  // Custom/session seat names: drop the leaving seat, keep order — else ensureSeatNames sees a stale
+  // length next render and re-randomizes ALL names, wiping a just-renamed real player.
+  const newNames: string[] = [];
+  for (let i = 0; i < n; i++) if (i !== seat) newNames.push(S.seatNames[i] ?? "");
+  S.seatNames = newNames;
 
   // Per-seat maps: drop the seat, shift higher indices down.
   const remapMap = <T>(m: Map<number, T>): Map<number, T> => {
@@ -1721,13 +1732,15 @@ function showGlossary(): void {
 // shows exactly once, ever. The whole reason a newcomer froze before: zero teaching on hand one.
 const COACH_STEPS: Array<{ sel: string; text: string }> = [
   { sel: ".hero-cards", text: "These two cards are <b>yours</b> — everyone else's are hidden. Your job: make the best of them." },
-  { sel: ".rec-panel", text: "This is the engine's <b>advice</b> for right now: the best move and a one-line reason. It updates every street." },
+  { sel: ".rec-row", text: "This is the engine's <b>advice</b> for right now: the best move and a one-line reason. It updates every street." },
   { sel: ".action-bar", text: "<b>Fold</b> = give up the hand. <b>Call</b> = match the bet. <b>Raise</b> = bet more. It's free practice — <b>no real money, ever</b>." },
 ];
 function maybeShowFirstHandCoach(): void {
   try { if (localStorage.getItem("mce-coach-1") === "1") return; } catch { return; }
   if (document.getElementById("coach-overlay")) return;
-  if (S.mode !== "training" || S.handOver || S.trainingOver || !S.heroCards) return;
+  // The 480ms timer can fire after the user has navigated away (e.g. ⚙ New Table → setup) within the
+  // window; mirror villainStep's screen guard so the overlay only ever mounts over the live table.
+  if (S.screen !== "game" || S.mode !== "training" || S.handOver || S.trainingOver || !S.heroCards) return;
   let step = 0;
   const ov = document.createElement("div");
   ov.className = "coach-overlay"; ov.id = "coach-overlay";
@@ -1756,9 +1769,9 @@ function maybeShowFirstHandCoach(): void {
   draw();
 }
 
-// ── Beginner mode: brand-new users start WITHOUT the dense range-reads (story-lines + Beats-you /
-// Drawing flanks) so hand one isn't a wall of jargon; a one-tap nudge reveals them. Returning users
-// (any play history) keep the reads on — no regression. The preference, once set, is sticky.
+// ── Beginner mode: EVERYONE starts WITHOUT the dense range-reads (story-lines + Beats-you / Drawing
+// flanks) so hand one isn't a wall of jargon; a one-tap nudge (or the Settings toggle) reveals them.
+// Default-OFF for all users including returning ones — recoverable in one tap, sticky once set.
 function readsOn(): boolean {
   // Default OFF: a learner starts with the dense range-reads hidden (hand one isn't a jargon wall),
   // then taps the "Show range reads" nudge once to reveal them — sticky from then on.
@@ -1850,7 +1863,7 @@ function renderGame(): void {
       ${tag ? `<div class="seat-tag tag-${tag.toLowerCase()}">${tag}</div>` : ""}
       ${avatar}
       <div class="seat-chip" ${chipAttr}>
-        <div class="seat-pos">${isHero ? "YOU" : seatName(i)} <span class="seat-subpos">${pos}</span></div>
+        <div class="seat-pos">${isHero ? "YOU" : esc(seatName(i))} <span class="seat-subpos">${pos}</span></div>
         <div class="seat-stack">${chips(stack)}</div>
         ${actText ? `<div class="seat-act">${actText}</div>` : ""}
       </div>
@@ -2643,7 +2656,10 @@ interface LoggedDecision {
 }
 const DECISIONS_KEY = "mce-decisions";
 function loadDecisions(): LoggedDecision[] {
-  try { return JSON.parse(localStorage.getItem(DECISIONS_KEY) || "[]"); } catch { return []; }
+  // Guard the array shape: a corrupt non-array value (e.g. "null") would otherwise crash the Home
+  // progress strip — and Home is the boot screen returning users land on. Array.isArray protects both
+  // this new caller and the pre-existing renderLeaks at the source.
+  try { const v = JSON.parse(localStorage.getItem(DECISIONS_KEY) || "[]"); return Array.isArray(v) ? v : []; } catch { return []; }
 }
 function logDecision(d: LoggedDecision): void {
   const arr = loadDecisions();
