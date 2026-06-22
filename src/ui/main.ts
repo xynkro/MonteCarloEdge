@@ -1896,8 +1896,8 @@ function renderGame(): void {
     const odds = S.rec?.potOdds ?? 0;
     handSummaryHtml = `<div class="hand-summary">
       <span class="hand-label ${d.strong ? "strong" : ""}">${d.label}${draws}</span>
-      ${eqStr ? `<span class="hand-strength"><strong>${eqStr}</strong> win</span>` : ""}
-      ${odds > 0 ? `<span class="hand-odds">need <strong>${(odds * 100).toFixed(0)}%</strong> to call</span>` : ""}
+      ${eqStr ? `<span class="hand-strength tap-gloss" title="What does this mean?"><strong>${eqStr}</strong> win</span>` : ""}
+      ${odds > 0 ? `<span class="hand-odds tap-gloss" title="What does this mean?">need <strong>${(odds * 100).toFixed(0)}%</strong> to call</span>` : ""}
     </div>`;
   }
 
@@ -2133,6 +2133,7 @@ function renderGame(): void {
   });
   onId("quiz-btn", "click", () => { toggleQuiz(); render(); });
   onId("gloss-btn", "click", showGlossary);
+  app.querySelectorAll(".tap-gloss").forEach((e) => onEl(e, "click", showGlossary));
   onId("reads-on", "click", () => { try { localStorage.setItem("mce-reads", "1"); } catch { /* */ } render(); });
   onId("undo-btn", "click", undo);
   onId("next-hand", "click", nextHand);
@@ -5860,6 +5861,10 @@ function renderHome(): void {
   bustRescue(); // never broke at the hub
   const p = S.profile;
   const loggedIn = !!S.mp.auth;
+  // Progress strip: surface the leak report's headline (GTO accuracy + hands trained) right on Home,
+  // so the differentiated value loop (train → see your leaks → improve) is visible and pulls returns.
+  const _decs = loadDecisions();
+  const _acc = _decs.length ? Math.round(_decs.reduce((s, d) => s + d.score, 0) / _decs.length * 100) : null;
   // PREFETCH + WARM the public-rooms function while the user is reading the home screen, so
   // tapping "Play Online" lands on a ready lobby instead of a cold-start "Loading…" wait.
   if (loggedIn && S.net.publicRooms === null && !S.net.publicRoomsBusy) {
@@ -5918,7 +5923,9 @@ function renderHome(): void {
         <button class="mc-mode profile" id="home-profile2" style="--d:.26s"><span class="mc-mi">${ICON_USER}</span><span class="mc-mtext"><span class="mc-mt">Profile</span><span class="mc-md">Avatar · name · chips</span></span><span class="mc-arrow">→</span></button>
       </div>
 
-      <button class="mc-stats" id="home-stats" style="--d:.33s">${ICON_CHART} Stats &amp; Leak Report</button>
+      ${_acc !== null
+        ? `<button class="mc-progress" id="home-stats" style="--d:.33s"><span class="mp-acc"><strong>${_acc}%</strong> GTO accuracy</span><span class="mp-mid">· ${_decs.length} hand${_decs.length === 1 ? "" : "s"}</span><span class="mp-cta">Leaks →</span></button>`
+        : `<button class="mc-stats" id="home-stats" style="--d:.33s">${ICON_CHART} Stats &amp; Leak Report</button>`}
       <div class="mc-foot">
         <button class="mc-foot-link" id="home-proof">The Proof</button><span>·</span>
         <button class="mc-foot-link" id="home-explainer">How it works</button><span>·</span>

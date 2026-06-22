@@ -1186,6 +1186,9 @@ body::after {
 .coach-skip { background: transparent; border: none; color: var(--muted); font-size: 13px; padding: 9px 12px; cursor: pointer; }
 .coach-spot { box-shadow: 0 0 0 3px var(--gold), 0 0 30px 8px rgba(237,192,90,.55) !important; border-radius: 12px; position: relative; z-index: 201; }
 
+/* Tappable explainer numbers (win% / to-call) — dotted underline hints "tap me" */
+.tap-gloss { cursor: pointer; border-bottom: 1px dotted rgba(255,255,255,.38); }
+
 /* Beginner mode: nudge to reveal the dense range-reads */
 .reads-nudge {
   display: block; margin: 6px auto 0; padding: 7px 14px; border-radius: 999px;
@@ -1614,6 +1617,18 @@ body::after {
 .mc-stats { padding: 10px; border-radius: 14px; cursor: pointer; font-weight: 700; font-size: 13px; color: var(--muted);
   background: var(--glass); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); border: 1px solid var(--glass-edge);
   opacity: 0; transform: translateY(16px); animation: mcRise .55s cubic-bezier(.2,.8,.3,1) forwards; animation-delay: var(--d); }
+
+/* Home progress strip — your edge at a glance (the leak-report headline) */
+.mc-progress {
+  display: flex; align-items: center; gap: 10px; width: 100%; padding: 12px 15px; border-radius: 14px;
+  background: linear-gradient(135deg, rgba(22,189,134,.15), rgba(124,92,255,.1));
+  border: 1px solid rgba(22,189,134,.32); color: var(--text); cursor: pointer; text-align: left;
+  opacity: 0; transform: translateY(16px); animation: mcRise .55s cubic-bezier(.2,.8,.3,1) forwards; animation-delay: var(--d);
+}
+.mc-progress .mp-acc { font-size: .9rem; font-weight: 800; white-space: nowrap; }
+.mc-progress .mp-acc strong { color: var(--emerald); }
+.mc-progress .mp-mid { font-size: .78rem; color: var(--muted); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mc-progress .mp-cta { font-size: .82rem; color: var(--violet); font-weight: 800; white-space: nowrap; }
 
 @media (prefers-reduced-motion: reduce) {
   .mc-glow, .mc-fan, .mc-mode, .mc-stats { animation: none !important; opacity: 1 !important; transform: none !important; }
