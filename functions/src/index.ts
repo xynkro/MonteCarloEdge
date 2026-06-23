@@ -568,7 +568,7 @@ export const leaveTable = onCall(async (req) => {
       if (list.length === (t.spectators?.length ?? 0)) return { ok: true };
       t.spectators = list;
       persist(tx, code, t, version + 1, baseline, false, currency);
-      const kill = t.status !== "in_hand" && !t.seats.some((s) => s.uid); // no seated humans left → zombie
+      const kill = !t.seats.some((s) => s.uid); // no seated humans left → zombie (delete even mid-hand: only bots remain, nobody's affected)
       return { ok: true, kill };
     }
     if (t.status === "in_hand" && t.liveSeats.includes(t.seats.indexOf(seat))) {
@@ -602,8 +602,10 @@ export const leaveTable = onCall(async (req) => {
     const newBase = t.status === "in_hand" ? baseline - back : baseline;
     persist(tx, code, t, version + 1, newBase, false, currency);
     // A room with no seated humans left (host left + only bots/spectators remain) is a zombie — flag
-    // it for deletion. recursiveDelete can't run inside a txn, so we delete AFTER the commit (below).
-    const kill = t.status !== "in_hand" && !t.seats.some((s) => s.uid);
+    // it for deletion. We kill even mid-hand: with no humans seated, only bots remain, nobody is
+    // affected, and no client drives further bot acts once the last human is gone. recursiveDelete
+    // can't run inside a txn, so we delete AFTER the commit (below).
+    const kill = !t.seats.some((s) => s.uid);
     return { ok: true, banked: back, kill };
   }).then(async (res) => {
     if ((res as { kill?: boolean }).kill) {
@@ -842,6 +844,33 @@ export const adminGift = onCall(async (req) => {
     tx.set(inboxRef(toUid).doc(), { kind: "admin", from: "admin", fromName: "MonteCarloEdge", chips: amt, currency: cur, text: amt > 0 ? `You received ${amt} ${cur} chips` : `Balance adjustment: ${amt} ${cur} chips`, createdAt: FieldValue.serverTimestamp(), read: false });
     tx.set(ledgerRef().doc(), { type: "admin", currency: cur, amount: amt, from: "admin", fromName: (req.auth?.token?.email as string) ?? "admin", to: toUid, toName, at: FieldValue.serverTimestamp() });
     return { ok: true, balance: next };
+  });
+});
+
+/** Super-admin only (same gate as adminGift): SET a target user's chip balance to an absolute
+ *  value — an edit, not a gift — so the admin can correct, zero, or top-up a balance directly.
+ *  Logs the resulting delta in the ledger + an inbox note. */
+export const adminSetChips = onCall(async (req) => {
+  uidOf(req);
+  const tok = (req.auth?.token ?? {}) as { email?: string; email_verified?: boolean; admin?: boolean };
+  const isAdmin = tok.admin === true || (ADMIN_EMAILS.has(tok.email ?? "") && tok.email_verified === true);
+  if (!isAdmin) throw new HttpsError("permission-denied", "Admins only.");
+  const { toUid, currency = "play", balance } = (req.data ?? {}) as { toUid?: string; currency?: Currency; balance?: number };
+  const target = Math.floor(Number(balance));
+  const cur: Currency = currency === "premium" ? "premium" : "play";
+  if (!toUid) throw new HttpsError("invalid-argument", "Recipient required.");
+  if (!Number.isFinite(target) || target < 0) throw new HttpsError("invalid-argument", "Invalid balance.");
+  return db.runTransaction(async (tx) => {
+    const snap = await tx.get(userRef(toUid));
+    if (!snap.exists) throw new HttpsError("not-found", "Recipient not found.");
+    const w = readWallet(snap.data());
+    const prev = cur === "premium" ? w.premium : w.play;
+    const delta = target - prev;
+    const toName = (snap.data()?.name as string) ?? "player";
+    tx.set(userRef(toUid), { [balField(cur)]: target }, { merge: true });
+    tx.set(inboxRef(toUid).doc(), { kind: "admin", from: "admin", fromName: "MonteCarloEdge", chips: delta, currency: cur, text: `Balance set to ${target.toLocaleString()} ${cur} chips`, createdAt: FieldValue.serverTimestamp(), read: false });
+    tx.set(ledgerRef().doc(), { type: "admin-set", currency: cur, amount: delta, balance: target, from: "admin", fromName: (req.auth?.token?.email as string) ?? "admin", to: toUid, toName, at: FieldValue.serverTimestamp() });
+    return { ok: true, balance: target };
   });
 });
 

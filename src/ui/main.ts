@@ -3636,6 +3636,17 @@ const ROOM_TIERS = [
   { name: "2500/5000", sb: 2500, bb: 5000, max: 500000 },
   { name: "5000/10000", sb: 5000, bb: 10000, max: 1000000 },
 ];
+// CS/Half-Life-server-style stake tiers: each buy-in level gets an icon + a name so the lobby reads
+// as a list of joinable "servers", not a wall of numbers. Keyed by big blind (TIERS each have a unique bb).
+const STAKE_TIERS: Record<number, { icon: string; label: string }> = {
+  200:   { icon: "🪙", label: "Micro" },
+  500:   { icon: "🎲", label: "Low" },
+  1000:  { icon: "♠️", label: "Mid" },
+  2000:  { icon: "💎", label: "High" },
+  5000:  { icon: "👑", label: "VIP" },
+  10000: { icon: "🏆", label: "Nosebleed" },
+};
+const stakeTier = (bb: number): { icon: string; label: string } => STAKE_TIERS[bb] ?? { icon: "🃏", label: "Table" };
 // AI styles map to the trainer's opponent archetypes (keys of PROFILES).
 // "rand" = a random style assigned at room start (so you can spam-add a varied
 // table without configuring each seat).
@@ -3692,12 +3703,11 @@ function renderMpSetup(): void {
       <div class="doc-top"><button class="hdr-btn" id="mp-back">← Back</button><h1>🌐 Play Online</h1>${online.length ? `<button class="online-pill ${_onlineOpen ? "open" : ""}" id="online-pill" title="Who's online">🟢 ${online.length}</button>` : `<span style="width:54px"></span>`}</div>
       ${_onlineOpen && online.length ? `<div class="online-list">${online.map((p) => `<span class="ol-chip">🟢 ${esc(p.name)}</span>`).join("")}</div>` : ""}
 
-      <div class="room-bal"><span>Balance <strong><i class=ic-coin></i> ${fmtBal(S.wallet.play)}</strong> · <strong><i class=ic-gem></i> ${fmtBal(S.wallet.premium)}</strong></span><button class="hdr-btn" id="room-buychips">＋ Buy chips</button></div>
+      <div class="room-bal"><span class="rb-bal">Balance <strong><i class=ic-coin></i> ${fmtBal(S.wallet.play)}</strong>${(S.wallet.premium ?? 0) > 0 ? ` <strong><i class=ic-gem></i> ${fmtBal(S.wallet.premium)}</strong>` : ""}</span><div class="rb-right"><button class="mce-toggle rb-mce ${hasEdge() && _roomAssisted ? "on" : ""} ${!hasEdge() ? "locked" : ""}" id="lobby-mce" title="Live MCE recommendation at your seat">MCEdge ${!hasEdge() ? "🔒" : _roomAssisted ? "🧠" : "○"}</button><button class="hdr-btn rb-buy" id="room-buychips">＋ Buy</button></div></div>
 
       <div class="join-card">
         <label>Join a room</label>
         <div class="net-join"><input class="mp-num join-code" id="net-code" placeholder="CODE" maxlength="8" autocapitalize="characters" autocomplete="off" value="${S.net.joinCode.replace(/"/g, "")}"/><button class="join-btn" id="net-join">Join</button><button class="join-btn spectate" id="net-spectate">👁 Watch</button></div>
-        <span class="hint">Ask the host for their 4-letter code — Watch to spectate without paying a buy-in.</span>
       </div>
       ${S.net.err ? `<div class="room-broke" style="margin:8px 0">${esc(S.net.err)}</div>` : ""}
 
@@ -3708,10 +3718,11 @@ function renderMpSetup(): void {
             const here = (S.net.publicRooms ?? []).filter((r) => r.bb === tr.bb && r.currency === "play");
             const players = here.reduce((s, r) => s + (r.humans ?? 0), 0);
             const afford = (S.wallet.play ?? 0) >= 20 * tr.bb;
+            const st = stakeTier(tr.bb);
             return `<button class="qp-tier ${afford ? "" : "locked"}" data-qp="${i}" ${afford ? "" : "disabled"}>
-              <span class="qp-stake">${tr.name}</span>
-              <span class="qp-meta">${players > 0 ? `🟢 ${players} playing` : afford ? "Open a table" : "Need more chips"}</span>
-              <span class="qp-go">${afford ? "→" : "🔒"}</span>
+              <span class="qp-ic">${st.icon}</span>
+              <span class="qp-info"><span class="qp-stake">${st.label}</span><span class="qp-sub">${tr.name}</span></span>
+              <span class="qp-meta">${players > 0 ? `🟢 ${players}` : afford ? "→" : "🔒"}</span>
             </button>`;
           }).join("")}
         </div>
@@ -3728,7 +3739,11 @@ function renderMpSetup(): void {
           ? (S.net.publicRoomsBusy ? `<div class="net-wait"><span class="spin"></span><span>Finding open rooms…</span></div>` : `<span class="hint">Tap ↻ to find open public rooms.</span>`)
           : (S.net.publicRooms.length === 0
             ? `<span class="hint">No open public rooms right now — be the first to create one.</span>`
-            : `<div class="pr-list">${S.net.publicRooms.map((r) => `<button class="pr-row" data-code="${r.code}"><span class="pr-code">${r.code}</span><span class="pr-meta">${r.currency === "premium" ? "<i class=ic-gem></i>" : "<i class=ic-coin></i>"} ${r.sb}/${r.bb}</span><span class="pr-seats">${r.occupied}/${r.max} seats</span></button>`).join("")}</div>`)}
+            : `<div class="pr-list">${S.net.publicRooms.map((r) => {
+                const st = stakeTier(r.bb);
+                const cur = r.currency === "premium" ? "<i class=ic-gem></i>" : "<i class=ic-coin></i>";
+                return `<button class="pr-row" data-code="${r.code}"><span class="pr-ic">${st.icon}</span><span class="pr-info"><span class="pr-code">${st.label} · ${r.code}</span><span class="pr-meta">${cur} ${r.sb}/${r.bb}</span></span><span class="pr-seats">${(r.humans ?? 0) > 0 ? `🟢 ${r.humans} · ` : ""}${r.occupied}/${r.max}</span></button>`;
+              }).join("")}</div>`)}
       </div>
 
       <button class="create-toggle ${_createOpen ? "open" : ""}" id="create-toggle">
@@ -3793,7 +3808,9 @@ function renderMpSetup(): void {
   app.querySelectorAll("#room-cur [data-cur]").forEach((b) => onEl(b, "click", () => { _roomCurrency = (b as HTMLElement).dataset.cur === "premium" ? "premium" : "play"; S.net.err = ""; render(); }));
   app.querySelectorAll("[data-tier]").forEach((b) => onEl(b, "click", () => { const i = +(b as HTMLElement).dataset.tier!; const t = ROOM_TIERS[i]!; su.tier = i; su.sb = t.sb; su.bb = t.bb; su.buyIn = Math.min(t.max, premium ? (S.wallet.premium ?? 0) : (S.wallet.play ?? 0)); render(); }));
   onId("room-buyin", "input", (e) => { su.buyIn = Math.max(minBuy, Math.min(maxBuy, +(e.target as HTMLInputElement).value)); render(); });
-  onId("room-mce", "click", () => { if (!hasEdge()) { S.screen = "store"; render(); return; } _roomAssisted = !_roomAssisted; render(); });
+  const toggleRoomMce = () => { if (!hasEdge()) { S.screen = "store"; render(); return; } _roomAssisted = !_roomAssisted; try { localStorage.setItem("mce-room-assisted", _roomAssisted ? "1" : "0"); } catch { /* */ } render(); };
+  onId("room-mce", "click", toggleRoomMce);
+  onId("lobby-mce", "click", toggleRoomMce);
   onId("net-create", "click", () => { void createNetRoom(); });
   onId("net-code", "input", (e) => { S.net.joinCode = (e.target as HTMLInputElement).value.trim().toUpperCase(); });
   onId("net-join", "click", () => { const v = (document.getElementById("net-code") as HTMLInputElement | null)?.value.trim().toUpperCase() || S.net.joinCode; void joinNetRoom(v); });
@@ -3957,7 +3974,7 @@ function renderMpTable(): void {
 let _netTableUnsub: (() => void) | null = null, _netHandUnsub: (() => void) | null = null;
 let _netChatUnsub: (() => void) | null = null;
 let _roomCurrency: "play" | "premium" = "play";
-let _roomAssisted = false; // MCE Strategy overlay toggle (Edge Pass only)
+let _roomAssisted = (() => { try { return localStorage.getItem("mce-room-assisted") === "1"; } catch { return false; } })(); // MCE Strategy overlay toggle (Edge Pass only), persisted
 let _roomPublic = true;    // public-by-default — listed in Online Games when waiting
 let _createOpen = false;   // Play Online: "Create your own" config collapsed by default (declutter)
 let _createOptsOpen = false; // …and the secondary table-options (MCE/privacy/bot speed) nested under it
@@ -4075,8 +4092,15 @@ async function quickPlay(tierIdx: number): Promise<void> {
     if (open) { S.net.busy = false; await joinNetRoom(open.code); return; }
     const wallet = S.wallet.play ?? 0;
     const buyIn = Math.max(20 * tier.bb, Math.min(tier.max, wallet)); // ~100bb capped to wallet
-    const { code } = await FB.createRoom({ tier: tier.name, buyIn, name: S.profile.nickname, bots: [], currency: "play", assisted: hasEdge() && _roomAssisted, isPublic: true });
+    // Seed 4–5 randomised bots so you jump straight into a live hand; the remaining seats stay open
+    // for real players, who quick-play into THIS room via the find-open-room branch above. Winning
+    // the bots' (minted) chips can't inflate your wallet — the boughtIn/bankedOut cap caps cash-out.
+    const STYLES = ["TAG", "LAG", "Station", "Nit", "Maniac"];
+    const nBots = 4 + Math.floor(Math.random() * 2); // 4 or 5
+    const bots = Array.from({ length: nBots }, () => STYLES[Math.floor(Math.random() * STYLES.length)]!);
+    const { code } = await FB.createRoom({ tier: tier.name, buyIn, name: S.profile.nickname, bots, currency: "play", assisted: hasEdge() && _roomAssisted, isPublic: true });
     addMyRoom(code, `${tier.name} · ${buyIn.toLocaleString()} chips`);
+    try { await FB.dealHand(code); } catch { /* fall back to the lobby START button if the deal is rejected */ }
     S.net.busy = false; await enterRoom(code);
   } catch (e) { S.net.busy = false; S.net.err = friendlyErr(e); render(); }
 }
@@ -5679,6 +5703,7 @@ function renderAdmin(): void {
               <div class="au-actions">
                 <button class="hdr-btn au-act" data-u="${u.uid}" data-cur="play" data-amt="500">+500<i class=ic-coin></i></button>
                 <button class="hdr-btn au-act" data-u="${u.uid}" data-cur="premium" data-amt="100">+100<i class=ic-gem></i></button>
+                <button class="hdr-btn au-set" data-u="${u.uid}" data-n="${esc(u.name)}" data-play="${u.play}" data-prem="${u.premium}" title="Edit chip balance">✎ Set</button>
                 <button class="hdr-btn au-edge ${u.edgePass ? "on" : ""}" data-u="${u.uid}" data-on="${u.edgePass ? "0" : "1"}">${u.edgePass ? "Edge ✓" : "Edge"}</button>
                 ${u.uid === myUid ? "" : `<button class="hdr-btn danger au-del" data-u="${u.uid}" data-n="${esc(u.name)}">🗑</button>`}
               </div>
@@ -5688,9 +5713,9 @@ function renderAdmin(): void {
       <div class="set-group"><div class="set-head">Custom grant (by UID)</div>
         <div class="field"><label>Recipient UID</label><input class="si-input" id="ad-uid" placeholder="paste a UID from above" value="${esc(c.toUid)}"/></div>
         <div class="field"><label>Currency</label><select class="mp-type" id="ad-cur"><option value="play"><i class=ic-coin></i> Play</option><option value="premium"><i class=ic-gem></i> Premium</option></select></div>
-        <div class="field"><label>Amount (negative = deduct)</label><input class="si-input" id="ad-amt" type="number" value="${c.giftAmt || ""}"/></div>
+        <div class="field"><label>Amount — Grant adds it (negative deducts); Set makes it the balance</label><input class="si-input" id="ad-amt" type="number" value="${c.giftAmt || ""}"/></div>
         ${c.err ? `<div class="room-broke">${esc(c.err)}</div>` : ""}${c.sent ? `<div class="se-active">${esc(c.sent)}</div>` : ""}
-        <button class="si-btn primary" id="ad-give" ${c.busy ? "disabled" : ""}>${c.busy ? "…" : "Grant"}</button>
+        <div class="ad-btn-row"><button class="si-btn primary" id="ad-give" ${c.busy ? "disabled" : ""}>${c.busy ? "…" : "Grant +/−"}</button><button class="si-btn" id="ad-set" ${c.busy ? "disabled" : ""}>Set balance</button></div>
       </div>
 
       <div class="set-group"><div class="set-head">Ledger — last ${S.ledger.length}</div>
@@ -5708,13 +5733,37 @@ function renderAdmin(): void {
   onId("ad-uid", "input", (e) => { c.toUid = (e.target as HTMLInputElement).value.trim(); });
   onId("ad-amt", "input", (e) => { c.giftAmt = Math.floor(+(e.target as HTMLInputElement).value || 0); });
   onId("ad-give", "click", () => void doAdminGift());
+  onId("ad-set", "click", () => void doAdminSetCustom());
   app.querySelectorAll(".au-act").forEach((b) => onEl(b, "click", () => { const el = b as HTMLElement; void doAdminGiftUser(el.dataset.u!, el.dataset.cur as "play" | "premium", +el.dataset.amt!); }));
+  app.querySelectorAll(".au-set").forEach((b) => onEl(b, "click", () => { const el = b as HTMLElement; void doAdminSetUser(el.dataset.u!, el.dataset.n ?? "user", +el.dataset.play!, +el.dataset.prem!); }));
   app.querySelectorAll(".au-edge").forEach((b) => onEl(b, "click", () => { const el = b as HTMLElement; void doAdminEdge(el.dataset.u!, el.dataset.on === "1"); }));
   app.querySelectorAll(".au-del").forEach((b) => onEl(b, "click", () => { const el = b as HTMLElement; void doAdminDeleteUser(el.dataset.u!, el.dataset.n ?? "user"); }));
 }
 async function doAdminGiftUser(uid: string, cur: "play" | "premium", amt: number): Promise<void> {
   try { await FB.adminGift(uid, cur, amt); try { playSound("chip"); } catch { /* */ } }
   catch (e) { S.compose.err = friendlyErr(e); render(); }
+}
+// Inline per-user EDIT: set the play-chip balance to an absolute value (prompt seeded with the
+// current balance, so the admin can correct, zero, or top-up directly). Premium edits go through
+// the Custom-grant "Set balance" control (currency selector) below — keeps this one-tap path simple.
+async function doAdminSetUser(uid: string, name: string, curPlay: number, _curPrem: number): Promise<void> {
+  const v = prompt(`Set ${name}'s play-chip balance:`, String(curPlay));
+  if (v === null) return;
+  const target = Math.floor(Number(v));
+  if (!Number.isFinite(target) || target < 0) { S.compose.err = "Enter a valid balance (0 or more)."; render(); return; }
+  try { await FB.adminSetChips(uid, "play", target); try { playSound("chip"); } catch { /* */ } S.compose.sent = `${name}: play set to ${target.toLocaleString()}`; render(); }
+  catch (e) { S.compose.err = friendlyErr(e); render(); }
+}
+// Custom-grant SET: make the typed amount the recipient's absolute balance (not a delta).
+async function doAdminSetCustom(): Promise<void> {
+  const c = S.compose;
+  const cur = ((document.getElementById("ad-cur") as HTMLSelectElement | null)?.value === "premium") ? "premium" : "play";
+  if (!c.toUid || c.busy) return;
+  const target = Math.floor(c.giftAmt);
+  if (!Number.isFinite(target) || target < 0) { c.err = "Enter a balance of 0 or more to set."; render(); return; }
+  c.busy = true; c.err = ""; c.sent = ""; render();
+  try { const r = await FB.adminSetChips(c.toUid, cur, target); c.busy = false; c.sent = `Done — balance set to ${r.balance.toLocaleString()}`; render(); }
+  catch (e) { c.busy = false; c.err = friendlyErr(e); render(); }
 }
 async function doAdminEdge(uid: string, on: boolean): Promise<void> {
   try { await FB.adminSetEdgePass(uid, on); } catch (e) { S.compose.err = friendlyErr(e); render(); }
@@ -6100,9 +6149,6 @@ function renderHome(): void {
           ${loggedIn ? `<span class="mc-pmeta2"><span class="mc-pname">${esc(S.mp.auth!.name)}</span><span class="mc-bal2"><i class=ic-coin></i> ${fmtBal(S.wallet.play)}${(S.wallet.premium ?? 0) > 0 ? ` · <i class=ic-gem></i> ${fmtBal(S.wallet.premium)}` : ""}</span></span>` : `<span class="mc-pchips-big locked">🔒 Sign in</span>`}
         </button>
         <div class="mc-top-right">
-          ${loggedIn ? `<button class="mc-gear" id="home-friends" aria-label="Friends">👥${friendReqs ? `<span class="ib-badge">${friendReqs}</span>` : ""}</button>` : ""}
-          ${loggedIn ? `<button class="mc-gear" id="home-inbox" aria-label="Inbox">✉️${unreadCount() ? `<span class="ib-badge">${unreadCount()}</span>` : ""}</button>` : ""}
-          <button class="mc-gear" id="home-settings" aria-label="Settings">⚙</button>
           ${loggedIn ? `<button class="mc-store" id="home-store">＋ Chips</button>` : `<button class="mc-store" id="home-signin2">Sign in</button>`}
         </div>
       </header>
@@ -6133,17 +6179,22 @@ function renderHome(): void {
         : `<button class="mc-stats" id="home-stats" style="--d:.05s">${ICON_CHART} Stats &amp; Leak Report</button>`}
 
       <div class="mc-modes">
-        <button class="mc-mode train" id="home-train" style="--d:.05s"><span class="mc-mi">${ICON_TARGET}</span><span class="mc-mtext"><span class="mc-mt">Train</span><span class="mc-md">Learn solo vs the AI · start here · free</span></span><span class="mc-arrow">→</span></button>
-        <button class="mc-mode online" id="home-pass" style="--d:.12s"><span class="mc-mi">${ICON_GLOBE}</span><span class="mc-mtext"><span class="mc-mt">Play Online</span><span class="mc-md">${loggedIn ? "Create a room · play for chips" : "Rooms with friends · play for chips"}</span></span><span class="mc-arrow">→</span></button>
-        <button class="mc-mode pass" id="home-store-tile" style="--d:.19s"><span class="mc-mi">${ICON_BAG}</span><span class="mc-mtext"><span class="mc-mt">Store</span><span class="mc-md">Chips · cosmetics · Edge Pass</span></span><span class="mc-arrow">→</span></button>
-        <button class="mc-mode profile" id="home-profile2" style="--d:.26s"><span class="mc-mi">${ICON_USER}</span><span class="mc-mtext"><span class="mc-mt">Profile</span><span class="mc-md">Avatar · name · chips</span></span><span class="mc-arrow">→</span></button>
+        <button class="mc-mode train" id="home-train" style="--d:.05s"><span class="mc-mi">${ICON_TARGET}</span><span class="mc-mtext"><span class="mc-mt">Train</span></span><span class="mc-arrow">→</span></button>
+        <button class="mc-mode online" id="home-pass" style="--d:.12s"><span class="mc-mi">${ICON_GLOBE}</span><span class="mc-mtext"><span class="mc-mt">Play Online</span></span><span class="mc-arrow">→</span></button>
+        <button class="mc-mode pass" id="home-store-tile" style="--d:.19s"><span class="mc-mi">${ICON_BAG}</span><span class="mc-mtext"><span class="mc-mt">Store</span></span><span class="mc-arrow">→</span></button>
+        <button class="mc-mode profile" id="home-profile2" style="--d:.26s"><span class="mc-mi">${ICON_USER}</span><span class="mc-mtext"><span class="mc-mt">Profile</span></span><span class="mc-arrow">→</span></button>
+      </div>
+
+      <div class="mc-iconrow">
+        ${loggedIn ? `<button class="mc-util" id="home-friends" aria-label="Friends">${friendReqs ? `<span class="ib-badge">${friendReqs}</span>` : ""}<span class="mu-ic">👥</span><span class="mu-l">Friends</span></button>` : ""}
+        ${loggedIn ? `<button class="mc-util" id="home-inbox" aria-label="Inbox">${unreadCount() ? `<span class="ib-badge">${unreadCount()}</span>` : ""}<span class="mu-ic">✉️</span><span class="mu-l">Inbox</span></button>` : ""}
+        <button class="mc-util" id="home-settings" aria-label="Settings"><span class="mu-ic">⚙</span><span class="mu-l">Settings</span></button>
       </div>
 
       <div class="mc-foot">
         <button class="mc-foot-link" id="home-proof">The Proof</button><span>·</span>
         <button class="mc-foot-link" id="home-explainer">How it works</button><span>·</span>
-        <button class="mc-foot-link" id="home-legal">Terms</button><span>·</span>
-        <button class="mc-foot-link" id="home-settings2">Settings</button>
+        <button class="mc-foot-link" id="home-legal">Terms</button>
         ${effectiveAdmin() ? `<span>·</span><button class="mc-foot-link" id="home-admin" style="color:var(--gold-2)">🛡 Admin</button>` : ""}
       </div>
     </div>`;

@@ -225,6 +225,7 @@ export async function subscribeDmThread(myUid: string, otherUid: string, cb: (ms
 }
 export const claimWeekly = () => callFn<{ granted: number; balance: number }>("claimWeekly", {});
 export const adminGift = (toUid: string, currency: "play" | "premium", amount: number) => callFn<{ balance: number }>("adminGift", { toUid, currency, amount });
+export const adminSetChips = (toUid: string, currency: "play" | "premium", balance: number) => callFn<{ balance: number }>("adminSetChips", { toUid, currency, balance });
 export const adminSetEdgePass = (toUid: string, on: boolean) => callFn<{ edgePass: boolean }>("adminSetEdgePass", { toUid, on });
 /** Super-admin only: delete a user's Firestore profile + inbox + presence + Auth user. */
 export const adminDeleteUser = (toUid: string) => callFn<{ ok: boolean }>("adminDeleteUser", { toUid });
