@@ -222,7 +222,7 @@ interface AppState {
 
 const S: AppState = {
   screen: "home",
-  profile: { nickname: "You", avatar: "", chips: 25000 },
+  profile: { nickname: "You", avatar: "", chips: 2500 },
   mp: {
     table: null,
     setup: {
@@ -5820,7 +5820,7 @@ function countUp(el: HTMLElement | null, to: number, instant: boolean): void {
   const step = (t: number) => { const p = Math.min(1, (t - t0) / dur); el.textContent = Math.round(to * (1 - Math.pow(1 - p, 3))).toLocaleString(); if (p < 1) requestAnimationFrame(step); };
   requestAnimationFrame(step);
 }
-const WEEKLY_LADDER = [500, 600, 750, 1000];
+const WEEKLY_LADDER = [50, 60, 75, 100];
 function nextWeeklyAmt(): number { return WEEKLY_LADDER[Math.min(S.weeklyStreak, WEEKLY_LADDER.length - 1)]!; }
 function showWeeklyClaim(): void {
   if (document.getElementById("weekly-modal")) return;
@@ -5904,7 +5904,7 @@ function avatarChip(av: string, seed: string, size = 40): string {
 }
 // Bust-rescue (monetization council's #1 trust mechanic): a player can never be
 // wall-jammed broke behind a paywall. Below one micro min-buy-in → free top-up.
-const BUST_RESCUE = 200;
+const BUST_RESCUE = 20;
 function bustRescue(): void { if (S.profile.chips < BUST_RESCUE) { S.profile.chips = BUST_RESCUE; saveProfile(); } }
 
 function loadProfile(): void {
@@ -6424,7 +6424,7 @@ function renderSettings(): void {
   onId("set-reset-stats", "click", () => { if (confirm("Reset your session stats and best streak? Your hand history and chips stay.")) { S.gradeStats = { n: 0, pts: 0, gto: 0, mixed: 0, off: 0 }; S.streak = 0; S.bestStreak = 0; try { localStorage.removeItem("mce-beststreak"); } catch { /* */ } render(); } });
   onId("set-clear-history", "click", () => { if (confirm("Erase your saved hand + decision log? Your leak report resets to empty. Chips and profile stay.")) { clearHistory(); S.decisionLog = []; try { localStorage.removeItem(DECISIONS_KEY); } catch { /* */ } render(); } });
   onId("set-reset-profile", "click", () => { if (confirm('Reset your nickname to "You" and clear your avatar? Your chips, stats and history stay.')) { S.profile.nickname = "You"; S.profile.avatar = ""; saveProfile(); render(); } });
-  onId("set-reset-wallet", "click", () => { if (confirm("Reset your play-money chip balance to the 25,000 starting stack and your weekly-claim timer? Chips have no cash value and are never cashable — this is a local reset, not a refund.")) { S.profile.chips = 25000; saveProfile(); try { localStorage.removeItem("mce-dailychips"); } catch { /* */ } render(); } });
+  onId("set-reset-wallet", "click", () => { if (confirm("Reset your play-money chip balance to the 2,500 starting stack and your weekly-claim timer? Chips have no cash value and are never cashable — this is a local reset, not a refund.")) { S.profile.chips = 2500; saveProfile(); try { localStorage.removeItem("mce-dailychips"); } catch { /* */ } render(); } });
   onId("set-delete-all", "click", () => {
     if (confirm("Permanently delete EVERYTHING on this device — profile, chips, stats, hand history and settings — and sign you out? This cannot be undone.")) {
       ["mce-sound", "mce-motion", "mce-speed", "mce-quiz", "mce-beststreak", "mce-dailychips", "mce-player-stats", DECISIONS_KEY, "mce-profile"].forEach((k) => { try { localStorage.removeItem(k); } catch { /* */ } });

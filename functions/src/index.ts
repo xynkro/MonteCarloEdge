@@ -50,7 +50,7 @@ export * from "./passkey.js";
 
 const PROFILES: Record<string, OpponentProfile> = { Auto: AUTO, TAG, LAG, Station: STATION, Nit: NIT, Maniac: MANIAC };
 const TURN_SECONDS = 40;
-const DEFAULT_CHIPS = 25_000; // generous one-time start (~1 buy-in at the 100/200 floor). Weekly top-up stays small (500) so chips feel earned/bought, not free.
+const DEFAULT_CHIPS = 2_500; // one-time start (~1 buy-in at the 10/20 floor). Weekly top-up stays small (50) so chips feel earned/bought, not free.
 // Online stakes — smallest game is 100/200 (≈ "$200" feel at the ~1,000 chips/$ pack ratio). Each tier's
 // max buy-in = 100bb (chips buy ACCESS, never power). Training + live-in-person keep their own small blinds.
 const TIERS: Record<string, { sb: number; bb: number; max: number }> = {
@@ -75,7 +75,7 @@ const userRef = (uid: string) => db.doc(`users/${uid}`);
 const inboxRef = (uid: string) => db.collection(`users/${uid}/inbox`); // received messages/gifts
 const ledgerRef = () => db.collection("ledger"); // immutable audit trail of every chip transfer
 
-const WEEKLY_PLAY = 500;          // weekly free play-chip grant
+const WEEKLY_PLAY = 50;           // weekly free play-chip grant
 const GIFT_MAX = 1_000_000;       // anti-abuse cap per single play-chip gift
 const ADMIN_EMAILS = new Set(["the.disruptive.comp@gmail.com"]); // super-admin (gift premium, adjust balances)
 
@@ -961,7 +961,7 @@ export const adminPurgeStaleRooms = onCall(async (req) => {
 
 /** Claim the weekly free PLAY chips on a DETERMINISTIC streak ladder (no RNG / no loot
  *  box). Server-timed (anti-cheat). Streak grows if you return within 2 weeks. */
-const WEEKLY_LADDER = [500, 600, 750, 1000]; // wk1, wk2, wk3, wk4+ (deterministic)
+const WEEKLY_LADDER = [50, 60, 75, 100]; // wk1, wk2, wk3, wk4+ (deterministic)
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 export const claimWeekly = onCall(async (req) => {
   const uid = uidOf(req);

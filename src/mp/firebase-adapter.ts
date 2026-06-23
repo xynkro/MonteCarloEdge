@@ -166,7 +166,7 @@ export async function subscribeWallet(uid: string, cb: (w: Wallet) => void): Pro
   const { m, db } = await firestore();
   return m.onSnapshot(m.doc(db, "users", uid), (s: { exists: () => boolean; data: () => Record<string, unknown> }) => {
     const d = s.exists() ? s.data() : {};
-    cb({ play: (d.chipsPlay as number) ?? (d.chips as number) ?? 25000, premium: (d.chipsPremium as number) ?? 0, edgePass: !!d.edgePass, lastWeekly: (d.lastWeekly as number) ?? 0, weeklyStreak: (d.weeklyStreak as number) ?? 0, collectibles: (d.collectibles as string[]) ?? [] });
+    cb({ play: (d.chipsPlay as number) ?? (d.chips as number) ?? 2500, premium: (d.chipsPremium as number) ?? 0, edgePass: !!d.edgePass, lastWeekly: (d.lastWeekly as number) ?? 0, weeklyStreak: (d.weeklyStreak as number) ?? 0, collectibles: (d.collectibles as string[]) ?? [] });
   }, () => {});
 }
 /** Buy a cosmetic collectible with premium chips. */
