@@ -2310,6 +2310,16 @@ body::after {
 .ch-input-row .join-btn:disabled { opacity: .4; pointer-events: none; }
 
 /* ── Online Games list (Play Online → public rooms) ── */
+/* Quick Play — 6 stake tiers (server-browser style); tap to matchmake into a table at that buy-in. */
+.quickplay { margin: 10px 0 6px; }
+.qp-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.qp-tier { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 11px 13px; border-radius: 13px; background: linear-gradient(135deg, rgba(22,189,134,.14), rgba(124,92,255,.06)); border: 1px solid rgba(22,189,134,.3); color: var(--text); cursor: pointer; position: relative; transition: transform .1s, border-color .2s; text-align: left; }
+.qp-tier:active { transform: scale(.97); }
+.qp-tier.locked { opacity: .45; cursor: not-allowed; background: var(--glass); border-color: var(--glass-edge); }
+.qp-stake { font: 800 16px var(--display, inherit); letter-spacing: .5px; }
+.qp-meta { font-size: 11px; color: var(--muted); }
+.qp-go { position: absolute; top: 11px; right: 13px; font-size: 14px; font-weight: 800; color: var(--emerald); }
+
 .public-rooms { margin: 10px 0 6px; }
 .pr-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
 .pr-head label { font-size: .72rem; font-weight: 800; letter-spacing: 1.2px; text-transform: uppercase; color: rgba(255,255,255,.55); }

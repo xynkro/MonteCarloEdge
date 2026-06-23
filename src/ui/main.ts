@@ -103,7 +103,7 @@ interface AppState {
     busyId: string;        // which store action is pending (product id / "restore") — scopes the spinner
     err: string;
     cog: boolean;          // in-lobby settings sheet visible
-    publicRooms: Array<{ code: string; name: string; sb: number; bb: number; occupied: number; max: number; currency: string }> | null;
+    publicRooms: Array<{ code: string; name: string; sb: number; bb: number; occupied: number; humans: number; max: number; currency: string }> | null;
     publicRoomsBusy: boolean;
     rebuy: { open: boolean; amount: number; err: string };
     chat: { open: boolean; msgs: import("../mp/firebase-adapter.js").ChatMsg[]; draft: string; lastReadTs: number };
@@ -3701,6 +3701,22 @@ function renderMpSetup(): void {
       </div>
       ${S.net.err ? `<div class="room-broke" style="margin:8px 0">${esc(S.net.err)}</div>` : ""}
 
+      <div class="quickplay">
+        <div class="pr-head"><label>⚡ Quick Play · jump straight into a table</label></div>
+        <div class="qp-grid">
+          ${ROOM_TIERS.map((tr, i) => {
+            const here = (S.net.publicRooms ?? []).filter((r) => r.bb === tr.bb && r.currency === "play");
+            const players = here.reduce((s, r) => s + (r.humans ?? 0), 0);
+            const afford = (S.wallet.play ?? 0) >= 20 * tr.bb;
+            return `<button class="qp-tier ${afford ? "" : "locked"}" data-qp="${i}" ${afford ? "" : "disabled"}>
+              <span class="qp-stake">${tr.name}</span>
+              <span class="qp-meta">${players > 0 ? `🟢 ${players} playing` : afford ? "Open a table" : "Need more chips"}</span>
+              <span class="qp-go">${afford ? "→" : "🔒"}</span>
+            </button>`;
+          }).join("")}
+        </div>
+      </div>
+
       ${myRooms().length ? `<div class="your-games">
         <div class="pr-head"><label>↩ Your games · resume</label></div>
         <div class="pr-list">${myRooms().map((r) => `<div class="pr-row yg" data-resume="${r.code}"><span class="pr-code">${r.code}</span><span class="pr-meta">${esc(r.label)}</span><button class="yg-x" data-forget="${r.code}" title="Forget this room">✕</button></div>`).join("")}</div>
@@ -3785,6 +3801,7 @@ function renderMpSetup(): void {
   app.querySelectorAll("#room-priv [data-priv]").forEach((b) => onEl(b, "click", () => { _roomPublic = (b as HTMLElement).dataset.priv !== "private"; render(); }));
   app.querySelectorAll("#room-speed [data-speed]").forEach((b) => onEl(b, "click", () => { try { localStorage.setItem("mce-speed", (b as HTMLElement).dataset.speed!); } catch { /* */ } render(); }));
   onId("pr-refresh", "click", () => { void netRefreshPublic(); });
+  app.querySelectorAll("[data-qp]").forEach((b) => onEl(b, "click", () => void quickPlay(parseInt((b as HTMLElement).dataset.qp!, 10))));
   app.querySelectorAll("[data-code]").forEach((b) => onEl(b, "click", () => { const c = (b as HTMLElement).dataset.code!; S.net.joinCode = c; void joinNetRoom(c); }));
   // Auto-fetch on first open (avoids requiring a tap to discover the list exists).
   if (S.net.publicRooms === null && !S.net.publicRoomsBusy) void netRefreshPublic();
@@ -4038,6 +4055,28 @@ async function createNetRoom(): Promise<void> {
     // Create EMPTY (no AI) — bots are added in the lobby. MCE overlay only if entitled.
     const { code } = await FB.createRoom({ tier: tier.name, buyIn: su.buyIn, name: S.profile.nickname, bots: [], currency: _roomCurrency, assisted: hasEdge() && _roomAssisted, isPublic: _roomPublic });
     addMyRoom(code, `${tier.name} · ${su.buyIn.toLocaleString()} ${_roomCurrency === "premium" ? "premium" : "chips"}`);
+    S.net.busy = false; await enterRoom(code);
+  } catch (e) { S.net.busy = false; S.net.err = friendlyErr(e); render(); }
+}
+
+/** Quick Play matchmaking: join an OPEN public play-room at this tier (stack real players together),
+ *  else start one. The server's open-seat filter + full-to-spectate fallback make several players
+ *  picking the same tier auto-pool into one room — natural sharding, no lock. */
+async function quickPlay(tierIdx: number): Promise<void> {
+  if (S.net.busy) return;
+  S.net.err = "";
+  if (!(await ensureSignedIn())) return;
+  const tier = ROOM_TIERS[tierIdx]; if (!tier) return;
+  S.net.busy = true; render();
+  try {
+    // ALWAYS refresh before matchmaking (a stale cache makes us spawn a new room instead of pooling).
+    try { const { rooms } = await FB.listPublicRooms(); S.net.publicRooms = rooms; } catch { /* */ }
+    const open = (S.net.publicRooms ?? []).find((r) => r.bb === tier.bb && r.currency === "play" && r.occupied < r.max);
+    if (open) { S.net.busy = false; await joinNetRoom(open.code); return; }
+    const wallet = S.wallet.play ?? 0;
+    const buyIn = Math.max(20 * tier.bb, Math.min(tier.max, wallet)); // ~100bb capped to wallet
+    const { code } = await FB.createRoom({ tier: tier.name, buyIn, name: S.profile.nickname, bots: [], currency: "play", assisted: hasEdge() && _roomAssisted, isPublic: true });
+    addMyRoom(code, `${tier.name} · ${buyIn.toLocaleString()} chips`);
     S.net.busy = false; await enterRoom(code);
   } catch (e) { S.net.busy = false; S.net.err = friendlyErr(e); render(); }
 }

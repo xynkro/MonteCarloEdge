@@ -85,7 +85,7 @@ export const kickBot = (code: string, seatIdx: number) =>
   callFn<{ ok: boolean }>("kickBot", { code, seatIdx });
 /** Up to 20 open public rooms in waiting (Online Games list). */
 export const listPublicRooms = () =>
-  callFn<{ rooms: Array<{ code: string; name: string; sb: number; bb: number; occupied: number; max: number; currency: string }> }>("listPublicRooms", {});
+  callFn<{ rooms: Array<{ code: string; name: string; sb: number; bb: number; occupied: number; humans: number; max: number; currency: string }> }>("listPublicRooms", {});
 /** Top up your seated stack (bust rebuy / lobby top-up). Server-enforced bounds. */
 export const rebuyRoom = (code: string, amount: number) =>
   callFn<{ ok: boolean; stack: number }>("rebuy", { code, amount });
