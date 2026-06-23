@@ -54,6 +54,12 @@ export interface AuthTable {
   lastPot?: number;       // size of the pot just won
   lastWon?: Record<number, number>; // table-seat → amount actually won (for accurate share cards)
   isPublic?: boolean;     // listed in the Online Games picker when waiting + open seats
+  // Wallet-economy conservation: total chips paid INTO this table from human wallets (host buy-in +
+  // joins + rebuys) and total banked back OUT on leave. A leaver never banks more than
+  // (boughtIn − bankedOut), so chips won off wallet-unbacked BOTS are dropped — not minted into a
+  // wallet. (Distinct from the per-hand `baseline` tripwire, which balances in-hand stacks incl. bots.)
+  boughtIn?: number;
+  bankedOut?: number;
   spectators?: Array<{ uid: string; name: string }>; // watching, not seated
   lastAction?: { seat: number; type: ActionType; amount: number } | null; // last seat that acted (cleared on street advance)
   // Ordered trace of bot actions resolved in the LAST server tick — lets the client
@@ -87,6 +93,7 @@ export function createAuthTable(id: string, owner: { uid: string; name: string }
     startingStack: opts.startingStack, maxSeats: opts.maxSeats, seats,
     buttonSeat: 0, status: "waiting", handId: null, handCount: 0, lastResult: "",
     isPublic: opts.isPublic !== false, spectators: [],
+    boughtIn: opts.startingStack, bankedOut: 0, // host's buy-in is the first wallet contribution
     gs: null, liveSeats: [], holes: new Map(), fullBoard: [],
   };
 }

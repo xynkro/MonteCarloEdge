@@ -27,6 +27,8 @@ export interface AuthTableSnapshot {
   lastPot?: number;
   lastWon?: Record<number, number>;
   isPublic?: boolean;
+  boughtIn?: number;
+  bankedOut?: number;
   spectators?: Array<{ uid: string; name: string }>;
   lastAction?: { seat: number; type: string; amount: number } | null;
   botTrace?: Array<{ seat: number; type: string; amount: number }>;
@@ -54,6 +56,8 @@ export function serializeAuthTable(t: AuthTable): AuthTableSnapshot {
     lastPot: t.lastPot ?? 0,
     lastWon: t.lastWon ?? {},
     isPublic: t.isPublic !== false,
+    boughtIn: t.boughtIn ?? t.startingStack,
+    bankedOut: t.bankedOut ?? 0,
     spectators: (t.spectators ?? []).map((s) => ({ uid: s.uid, name: s.name })),
     lastAction: t.lastAction ?? null,
     botTrace: (t.botTrace ?? []).slice(),
@@ -82,6 +86,9 @@ export function deserializeAuthTable(s: AuthTableSnapshot): AuthTable {
     lastPot: s.lastPot ?? 0,
     lastWon: s.lastWon ?? {},
     isPublic: s.isPublic !== false,
+    // Old rooms (pre-cap) deserialize as uncapped so they don't brick mid-life; they're purged.
+    boughtIn: s.boughtIn ?? Number.MAX_SAFE_INTEGER,
+    bankedOut: s.bankedOut ?? 0,
     spectators: (s.spectators ?? []).map((x) => ({ uid: x.uid, name: x.name })),
     lastAction: s.lastAction ? { seat: s.lastAction.seat, type: s.lastAction.type as NonNullable<AuthTable["lastAction"]>["type"], amount: s.lastAction.amount } : null,
     botTrace: (s.botTrace ?? []).map((x) => ({ seat: x.seat, type: x.type as NonNullable<AuthTable["lastAction"]>["type"], amount: x.amount })),

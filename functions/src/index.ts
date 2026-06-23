@@ -302,6 +302,7 @@ export const joinTable = onCall(async (req) => {
     }
     sit(t, uid, name, seatIdx);
     if (t.seats[seatIdx]) t.seats[seatIdx]!.assisted = (u.exists ? u.data()?.edgePass : undefined) === true;
+    t.boughtIn = (t.boughtIn ?? t.startingStack) + t.startingStack; // wallet chips entering the table
     tx.set(userRef(uid), { name, [balField(currency)]: bal - t.startingStack }, { merge: true });
     // Seated mid-hand → the table total just grew by the buy-in; bump the conservation
     // baseline so THIS hand's settle still balances (the next startHand recomputes it fresh).
@@ -464,26 +465,27 @@ export const listPublicRooms = onCall(async (_req) => {
   // the instant its first hand dealt, making in-progress rooms invisible. joinTable already supports
   // mid-hand join (open seat → dealt next hand, or spectate if full); the occupied>=seats drop below
   // keeps only rooms with an open seat. (Equality + `in` is served by the existing isPublic+status index.)
+  const validBb = new Set(Object.values(TIERS).map((T) => T.bb)); // current-stake whitelist
   const snap = await db.collection("tables")
     .where("isPublic", "==", true)
     .where("status", "in", ["waiting", "in_hand", "hand_over"])
-    .limit(50)
+    .limit(80)
     .get();
-  const rooms: Array<{ code: string; name: string; sb: number; bb: number; occupied: number; max: number; currency: string }> = [];
+  const rooms: Array<{ code: string; name: string; sb: number; bb: number; occupied: number; humans: number; max: number; currency: string }> = [];
   for (const doc of snap.docs) {
     const d = doc.data() as { id?: string; name?: string; blinds?: { sb: number; bb: number }; seats?: Array<{ uid: string | null; ai: string | null }>; currency?: string };
     const seats = d.seats ?? [];
     const occupied = seats.filter((x) => x.uid || x.ai).length;
-    if (occupied >= seats.length) continue; // full → drop
-    rooms.push({
-      code: doc.id, name: d.name ?? "Room",
-      sb: d.blinds?.sb ?? 0, bb: d.blinds?.bb ?? 0,
-      occupied, max: seats.length,
-      currency: d.currency ?? "play",
-    });
-    if (rooms.length >= 20) break;
+    const humans = seats.filter((x) => x.uid).length;
+    if (occupied >= seats.length) continue;          // full → drop
+    if (humans === 0) continue;                       // no real players → zombie (auto-delete cleans it; never list)
+    if (!validBb.has(d.blinds?.bb ?? -1)) continue;   // off-TIERS / removed stake → hide stale rooms
+    rooms.push({ code: doc.id, name: d.name ?? "Room", sb: d.blinds?.sb ?? 0, bb: d.blinds?.bb ?? 0, occupied, humans, max: seats.length, currency: d.currency ?? "play" });
   }
-  return { rooms };
+  // Server-browser order: by stake ascending, then fewest open seats first (so Quick Play fills a
+  // room before scattering players across new ones).
+  rooms.sort((a, b) => a.bb - b.bb || (a.max - a.occupied) - (b.max - b.occupied));
+  return { rooms: rooms.slice(0, 30) };
 });
 
 /** Lobby + table chat — seated players and spectators only. Server enforces length
@@ -543,6 +545,7 @@ export const rebuy = onCall(async (req) => {
     const bal = currency === "premium" ? w.premium : w.play;
     if (bal < amt) throw new HttpsError("failed-precondition", `Not enough ${currency === "premium" ? "premium" : "play"} chips.`);
     seat.chips = newStack;
+    t.boughtIn = (t.boughtIn ?? t.startingStack) + amt; // rebuy = more wallet chips entering the table
     tx.set(userRef(uid), { [balField(currency)]: bal - amt }, { merge: true });
     // Bumping baseline keeps the stored conservation reference in sync — startHand will
     // recompute baseline from the live stacks at deal time, so this is belt-and-braces.
@@ -565,7 +568,8 @@ export const leaveTable = onCall(async (req) => {
       if (list.length === (t.spectators?.length ?? 0)) return { ok: true };
       t.spectators = list;
       persist(tx, code, t, version + 1, baseline, false, currency);
-      return { ok: true };
+      const kill = t.status !== "in_hand" && !t.seats.some((s) => s.uid); // no seated humans left → zombie
+      return { ok: true, kill };
     }
     if (t.status === "in_hand" && t.liveSeats.includes(t.seats.indexOf(seat))) {
       // Reject a mid-hand leave — the client's queued-leave (_pendingLeave) then folds on-turn
@@ -578,11 +582,16 @@ export const leaveTable = onCall(async (req) => {
       // `code` lets the client detect this WITHOUT regex-matching the (byte-stable) message.
       throw new HttpsError("failed-precondition", "Finish the hand before leaving.", { code: "IN_HAND" });
     }
-    const back = seat.chips;
+    // Cap the cash-out at what the table still owes the WALLET pool (boughtIn − bankedOut). Chips a
+    // leaver won off wallet-unbacked BOTS exceed that pool, so they're dropped — never minted into a
+    // wallet. Humans stay zero-sum vs each other (a winner banks the losers' buy-ins; bot winnings evaporate).
+    const owed = Math.max(0, (t.boughtIn ?? Number.MAX_SAFE_INTEGER) - (t.bankedOut ?? 0));
+    const back = Math.min(seat.chips, owed);
     const u = await tx.get(userRef(uid));
     const w = readWallet(u.exists ? u.data() : undefined);
     const bal = currency === "premium" ? w.premium : w.play;
     leave(t, uid);
+    t.bankedOut = (t.bankedOut ?? 0) + back;
     // Make sure they're not lingering in the spectator list either.
     t.spectators = (t.spectators ?? []).filter((s) => s.uid !== uid);
     tx.set(userRef(uid), { [balField(currency)]: bal + back }, { merge: true });
@@ -592,7 +601,16 @@ export const leaveTable = onCall(async (req) => {
     // baseline). Between hands startHand recomputes the baseline fresh, so only in_hand needs it.
     const newBase = t.status === "in_hand" ? baseline - back : baseline;
     persist(tx, code, t, version + 1, newBase, false, currency);
-    return { ok: true, banked: back };
+    // A room with no seated humans left (host left + only bots/spectators remain) is a zombie — flag
+    // it for deletion. recursiveDelete can't run inside a txn, so we delete AFTER the commit (below).
+    const kill = t.status !== "in_hand" && !t.seats.some((s) => s.uid);
+    return { ok: true, banked: back, kill };
+  }).then(async (res) => {
+    if ((res as { kill?: boolean }).kill) {
+      // Wipes tables/{code} + its private/state, hands/*, chat/* subcollections in one BulkWriter pass.
+      await db.recursiveDelete(tableRef(code)).catch(() => { /* best-effort; listPublicRooms also hides it */ });
+    }
+    return res;
   });
 });
 
@@ -889,6 +907,27 @@ export const adminDeleteUser = onCall(async (req) => {
   try { await getAuth().deleteUser(toUid); } catch (_e) { /* already gone or unknown */ }
 
   return { ok: true };
+});
+
+/** Super-admin: one-time purge of zombie/stale public rooms — no human seated, or a stake no longer in
+ *  TIERS (e.g. old 1/2, 5/10). Call with {dryRun:true} to preview, then {dryRun:false} to delete. */
+export const adminPurgeStaleRooms = onCall(async (req) => {
+  uidOf(req);
+  const tok = (req.auth?.token ?? {}) as { email?: string; email_verified?: boolean; admin?: boolean };
+  const isAdmin = tok.admin === true || (ADMIN_EMAILS.has(tok.email ?? "") && tok.email_verified === true);
+  if (!isAdmin) throw new HttpsError("permission-denied", "Admins only.");
+  const { dryRun = true } = (req.data ?? {}) as { dryRun?: boolean };
+  const validBb = new Set(Object.values(TIERS).map((T) => T.bb));
+  const snap = await db.collection("tables").where("isPublic", "==", true).limit(500).get();
+  const doomed: string[] = [];
+  for (const doc of snap.docs) {
+    const d = doc.data() as { status?: string; blinds?: { bb: number }; seats?: Array<{ uid: string | null }> };
+    const humans = (d.seats ?? []).some((s) => s.uid);
+    const staleStake = !validBb.has(d.blinds?.bb ?? -1);
+    if (d.status !== "in_hand" && (!humans || staleStake)) doomed.push(doc.id);
+  }
+  if (!dryRun) for (const code of doomed) await db.recursiveDelete(tableRef(code)).catch(() => { /* */ });
+  return { ok: true, dryRun, count: doomed.length, codes: doomed.slice(0, 100) };
 });
 
 /** Claim the weekly free PLAY chips on a DETERMINISTIC streak ladder (no RNG / no loot
