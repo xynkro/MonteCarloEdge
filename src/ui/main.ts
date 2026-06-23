@@ -57,6 +57,9 @@ const ICON_BAG = _svg(`<path d="M5.6 7.8h12.8l-.85 11.1a1.7 1.7 0 0 1-1.7 1.6H8.
 const ICON_USER = _svg(`<circle cx="12" cy="8" r="3.9"/><path d="M4.6 20a7.4 7.4 0 0 1 14.8 0"/>`);
 const ICON_BOLT = _svg(`<path d="M12.8 2.4 4.7 13.3h6l-1.4 8.3 8.1-10.9h-6z" fill="currentColor" fill-opacity=".14"/>`);
 const ICON_CHART = _svg(`<path d="M4 20h16"/><rect x="5.3" y="11.5" width="3.2" height="6.5" rx=".7"/><rect x="10.4" y="7" width="3.2" height="11" rx=".7"/><rect x="15.5" y="13.5" width="3.2" height="4.5" rx=".7"/>`);
+// Compact UI-icon helper: emits a 1em mask-icon (.ic-* defined in styles.css). Themeable via
+// currentColor, device-independent — the system replacement for emoji chrome (settings/chat/lock…).
+const ic = (name: string): string => `<i class="ic ic-${name}"></i>`;
 const PROFILES: Record<string, OpponentProfile> = { Auto: AUTO, TAG, LAG, Station: STATION, Nit: NIT };
 
 // A reversible snapshot of mid-hand state (live mode). Pushed before each
@@ -1950,7 +1953,7 @@ function renderGame(): void {
   }
   // Beginner mode: when the dense reads are hidden, offer a one-tap nudge to turn them on (postflop only).
   const readsNudge = (S.boardRead && !readsOn() && !S.handOver && !S.trainingOver && gs && gs.board.length >= 3)
-    ? `<button class="reads-nudge" id="reads-on">👁 Show range reads — what beats you &amp; what's drawing</button>`
+    ? `<button class="reads-nudge" id="reads-on"><i class='ic ic-watch'></i> Show range reads — what beats you &amp; what's drawing</button>`
     : "";
 
   // ── Recommendation ──
@@ -2079,12 +2082,12 @@ function renderGame(): void {
             ? `<button class="hdr-btn" id="speed-btn" title="Playback speed">${SPEED_LABEL[trainingSpeed()]}</button>`
             : ""}
           ${S.mode === "training"
-            ? `<button class="hdr-btn" id="gloss-btn" title="What do these poker terms mean?" aria-label="Poker glossary">❔</button>`
+            ? `<button class="hdr-btn" id="gloss-btn" title="What do these poker terms mean?" aria-label="Poker glossary"><i class='ic ic-help'></i></button>`
             : ""}
           ${S.mode === "live" && S.undoStack.length > 0
             ? `<button class="hdr-btn undo" id="undo-btn" title="Undo ${S.undoStack[S.undoStack.length - 1]!.label}">↩ Undo</button>`
             : ""}
-          <button class="hdr-btn" id="new-hand">⚙ New Table</button>
+          <button class="hdr-btn" id="new-hand"><i class='ic ic-settings'></i> New Table</button>
         </div>
       </div>
 
@@ -2563,7 +2566,7 @@ function renderHandResult(positions: readonly string[]): string {
 
   // (Opponents' hands are shown at their seats on the table at showdown.)
   const reviewBtn = S.decisionLog.length
-    ? `<button class="action-btn check" id="review-hand" style="flex:0 0 auto;padding:16px 14px">📋 Review</button>`
+    ? `<button class="action-btn check" id="review-hand" style="flex:0 0 auto;padding:16px 14px"><i class='ic ic-copy'></i> Review</button>`
     : "";
 
   // If the hero's hand-ENDING move was a clear mistake (e.g. a wrong fold), surface the verdict here —
@@ -2650,7 +2653,7 @@ function cancelVillainTimer(): void {
 const SPEED_TIERS = ["slow", "normal", "fast", "instant"] as const;
 type SpeedTier = typeof SPEED_TIERS[number];
 const SPEED_FACTOR: Record<SpeedTier, number> = { slow: 1.8, normal: 1, fast: 0.5, instant: 0.04 };
-const SPEED_LABEL: Record<SpeedTier, string> = { slow: "🐢 Slow", normal: "▶ Normal", fast: "⏩ Fast", instant: "⚡ Instant" };
+const SPEED_LABEL: Record<SpeedTier, string> = { slow: "🐢 Slow", normal: "▶ Normal", fast: "⏩ Fast", instant: "<i class='ic ic-bolt'></i> Instant" };
 function trainingSpeed(): SpeedTier {
   const v = (localStorage.getItem("mce-speed") as SpeedTier) || "normal";
   return SPEED_TIERS.includes(v) ? v : "normal";
@@ -3484,7 +3487,7 @@ async function renderStats(): Promise<void> {
         <div class="stat-label">All Time: ${allStats.hands} hands, ${fmt(allStats.totalPnl)}</div>
       </div>` : "")}
 
-      <button class="start-btn" id="leak-report" style="background:linear-gradient(135deg,var(--violet),var(--violet-2));color:#fff">🔍 Leak Report</button>
+      <button class="start-btn" id="leak-report" style="background:linear-gradient(135deg,var(--violet),var(--violet-2));color:#fff"><i class='ic ic-search'></i> Leak Report</button>
       <button class="start-btn" id="back-setup" style="margin-top:8px">Back to Table</button>
       ${allHands.length > 0 ? `<button class="hdr-btn" id="export-csv" style="width:100%;padding:12px;margin-top:4px;font-size:13px">Export CSV</button>` : ""}
       ${allHands.length > 0 ? `<button class="hdr-btn" id="clear-hist" style="width:100%;padding:12px;margin-top:4px;font-size:13px;color:var(--red)">Clear All History</button>` : ""}
@@ -3552,7 +3555,7 @@ function renderLeaks(): void {
   const enough = all.length >= 8;
   app.innerHTML = `
     <div class="setup">
-      <h1>🔍 Leak Report</h1>
+      <h1><i class='ic ic-search'></i> Leak Report</h1>
       <span class="hint" style="text-align:center;display:block;margin-bottom:14px">Your decisions vs the MCE line · ${all.length} graded · build it up in Training (try Quiz mode)</span>
 
       ${!enough ? `
@@ -3638,15 +3641,18 @@ const ROOM_TIERS = [
 ];
 // CS/Half-Life-server-style stake tiers: each buy-in level gets an icon + a name so the lobby reads
 // as a list of joinable "servers", not a wall of numbers. Keyed by big blind (TIERS each have a unique bb).
+// Each tier renders as a real casino chip (.ic-chip-* in styles.css) in its denomination colour —
+// grey→red→green→black→purple→gold — so the lobby reads as joinable "servers". Keyed by big blind.
+const chipIcon = (tier: string): string => `<i class="ic-chip ic-chip-${tier}"></i>`;
 const STAKE_TIERS: Record<number, { icon: string; label: string }> = {
-  200:   { icon: "🪙", label: "Micro" },
-  500:   { icon: "🎲", label: "Low" },
-  1000:  { icon: "♠️", label: "Mid" },
-  2000:  { icon: "💎", label: "High" },
-  5000:  { icon: "👑", label: "VIP" },
-  10000: { icon: "🏆", label: "Nosebleed" },
+  200:   { icon: chipIcon("micro"), label: "Micro" },
+  500:   { icon: chipIcon("low"),   label: "Low" },
+  1000:  { icon: chipIcon("mid"),   label: "Mid" },
+  2000:  { icon: chipIcon("high"),  label: "High" },
+  5000:  { icon: chipIcon("vip"),   label: "VIP" },
+  10000: { icon: chipIcon("nose"),  label: "Nosebleed" },
 };
-const stakeTier = (bb: number): { icon: string; label: string } => STAKE_TIERS[bb] ?? { icon: "🃏", label: "Table" };
+const stakeTier = (bb: number): { icon: string; label: string } => STAKE_TIERS[bb] ?? { icon: chipIcon("micro"), label: "Table" };
 // AI styles map to the trainer's opponent archetypes (keys of PROFILES).
 // "rand" = a random style assigned at room start (so you can spam-add a varied
 // table without configuring each seat).
@@ -3680,7 +3686,7 @@ function renderMpSetup(): void {
   if (!S.mp.auth) {
     app.innerHTML = `
     <div class="setup">
-      <div class="doc-top"><button class="hdr-btn" id="mp-back">← Back</button><h1>🌐 Play Online</h1><span style="width:54px"></span></div>
+      <div class="doc-top"><button class="hdr-btn" id="mp-back">← Back</button><h1><i class='ic ic-online'></i> Play Online</h1><span style="width:54px"></span></div>
       <div class="hint" style="text-align:center;margin:30px 0 16px">Sign in to play online — your chips are saved to your account and you can join friends by room code.</div>
       <button class="si-btn primary" id="mp-signin">Sign in / Register</button>
     </div>`;
@@ -3700,19 +3706,19 @@ function renderMpSetup(): void {
   const noPrem = premium && bal <= 0;
   app.innerHTML = `
     <div class="setup">
-      <div class="doc-top"><button class="hdr-btn" id="mp-back">← Back</button><h1>🌐 Play Online</h1>${online.length ? `<button class="online-pill ${_onlineOpen ? "open" : ""}" id="online-pill" title="Who's online">🟢 ${online.length}</button>` : `<span style="width:54px"></span>`}</div>
+      <div class="doc-top"><button class="hdr-btn" id="mp-back">← Back</button><h1><i class='ic ic-online'></i> Play Online</h1>${online.length ? `<button class="online-pill ${_onlineOpen ? "open" : ""}" id="online-pill" title="Who's online">🟢 ${online.length}</button>` : `<span style="width:54px"></span>`}</div>
       ${_onlineOpen && online.length ? `<div class="online-list">${online.map((p) => `<span class="ol-chip">🟢 ${esc(p.name)}</span>`).join("")}</div>` : ""}
 
-      <div class="room-bal"><span class="rb-bal">Balance <strong><i class=ic-coin></i> ${fmtBal(S.wallet.play)}</strong>${(S.wallet.premium ?? 0) > 0 ? ` <strong><i class=ic-gem></i> ${fmtBal(S.wallet.premium)}</strong>` : ""}</span><div class="rb-right"><button class="mce-toggle rb-mce ${hasEdge() && _roomAssisted ? "on" : ""} ${!hasEdge() ? "locked" : ""}" id="lobby-mce" title="Live MCE recommendation at your seat">MCEdge ${!hasEdge() ? "🔒" : _roomAssisted ? "🧠" : "○"}</button><button class="hdr-btn rb-buy" id="room-buychips">＋ Buy</button></div></div>
+      <div class="room-bal"><span class="rb-bal">Balance <strong><i class=ic-coin></i> ${fmtBal(S.wallet.play)}</strong>${(S.wallet.premium ?? 0) > 0 ? ` <strong><i class=ic-gem></i> ${fmtBal(S.wallet.premium)}</strong>` : ""}</span><div class="rb-right"><button class="mce-toggle rb-mce ${hasEdge() && _roomAssisted ? "on" : ""} ${!hasEdge() ? "locked" : ""}" id="lobby-mce" title="Live MCE recommendation at your seat">MCEdge ${!hasEdge() ? "<i class='ic ic-lock'></i>" : _roomAssisted ? "🧠" : "○"}</button><button class="hdr-btn rb-buy" id="room-buychips">＋ Buy</button></div></div>
 
       <div class="join-card">
         <label>Join a room</label>
-        <div class="net-join"><input class="mp-num join-code" id="net-code" placeholder="CODE" maxlength="8" autocapitalize="characters" autocomplete="off" value="${S.net.joinCode.replace(/"/g, "")}"/><button class="join-btn" id="net-join">Join</button><button class="join-btn spectate" id="net-spectate">👁 Watch</button></div>
+        <div class="net-join"><input class="mp-num join-code" id="net-code" placeholder="CODE" maxlength="8" autocapitalize="characters" autocomplete="off" value="${S.net.joinCode.replace(/"/g, "")}"/><button class="join-btn" id="net-join">Join</button><button class="join-btn spectate" id="net-spectate"><i class='ic ic-watch'></i> Watch</button></div>
       </div>
       ${S.net.err ? `<div class="room-broke" style="margin:8px 0">${esc(S.net.err)}</div>` : ""}
 
       <div class="quickplay">
-        <div class="pr-head"><label>⚡ Quick Play · jump straight into a table</label></div>
+        <div class="pr-head"><label><i class='ic ic-bolt'></i> Quick Play · jump straight into a table</label></div>
         <div class="qp-grid">
           ${ROOM_TIERS.map((tr, i) => {
             const here = (S.net.publicRooms ?? []).filter((r) => r.bb === tr.bb && r.currency === "play");
@@ -3722,7 +3728,7 @@ function renderMpSetup(): void {
             return `<button class="qp-tier ${afford ? "" : "locked"}" data-qp="${i}" ${afford ? "" : "disabled"}>
               <span class="qp-ic">${st.icon}</span>
               <span class="qp-info"><span class="qp-stake">${st.label}</span><span class="qp-sub">${tr.name}</span></span>
-              <span class="qp-meta">${players > 0 ? `🟢 ${players}` : afford ? "→" : "🔒"}</span>
+              <span class="qp-meta">${players > 0 ? `🟢 ${players}` : afford ? "→" : "<i class='ic ic-lock'></i>"}</span>
             </button>`;
           }).join("")}
         </div>
@@ -3734,9 +3740,9 @@ function renderMpSetup(): void {
       </div>` : ""}
 
       <div class="public-rooms">
-        <div class="pr-head"><label>Online games${S.net.publicRooms ? ` · ${S.net.publicRooms.length}` : ""}</label><button class="hdr-btn pr-refresh" id="pr-refresh" title="Refresh">${S.net.publicRoomsBusy ? '<span class="spin"></span>' : "↻"}</button></div>
+        <div class="pr-head"><label>Online games${S.net.publicRooms ? ` · ${S.net.publicRooms.length}` : ""}</label><button class="hdr-btn pr-refresh" id="pr-refresh" title="Refresh">${S.net.publicRoomsBusy ? '<span class="spin"></span>' : "<i class='ic ic-refresh'></i>"}</button></div>
         ${S.net.publicRooms === null
-          ? (S.net.publicRoomsBusy ? `<div class="net-wait"><span class="spin"></span><span>Finding open rooms…</span></div>` : `<span class="hint">Tap ↻ to find open public rooms.</span>`)
+          ? (S.net.publicRoomsBusy ? `<div class="net-wait"><span class="spin"></span><span>Finding open rooms…</span></div>` : `<span class="hint">Tap <i class='ic ic-refresh'></i> to find open public rooms.</span>`)
           : (S.net.publicRooms.length === 0
             ? `<span class="hint">No open public rooms right now — be the first to create one.</span>`
             : `<div class="pr-list">${S.net.publicRooms.map((r) => {
@@ -3773,26 +3779,26 @@ function renderMpSetup(): void {
             <div class="buyin-ends"><span>min ${minBuy.toLocaleString()}</span><span>you have ${sym} ${bal.toLocaleString()}</span></div>
           </div>` : (!noPrem ? `<div class="room-broke">You need at least ${sym} ${minBuy.toLocaleString()} to sit at ${tier.name}. Lower the stakes or top up.</div>` : "")}
 
-          <button class="opts-toggle ${_createOptsOpen ? "open" : ""}" id="opts-toggle">⚙ Table options${_createOptsOpen ? "" : ` <span class="ot-peek">· ${_roomPublic ? "Public" : "Private"} · ${hasEdge() && _roomAssisted ? "MCE on" : "MCE off"}</span>`}<span class="ct-chev">${_createOptsOpen ? "▾" : "▸"}</span></button>
+          <button class="opts-toggle ${_createOptsOpen ? "open" : ""}" id="opts-toggle"><i class='ic ic-settings'></i> Table options${_createOptsOpen ? "" : ` <span class="ot-peek">· ${_roomPublic ? "Public" : "Private"} · ${hasEdge() && _roomAssisted ? "MCE on" : "MCE off"}</span>`}<span class="ct-chev">${_createOptsOpen ? "▾" : "▸"}</span></button>
           ${_createOptsOpen ? `
           <div class="opts-panel">
             <div class="field"><label>MCE Strategy overlay</label>
-              <button class="mce-toggle ${hasEdge() && _roomAssisted ? "on" : ""} ${!hasEdge() ? "locked" : ""}" id="room-mce" ${noPrem ? "disabled" : ""}>${!hasEdge() ? "🔒 Edge Pass" : _roomAssisted ? "🧠 ON" : "OFF"}</button>
+              <button class="mce-toggle ${hasEdge() && _roomAssisted ? "on" : ""} ${!hasEdge() ? "locked" : ""}" id="room-mce" ${noPrem ? "disabled" : ""}>${!hasEdge() ? "<i class='ic ic-lock'></i> Edge Pass" : _roomAssisted ? "🧠 ON" : "OFF"}</button>
               <span class="hint" style="display:block;margin-top:4px">${!hasEdge() ? "Live in-game GTO recommendations — unlock with Edge Pass in the Store." : "Show the live MCE recommendation at your seat this room."}</span>
             </div>
             <div class="field"><label>Room visibility</label>
               <div class="cur-seg" id="room-priv">
-                <button class="${_roomPublic ? "sel" : ""}" data-priv="public">🌐 Public</button>
-                <button class="${!_roomPublic ? "sel" : ""}" data-priv="private">🔒 Private</button>
+                <button class="${_roomPublic ? "sel" : ""}" data-priv="public"><i class='ic ic-online'></i> Public</button>
+                <button class="${!_roomPublic ? "sel" : ""}" data-priv="private"><i class='ic ic-lock'></i> Private</button>
               </div>
             </div>
             <div class="field"><label>Bot speed</label>
               <div class="seg" id="room-speed">${SPEED_TIERS.map((t) => `<button class="seg-btn ${trainingSpeed() === t ? "sel" : ""}" data-speed="${t}">${SPEED_LABEL[t]}</button>`).join("")}</div>
-              <span class="hint" style="display:block;margin-top:4px">Adjustable mid-game from the ⚙ cog too.</span>
+              <span class="hint" style="display:block;margin-top:4px">Adjustable mid-game from the <i class='ic ic-settings'></i> cog too.</span>
             </div>
           </div>` : ""}
 
-          ${canAfford && !noPrem ? `<button class="start-btn" id="net-create" style="background:linear-gradient(135deg,#4285F4,#1a73e8);color:#fff;margin-top:10px">${S.net.busy ? '<span class="spin dark"></span>' : `🌐 Create ${premium ? "<i class=ic-gem></i> Premium" : "<i class=ic-coin></i> Play"} Room`}</button>` : ""}
+          ${canAfford && !noPrem ? `<button class="start-btn" id="net-create" style="background:linear-gradient(135deg,#4285F4,#1a73e8);color:#fff;margin-top:10px">${S.net.busy ? '<span class="spin dark"></span>' : `<i class='ic ic-online'></i> Create ${premium ? "<i class=ic-gem></i> Premium" : "<i class=ic-coin></i> Play"} Room`}</button>` : ""}
         </div>
       </div>` : ""}
 
@@ -3879,7 +3885,7 @@ function renderMpTable(): void {
           <div class="wr-sub">Last player standing</div>
           <div class="wr-stack"><span class="wr-final"><i class=ic-coin></i> ${mpc(final)}</span></div>
           <div class="wr-actions">
-            <button class="hdr-btn" id="mp-rematch">↻ Rematch (reset stacks)</button>
+            <button class="hdr-btn" id="mp-rematch"><i class='ic ic-refresh'></i> Rematch (reset stacks)</button>
             <button class="hdr-btn" id="mp-home">🏠 Home</button>
           </div>
         </div>`;
@@ -3896,7 +3902,7 @@ function renderMpTable(): void {
       panel = `<div class="mp-turn"><strong>${seat.name}</strong> · ${label}</div><div class="net-wait"><span class="spin"></span><span>thinking…</span></div>`;
     } else if (!S.mp.reveal) {
       panel = `<div class="mp-turn"><strong>${seat.name}</strong>'s turn</div>
-        <button class="start-btn" id="mp-reveal">👁 Reveal cards & act</button>
+        <button class="start-btn" id="mp-reveal"><i class='ic ic-watch'></i> Reveal cards & act</button>
         <span class="hint" style="text-align:center;display:block">Pass the device to ${seat.name}.</span>`;
     } else {
       const ph = MP.privateHandFor(t, seat.uid!);
@@ -4644,7 +4650,7 @@ function netCogSheetHtml(pub: Record<string, any>, seats: CogSeat[], uid: string
       <div class="cog-head"><span>Room settings</span><button class="hdr-btn" id="cog-x" aria-label="Close room settings">✕</button></div>
       <div class="cog-section"><div class="cog-label">Your seat</div>
         <div class="cog-row"><span>MCE Strategy</span>
-          <button class="mce-toggle ${hasEdge() && assistedOn ? "on" : ""} ${!hasEdge() ? "locked" : ""}" id="cog-mce">${!hasEdge() ? "🔒 Edge Pass" : assistedOn ? "🧠 ON" : "OFF"}</button>
+          <button class="mce-toggle ${hasEdge() && assistedOn ? "on" : ""} ${!hasEdge() ? "locked" : ""}" id="cog-mce">${!hasEdge() ? "<i class='ic ic-lock'></i> Edge Pass" : assistedOn ? "🧠 ON" : "OFF"}</button>
         </div>
         ${hasEdge() && assistedOn ? `<div class="cog-style-block">
           <div class="cog-style-head"><span>Villain read</span><span class="cog-style-blurb">${esc(styleBlurb)}</span></div>
@@ -4653,7 +4659,7 @@ function netCogSheetHtml(pub: Record<string, any>, seats: CogSeat[], uid: string
       </div>
       ${isOwner ? `<div class="cog-section"><div class="cog-label">Room (host)</div>
         <div class="cog-row"><span>Visibility</span>
-          <button class="mce-toggle ${isPublic ? "on" : ""}" id="cog-priv">${isPublic ? "🌐 Public" : "🔒 Private"}</button>
+          <button class="mce-toggle ${isPublic ? "on" : ""}" id="cog-priv">${isPublic ? "<i class='ic ic-online'></i> Public" : "<i class='ic ic-lock'></i> Private"}</button>
         </div>
         ${botSeats.length > 0 && status !== "in_hand" ? `<div class="cog-row"><span>Kick a bot</span>
           <div class="cog-kick-list">${botSeats.map(({ s, ti }) => `<button class="hdr-btn cog-kick" data-seat="${ti}">${COG_BOT_LABEL(s.ai!)}</button>`).join("")}</div>
@@ -4845,7 +4851,7 @@ function renderNetTable(): void {
   if (!code) { S.screen = "mp-setup"; render(); return; }
   const pub = S.net.pub;
   if (!pub) {
-    app.innerHTML = `<div class="setup"><div class="doc-top"><span style="width:54px"></span><h1>🌐 ${code}</h1><button class="hdr-btn" id="net-leave">Leave</button></div><div class="net-wait"><span class="spin"></span><span>Connecting…</span></div>${S.net.err ? `<div class="room-broke">${esc(S.net.err)}</div>` : ""}</div>`;
+    app.innerHTML = `<div class="setup"><div class="doc-top"><span style="width:54px"></span><h1><i class='ic ic-online'></i> ${code}</h1><button class="hdr-btn" id="net-leave">Leave</button></div><div class="net-wait"><span class="spin"></span><span>Connecting…</span></div>${S.net.err ? `<div class="room-broke">${esc(S.net.err)}</div>` : ""}</div>`;
     onId("net-leave", "click", () => void netLeave());
     return;
   }
@@ -4874,7 +4880,7 @@ function renderNetTable(): void {
   const humans = occupied.filter((x) => x.s.uid).length;
   const spectators = (pub.spectators ?? []) as Array<{ uid: string; name: string }>;
   const isSpectator = !!uid && !seats.some((s) => s.uid === uid) && spectators.some((s) => s.uid === uid);
-  const specPills = spectators.length > 0 ? `<div class="spec-row">👁 ${spectators.length} watching <span class="spec-names">${spectators.slice(0, 6).map((s) => `<span class="spec-pill">${esc(s.name)}</span>`).join("")}${spectators.length > 6 ? `<span class="spec-pill more">+${spectators.length - 6}</span>` : ""}</span></div>` : "";
+  const specPills = spectators.length > 0 ? `<div class="spec-row"><i class='ic ic-watch'></i> ${spectators.length} watching <span class="spec-names">${spectators.slice(0, 6).map((s) => `<span class="spec-pill">${esc(s.name)}</span>`).join("")}${spectators.length > 6 ? `<span class="spec-pill more">+${spectators.length - 6}</span>` : ""}</span></div>` : "";
 
   // Chat drawer (lobby + table). Shared HTML; opened from the 💬 topbar button.
   const myUid = uid ?? "";
@@ -4883,7 +4889,7 @@ function renderNetTable(): void {
   const chatDrawer = chat.open ? `
     <div class="cog-backdrop" id="ch-close"></div>
     <div class="chat-drawer">
-      <div class="cog-head"><span>💬 Room chat</span><button class="hdr-btn" id="ch-x" aria-label="Close chat">✕</button></div>
+      <div class="cog-head"><span><i class='ic ic-chat'></i> Room chat</span><button class="hdr-btn" id="ch-x" aria-label="Close chat">✕</button></div>
       <div class="ch-stream" id="ch-stream">
         ${chat.msgs.length === 0
           ? `<div class="hint" style="text-align:center;padding:20px 0">Say hi — your messages go to seated players and spectators.</div>`
@@ -4972,11 +4978,11 @@ function renderNetTable(): void {
     const cogSheet = netCogSheetHtml(pub, seats as CogSeat[], uid);
     app.innerHTML = `
       <div class="net-game lobby-screen">
-        <div class="game-topbar"><span>Room <strong>${code}</strong> · ${sym} ${currency === "premium" ? "premium" : "play"} · ${isPublic ? "🌐" : "🔒"}</span><div class="topbar-btns"><button class="hdr-btn" id="net-gloss" title="What do these poker terms mean?" aria-label="Poker glossary">❔</button><button class="hdr-btn ch-toggle" id="net-chat" title="Chat">💬${unread > 0 ? `<span class="ch-badge">${unread}</span>` : ""}</button><button class="hdr-btn" id="net-cog" title="Settings">⚙</button><button class="hdr-btn" id="net-leave">Leave</button></div></div>
+        <div class="game-topbar"><span>Room <strong>${code}</strong> · ${sym} ${currency === "premium" ? "premium" : "play"} · ${isPublic ? "<i class='ic ic-online'></i>" : "<i class='ic ic-lock'></i>"}</span><div class="topbar-btns"><button class="hdr-btn" id="net-gloss" title="What do these poker terms mean?" aria-label="Poker glossary"><i class='ic ic-help'></i></button><button class="hdr-btn ch-toggle" id="net-chat" title="Chat"><i class='ic ic-chat'></i>${unread > 0 ? `<span class="ch-badge">${unread}</span>` : ""}</button><button class="hdr-btn" id="net-cog" title="Settings"><i class='ic ic-settings'></i></button><button class="hdr-btn" id="net-leave">Leave</button></div></div>
         <div class="lobby-wrap">
           <div class="lobby-hero">
             <div class="lobby-badge">● WAITING ROOM</div>
-            <button class="lobby-code" id="net-copy"><span class="lc-code">${code}</span><span class="lc-hint">tap to copy 📋</span></button>
+            <button class="lobby-code" id="net-copy"><span class="lc-code">${code}</span><span class="lc-hint">tap to copy <i class='ic ic-copy'></i></span></button>
             <p class="lobby-sub">Share this code — friends open <strong>Play Online → Join with code</strong>.</p>
           </div>
           <div class="lobby-roster">
@@ -4990,7 +4996,7 @@ function renderNetTable(): void {
           ${isSpectator
             ? (openSeats > 0
               ? `<button class="start-btn lobby-start" id="net-seat"${S.net.busy ? " disabled" : ""}>${S.net.busy ? '<span class="spin dark"></span>' : "Take a seat"}</button>`
-              : `<div class="lobby-note">👁 Watching · room is full.</div>`)
+              : `<div class="lobby-note"><i class='ic ic-watch'></i> Watching · room is full.</div>`)
             : `<button class="start-btn lobby-start" id="net-deal"${occupied.length < 2 ? " disabled" : ""}>${S.net.busy ? '<span class="spin dark"></span>' : occupied.length < 2 ? "Waiting for players…" : "▶ START GAME"}</button>`}
           <p class="lobby-foot">${occupied.length < 2 ? (isOwner ? "Add a bot or wait for a friend to join." : "Waiting for more players…") : "Anyone can start — everyone in?"}</p>
           ${S.net.err ? `<div class="room-broke">${esc(S.net.err)}</div>` : ""}
@@ -5033,7 +5039,7 @@ function renderNetTable(): void {
     const holeCards = cards ? `<div class="seat-cards ${top < 50 ? "below" : "above"}">${cards.map((c) => `<span class="seat-hole reveal ${isRed(c) ? "red" : ""}">${cardDisplay(c)}</span>`).join("")}</div>` : "";
     // Mirror the training table seat: avatar silhouette + name/role + stack.
     // FOMO: every player sees who is running MCE Strategy — the asymmetry IS the sales pitch.
-    const mceBadge = (s as { assisted?: boolean }).assisted ? `<div class="mce-badge" title="Running MCE Strategy">⚡ MCE</div>` : "";
+    const mceBadge = (s as { assisted?: boolean }).assisted ? `<div class="mce-badge" title="Running MCE Strategy"><i class='ic ic-bolt'></i> MCE</div>` : "";
     // Last-action callout: server sets lastAction on each act, clears on street advance.
     // Unique key per (seat,type,amount) so morphdom re-mounts the node → animation replays.
     const la = pub.lastAction as { seat: number; type: string; amount: number } | null | undefined;
@@ -5109,7 +5115,7 @@ function renderNetTable(): void {
   if (lobby) {
     const canAddAi = isOwner && currency === "play" && occupied.length < seats.length;
     controls = `
-      <div class="net-share">Share code <button class="net-copy" id="net-copy"><strong>${code}</strong> 📋</button></div>
+      <div class="net-share">Share code <button class="net-copy" id="net-copy"><strong>${code}</strong> <i class='ic ic-copy'></i></button></div>
       ${canAddAi ? `<div class="lobby-ai"><button class="hdr-btn add-ai" data-arch="rand">🎲 ＋ Add Bot</button></div>` : currency === "premium" ? `<div class="hint" style="text-align:center">Premium room — humans only. Share the code.</div>` : ""}
       ${isOwner ? `<button class="start-btn" id="net-deal" ${occupied.length < 2 ? "disabled style=opacity:.5" : ""}>${S.net.busy ? '<span class="spin dark"></span>' : occupied.length < 2 ? "Waiting for players…" : "DEAL"}</button>` : `<div class="hint" style="text-align:center">Waiting for the host to deal…</div>`}`;
   } else if (status === "hand_over") {
@@ -5199,11 +5205,11 @@ function renderNetTable(): void {
   const iAmAssisted = !!(seats.find((s) => s.uid === uid) as { assisted?: boolean } | undefined)?.assisted;
   const othersAssisted = seats.filter((s) => (s as { assisted?: boolean }).assisted && s.uid && s.uid !== uid).length;
   const upsellHtml = (!iAmAssisted && !hasEdge() && othersAssisted > 0 && !_fomoDismissed)
-    ? `<div class="fomo-upsell" id="fomo-upsell"><span>⚡ <strong>${othersAssisted} player${othersAssisted === 1 ? "" : "s"}</strong> here ${othersAssisted === 1 ? "is" : "are"} running <strong>MCE Strategy</strong>. Unlock yours →</span><button class="fomo-x" id="fomo-x" aria-label="dismiss">✕</button></div>`
+    ? `<div class="fomo-upsell" id="fomo-upsell"><span><i class='ic ic-bolt'></i> <strong>${othersAssisted} player${othersAssisted === 1 ? "" : "s"}</strong> here ${othersAssisted === 1 ? "is" : "are"} running <strong>MCE Strategy</strong>. Unlock yours →</span><button class="fomo-x" id="fomo-x" aria-label="dismiss">✕</button></div>`
     : "";
   app.innerHTML = `
     <div class="game net-game">
-      <div class="game-topbar"><span>Room <strong>${code}</strong> · ${sym} ${currency === "premium" ? "premium" : "play"}${spectators.length ? ` · 👁 ${spectators.length}` : ""}${sidelined.length ? ` · 💤 ${sidelined.length}` : ""}${isSpectator ? " · watching" : ""}</span><div class="topbar-btns">${!isSpectator ? `<button class="hdr-btn style-pill style-${S.heroStyle}" id="net-style-btn" title="Your play style — tap to cycle. LAG/Maniac bluff more, Nit bluffs less.">${HERO_STYLE_SHORT[S.heroStyle] ?? "Bal"}</button>` : ""}<button class="hdr-btn ch-toggle" id="net-chat" title="Chat">💬${unread > 0 ? `<span class="ch-badge">${unread}</span>` : ""}</button><button class="hdr-btn" id="net-cog" title="Settings">⚙</button><button class="hdr-btn" id="net-leave">Leave</button></div></div>
+      <div class="game-topbar"><span>Room <strong>${code}</strong> · ${sym} ${currency === "premium" ? "premium" : "play"}${spectators.length ? ` · <i class='ic ic-watch'></i> ${spectators.length}` : ""}${sidelined.length ? ` · 💤 ${sidelined.length}` : ""}${isSpectator ? " · watching" : ""}</span><div class="topbar-btns">${!isSpectator ? `<button class="hdr-btn style-pill style-${S.heroStyle}" id="net-style-btn" title="Your play style — tap to cycle. LAG/Maniac bluff more, Nit bluffs less.">${HERO_STYLE_SHORT[S.heroStyle] ?? "Bal"}</button>` : ""}<button class="hdr-btn ch-toggle" id="net-chat" title="Chat"><i class='ic ic-chat'></i>${unread > 0 ? `<span class="ch-badge">${unread}</span>` : ""}</button><button class="hdr-btn" id="net-cog" title="Settings"><i class='ic ic-settings'></i></button><button class="hdr-btn" id="net-leave">Leave</button></div></div>
       ${spectators.length ? specPills : ""}
       <div class="stage">
         <div class="table-wrap"><div class="poker-table" style="--seat-scale:${seatScale((seats as unknown[]).length)}"><div class="felt"></div>${seatHtml}<div class="board-center">${center}</div>${potHtml}</div></div>
@@ -5511,14 +5517,14 @@ function renderFriends(): void {
     // Only PUBLIC rooms are visible/joinable from the friends list; a private game shows as just "online".
     const inPub = !!(online && online.room && online.roomPublic);
     const status = inPub ? `🎮 in ${esc(online!.room!)}` : online ? "🟢 online" : "⚪ offline";
-    const gameBtns = inPub ? `<button class="hdr-btn fr-spectate" data-code="${esc(online!.room!)}" title="Watch" aria-label="Watch">👁</button><button class="start-btn fr-join" data-code="${esc(online!.room!)}">Join</button>` : "";
-    return `<div class="fr-row">${avatarChip("", f.name, 34)}<div class="fr-info"><span class="fr-name">${esc(f.name)}</span><span class="fr-status">${status}</span></div><div class="fr-actions">${gameBtns}<button class="hdr-btn fr-dm" data-uid="${esc(f.otherUid)}" data-name="${esc(f.name)}" title="Message" aria-label="Message">💬</button><button class="hdr-btn fr-remove" data-uid="${esc(f.otherUid)}" title="Remove friend" aria-label="Remove friend">✕</button></div></div>`;
+    const gameBtns = inPub ? `<button class="hdr-btn fr-spectate" data-code="${esc(online!.room!)}" title="Watch" aria-label="Watch"><i class='ic ic-watch'></i></button><button class="start-btn fr-join" data-code="${esc(online!.room!)}">Join</button>` : "";
+    return `<div class="fr-row">${avatarChip("", f.name, 34)}<div class="fr-info"><span class="fr-name">${esc(f.name)}</span><span class="fr-status">${status}</span></div><div class="fr-actions">${gameBtns}<button class="hdr-btn fr-dm" data-uid="${esc(f.otherUid)}" data-name="${esc(f.name)}" title="Message" aria-label="Message"><i class='ic ic-chat'></i></button><button class="hdr-btn fr-remove" data-uid="${esc(f.otherUid)}" title="Remove friend" aria-label="Remove friend">✕</button></div></div>`;
   };
   app.innerHTML = `
     <div class="setup doc">
-      <div class="doc-top"><button class="hdr-btn" id="fr-back">← Back</button><h1>👥 Friends</h1><span style="width:54px"></span></div>
+      <div class="doc-top"><button class="hdr-btn" id="fr-back">← Back</button><h1><i class='ic ic-friends'></i> Friends</h1><span style="width:54px"></span></div>
       <div class="fr-codecard">
-        <div class="fr-code-row"><span class="fr-code-label">Your friend code — share it</span><button class="fr-code-val" id="fr-copy">${_myFriendCode ? esc(_myFriendCode) : "…"} <span class="fr-code-ic">${_codeCopied ? "✓ copied" : "📋"}</span></button></div>
+        <div class="fr-code-row"><span class="fr-code-label">Your friend code — share it</span><button class="fr-code-val" id="fr-copy">${_myFriendCode ? esc(_myFriendCode) : "…"} <span class="fr-code-ic">${_codeCopied ? "✓ copied" : "<i class='ic ic-copy'></i>"}</span></button></div>
         <div class="fr-addrow"><input class="si-input" id="fr-code-in" placeholder="Enter a friend's code" maxlength="8" autocomplete="off" autocapitalize="characters" spellcheck="false"/><button class="start-btn" id="fr-code-add">Add</button></div>
       </div>
       ${incoming.length ? `<div class="set-head" style="margin:4px 0 6px">Requests · ${incoming.length}</div>${incoming.map((f) => `<div class="fr-row req">${avatarChip("", f.name, 34)}<div class="fr-info"><span class="fr-name">${esc(f.name)}</span><span class="fr-status">wants to be friends</span></div><div class="fr-actions"><button class="start-btn fr-accept" data-uid="${esc(f.otherUid)}">Accept</button><button class="hdr-btn fr-decline" data-uid="${esc(f.otherUid)}" aria-label="Decline">✕</button></div></div>`).join("")}` : ""}
@@ -5597,12 +5603,12 @@ function renderInbox(): void {
   const msgs = S.inbox;
   app.innerHTML = `
     <div class="setup doc">
-      <div class="doc-top"><button class="hdr-btn" id="ib-back">← Back</button><h1>✉️ Inbox</h1><button class="hdr-btn" id="ib-new">＋ New</button></div>
+      <div class="doc-top"><button class="hdr-btn" id="ib-back">← Back</button><h1><i class='ic ic-inbox'></i>️ Inbox</h1><button class="hdr-btn" id="ib-new">＋ New</button></div>
       <div class="set-head" style="margin:4px 0 6px">🟢 Online now · ${S.mp.online.length}</div>
       ${S.mp.online.length ? `<div class="inbox-online">${S.mp.online.map((p) => `<button class="io-chip" data-uid="${esc(p.uid)}" data-name="${esc(p.name)}">🟢 ${esc(p.name)}</button>`).join("")}</div>` : `<div class="hint" style="margin-bottom:12px">No one else online right now — tap a name here when friends are on to message or gift them.</div>`}
       <div class="set-head" style="margin:4px 0 6px">Messages</div>
       ${msgs.length === 0 ? `<div class="hint" style="text-align:center;margin-top:14px">No messages yet.<br/>Tap a player above or ＋ New to message / gift.</div>` : msgs.map((m) => {
-        const icon = m.kind === "gift" ? "🎁" : m.kind === "admin" ? "🛡" : "💬";
+        const icon = m.kind === "gift" ? "🎁" : m.kind === "admin" ? "<i class='ic ic-shield'></i>" : "<i class='ic ic-chat'></i>";
         const body = (m.kind === "gift" || m.kind === "admin")
           ? `sent you ${m.currency === "premium" ? "<i class=ic-gem></i>" : "<i class=ic-coin></i>"} <strong>${(m.chips || 0).toLocaleString()}</strong>${m.text ? ` — “${esc(m.text)}”` : ""}`
           : esc(m.text || "");
@@ -5644,7 +5650,7 @@ function renderCompose(): void {
   const online = S.mp.online;
   app.innerHTML = `
     <div class="setup doc">
-      <div class="doc-top"><button class="hdr-btn" id="co-back">← Back</button><h1>✉️ New message</h1><span style="width:54px"></span></div>
+      <div class="doc-top"><button class="hdr-btn" id="co-back">← Back</button><h1><i class='ic ic-inbox'></i>️ New message</h1><span style="width:54px"></span></div>
       ${c.toUid
         ? `<div class="co-to">To <strong>${esc(c.toName)}</strong> · <button class="mc-foot-link" id="co-clear">change</button></div>`
         : `<div class="field"><label>To — players online now</label>${online.length ? `<div class="co-online">${online.map((p) => `<button class="hdr-btn co-pick" data-uid="${esc(p.uid)}" data-name="${esc(p.name)}">🙂 ${esc(p.name)}</button>`).join("")}</div>` : `<div class="hint">No one else is online right now. Reply from your inbox, or have a friend sign in.</div>`}</div>`}
@@ -5685,10 +5691,10 @@ function renderAdmin(): void {
   if (!_usersUnsub) FB.subscribeUsers((us) => { _adminUsers = us; if (S.screen === "admin") render(); }).then((u) => { _usersUnsub = u; }).catch(() => {});
   app.innerHTML = `
     <div class="setup doc">
-      <div class="doc-top"><button class="hdr-btn" id="ad-back">← Back</button><h1>🛡 Admin</h1><span style="width:54px"></span></div>
+      <div class="doc-top"><button class="hdr-btn" id="ad-back">← Back</button><h1><i class='ic ic-shield'></i> Admin</h1><span style="width:54px"></span></div>
 
       <div class="set-group"><div class="set-head">You</div>
-        <button class="hdr-btn" id="ad-myuid" style="width:100%;word-break:break-all">UID ${esc(myUid)} · 📋 copy</button>
+        <button class="hdr-btn" id="ad-myuid" style="width:100%;word-break:break-all">UID ${esc(myUid)} · <i class='ic ic-copy'></i> copy</button>
       </div>
 
       <div class="set-group"><div class="set-head">All users · ${_adminUsers.length}</div>
@@ -5703,9 +5709,9 @@ function renderAdmin(): void {
               <div class="au-actions">
                 <button class="hdr-btn au-act" data-u="${u.uid}" data-cur="play" data-amt="500">+500<i class=ic-coin></i></button>
                 <button class="hdr-btn au-act" data-u="${u.uid}" data-cur="premium" data-amt="100">+100<i class=ic-gem></i></button>
-                <button class="hdr-btn au-set" data-u="${u.uid}" data-n="${esc(u.name)}" data-play="${u.play}" data-prem="${u.premium}" title="Edit chip balance">✎ Set</button>
+                <button class="hdr-btn au-set" data-u="${u.uid}" data-n="${esc(u.name)}" data-play="${u.play}" data-prem="${u.premium}" title="Edit chip balance"><i class='ic ic-edit'></i> Set</button>
                 <button class="hdr-btn au-edge ${u.edgePass ? "on" : ""}" data-u="${u.uid}" data-on="${u.edgePass ? "0" : "1"}">${u.edgePass ? "Edge ✓" : "Edge"}</button>
-                ${u.uid === myUid ? "" : `<button class="hdr-btn danger au-del" data-u="${u.uid}" data-n="${esc(u.name)}">🗑</button>`}
+                ${u.uid === myUid ? "" : `<button class="hdr-btn danger au-del" data-u="${u.uid}" data-n="${esc(u.name)}"><i class='ic ic-trash'></i></button>`}
               </div>
             </div>`).join("")}
       </div>
@@ -5719,12 +5725,12 @@ function renderAdmin(): void {
       </div>
 
       <div class="set-group"><div class="set-head">Ledger — last ${S.ledger.length}</div>
-        ${S.ledger.length === 0 ? `<div class="hint">No transfers yet.</div>` : S.ledger.map((r) => `<div class="ledger-row"><span>${r.type === "admin" ? "🛡" : r.type === "edgepass" ? "🧠" : r.type === "buy" ? "🛍" : "🎁"} ${r.currency === "premium" ? "<i class=ic-gem></i>" : r.currency === "play" ? "<i class=ic-coin></i>" : ""} ${r.amount != null ? Number(r.amount).toLocaleString() : (r.on ? "on" : "off")}</span><span class="hint">${esc(r.fromName || r.from)} → ${esc(r.toName || r.to)}</span></div>`).join("")}
+        ${S.ledger.length === 0 ? `<div class="hint">No transfers yet.</div>` : S.ledger.map((r) => `<div class="ledger-row"><span>${r.type === "admin" ? "<i class='ic ic-shield'></i>" : r.type === "edgepass" ? "🧠" : r.type === "buy" ? "🛍" : "🎁"} ${r.currency === "premium" ? "<i class=ic-gem></i>" : r.currency === "play" ? "<i class=ic-coin></i>" : ""} ${r.amount != null ? Number(r.amount).toLocaleString() : (r.on ? "on" : "off")}</span><span class="hint">${esc(r.fromName || r.from)} → ${esc(r.toName || r.to)}</span></div>`).join("")}
       </div>
 
       <div class="set-group"><div class="set-head">View</div>
         <div class="set-note" style="margin-bottom:9px">See the app exactly as a regular player does. Your access is unchanged; return via the banner on Home.</div>
-        <button class="hdr-btn" id="ad-preview" style="width:100%;padding:12px">👁 Preview as a regular player</button>
+        <button class="hdr-btn" id="ad-preview" style="width:100%;padding:12px"><i class='ic ic-watch'></i> Preview as a regular player</button>
       </div>
     </div>`;
   onId("ad-back", "click", () => { S.screen = "home"; render(); });
@@ -5880,7 +5886,7 @@ function coinBurst(card: HTMLElement, n: number): void {
 const PRESET_AVATARS = [
   "🦈", "🐺", "🦊", "🐉", "🦁", "🐯", "🐻", "🐼", "🦏", "🐗", "🦌", "🦅", "🦉", "🐊", "🐢", "🐙",
   "🦭", "🐬", "🦓", "🦄", "🐸", "🐧", "🐳", "🦋", "🦜", "🦚", "🦂", "🐲", "🦛", "🐅",
-  "🃏", "👑", "🎩", "<i class=ic-gem></i>", "🔥", "⚡", "🌟", "🍀", "🎰", "🎲",
+  "🃏", "👑", "🎩", "<i class=ic-gem></i>", "🔥", "<i class='ic ic-bolt'></i>", "🌟", "🍀", "🎰", "🎲",
   "🤠", "🥷", "🤖", "👾", "💀", "🤡", "😎", "🧠", "👽", "🦾"];
 function hashHue(s: string): number { let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0; return h % 360; }
 // Animal-emoji avatars that have a premium generated mascot — render the artwork instead.
@@ -5976,7 +5982,7 @@ function renderStore(): void {
       </div>
 
       <div class="set-group"><div class="set-head">Edge Pass · the Monte Carlo Edge, live</div>
-        ${!hasEdge() ? `<div class="edge-banner"><div class="eb-copy"><span class="eb-eyebrow">⚡ Edge Pass</span><span class="eb-title">Your coach — now in real games</span><span class="eb-sub">The best move &amp; why, live, every online hand</span></div></div>` : ""}
+        ${!hasEdge() ? `<div class="edge-banner"><div class="eb-copy"><span class="eb-eyebrow"><i class='ic ic-bolt'></i> Edge Pass</span><span class="eb-title">Your coach — now in real games</span><span class="eb-sub">The best move &amp; why, live, every online hand</span></div></div>` : ""}
         <div class="set-note" style="margin-bottom:9px">The same live best-move advice you get free in <strong>Training</strong>, now in your <strong>online games</strong> — plus hand-history review &amp; your leak report. <strong>Solo Training stays 100% free, forever.</strong></div>
         ${hasEdge() ? `<div class="se-active">✓ Edge Pass active${S.isAdmin && !S.edgePass ? " (admin)" : ""}</div>${S.edgePass && !S.isAdmin ? `<button class="hdr-btn" id="edge-manage" style="width:100%;margin-top:8px">Manage subscription</button>` : ""}`
           : `${(iapOn ? EDGE_TIERS : EDGE_TIERS.filter((t) => t.id === "edge_monthly")).map((t) => `<div class="edge-tier ${t.best ? "best" : ""}"><div class="et-main"><div class="et-price">${t.price}</div><div class="et-sub">${t.sub}</div></div><button class="et-buy" data-pid="${t.id}" ${S.net.busy && S.net.busyId !== t.id ? "disabled" : ""}>${S.net.busy && S.net.busyId === t.id ? '<span class="spin dark"></span>' : "Get"}</button></div>`).join("")}
@@ -6146,7 +6152,7 @@ function renderHome(): void {
       <header class="mc-topbar">
         <button class="mc-profile" id="home-profile">
           <span class="mc-ring">${avatarChip(p.avatar, loggedIn ? p.nickname : "?", 36)}</span>
-          ${loggedIn ? `<span class="mc-pmeta2"><span class="mc-pname">${esc(S.mp.auth!.name)}</span><span class="mc-bal2"><i class=ic-coin></i> ${fmtBal(S.wallet.play)}${(S.wallet.premium ?? 0) > 0 ? ` · <i class=ic-gem></i> ${fmtBal(S.wallet.premium)}` : ""}</span></span>` : `<span class="mc-pchips-big locked">🔒 Sign in</span>`}
+          ${loggedIn ? `<span class="mc-pmeta2"><span class="mc-pname">${esc(S.mp.auth!.name)}</span><span class="mc-bal2"><i class=ic-coin></i> ${fmtBal(S.wallet.play)}${(S.wallet.premium ?? 0) > 0 ? ` · <i class=ic-gem></i> ${fmtBal(S.wallet.premium)}` : ""}</span></span>` : `<span class="mc-pchips-big locked"><i class='ic ic-lock'></i> Sign in</span>`}
         </button>
         <div class="mc-top-right">
           ${loggedIn ? `<button class="mc-store" id="home-store">＋ Chips</button>` : `<button class="mc-store" id="home-signin2">Sign in</button>`}
@@ -6164,8 +6170,8 @@ function renderHome(): void {
         <button class="mc-watch" id="home-watch">▶ Watch the film</button>
       </div>
 
-      ${loggedIn ? "" : `<button class="mc-login-banner" id="home-signin-banner">🔒 <strong>Not logged in</strong> — sign in to save your chips &amp; play online. <span>Train is free →</span></button>`}
-      ${S.isAdmin && _viewAsPlayer ? `<button class="mc-login-banner preview" id="home-exit-preview">👁 <strong>Player preview</strong> — you're seeing the app as a normal player. <span>Exit →</span></button>` : ""}
+      ${loggedIn ? "" : `<button class="mc-login-banner" id="home-signin-banner"><i class='ic ic-lock'></i> <strong>Not logged in</strong> — sign in to save your chips &amp; play online. <span>Train is free →</span></button>`}
+      ${S.isAdmin && _viewAsPlayer ? `<button class="mc-login-banner preview" id="home-exit-preview"><i class='ic ic-watch'></i> <strong>Player preview</strong> — you're seeing the app as a normal player. <span>Exit →</span></button>` : ""}
 
       <button class="mce-card compact" id="home-mce">
         <span class="mce-shimmer" aria-hidden="true"></span>
@@ -6186,16 +6192,16 @@ function renderHome(): void {
       </div>
 
       <div class="mc-iconrow">
-        ${loggedIn ? `<button class="mc-util" id="home-friends" aria-label="Friends">${friendReqs ? `<span class="ib-badge">${friendReqs}</span>` : ""}<span class="mu-ic">👥</span><span class="mu-l">Friends</span></button>` : ""}
-        ${loggedIn ? `<button class="mc-util" id="home-inbox" aria-label="Inbox">${unreadCount() ? `<span class="ib-badge">${unreadCount()}</span>` : ""}<span class="mu-ic">✉️</span><span class="mu-l">Inbox</span></button>` : ""}
-        <button class="mc-util" id="home-settings" aria-label="Settings"><span class="mu-ic">⚙</span><span class="mu-l">Settings</span></button>
+        ${loggedIn ? `<button class="mc-util" id="home-friends" aria-label="Friends">${friendReqs ? `<span class="ib-badge">${friendReqs}</span>` : ""}<span class="mu-ic">${ic("friends")}</span><span class="mu-l">Friends</span></button>` : ""}
+        ${loggedIn ? `<button class="mc-util" id="home-inbox" aria-label="Inbox">${unreadCount() ? `<span class="ib-badge">${unreadCount()}</span>` : ""}<span class="mu-ic">${ic("inbox")}</span><span class="mu-l">Inbox</span></button>` : ""}
+        <button class="mc-util" id="home-settings" aria-label="Settings"><span class="mu-ic">${ic("settings")}</span><span class="mu-l">Settings</span></button>
       </div>
 
       <div class="mc-foot">
         <button class="mc-foot-link" id="home-proof">The Proof</button><span>·</span>
         <button class="mc-foot-link" id="home-explainer">How it works</button><span>·</span>
         <button class="mc-foot-link" id="home-legal">Terms</button>
-        ${effectiveAdmin() ? `<span>·</span><button class="mc-foot-link" id="home-admin" style="color:var(--gold-2)">🛡 Admin</button>` : ""}
+        ${effectiveAdmin() ? `<span>·</span><button class="mc-foot-link" id="home-admin" style="color:var(--gold-2)"><i class='ic ic-shield'></i> Admin</button>` : ""}
       </div>
     </div>`;
   onId("home-inbox", "click", () => { S.screen = "inbox"; render(); });
@@ -6372,7 +6378,7 @@ function renderSettings(): void {
     `<div class="set-row"><div class="set-rl"><span class="set-label">${label}</span>${note ? `<span class="set-note">${note}</span>` : ""}</div><div class="set-rc">${control}</div></div>`;
   app.innerHTML = `
     <div class="setup doc">
-      <h1>⚙ Settings</h1>
+      <h1><i class='ic ic-settings'></i> Settings</h1>
       <div class="set-group"><div class="set-head">Sound &amp; feel</div>
         ${row("Sound effects", toggle("set-sound", isSoundEnabled()))}
         ${row("Reduce motion", `<div class="seg" id="set-motion">${(["auto", "on", "off"] as const).map((v) => `<button class="seg-btn ${motion === v ? "sel" : ""}" data-motion="${v}">${v[0]!.toUpperCase() + v.slice(1)}</button>`).join("")}</div>`, "Auto follows your device. On cuts chip-fly &amp; card animations.")}
@@ -6494,7 +6500,7 @@ function renderMpLobby(): void {
        <button class="hdr-btn" id="lobby-signout" style="width:100%;padding:12px;margin-top:8px">Sign out</button>`;
   app.innerHTML = `
     <div class="setup">
-      <h1>🌐 Online Lobby</h1>
+      <h1><i class='ic ic-online'></i> Online Lobby</h1>
       ${body}
       <button class="hdr-btn" id="lobby-back" style="width:100%;padding:12px;margin-top:6px">Back</button>
     </div>`;
