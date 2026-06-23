@@ -277,10 +277,11 @@ body::after {
 .setup-footer.setup-top { margin-bottom: 12px; }
 .room-bal { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 9px 13px; border-radius: 12px; background: var(--glass); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); border: 1px solid var(--glass-edge); margin-bottom: 8px; font-size: 13.5px; }
 .room-bal strong { font-size: 15px; background: var(--gold-foil); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
-.room-bal .rb-bal { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.room-bal .rb-bal { appearance: none; -webkit-appearance: none; border: none; background: transparent; color: inherit; font: inherit; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; padding: 0; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: transform .1s; }
+.room-bal .rb-bal:active { transform: scale(.97); }
+.room-bal .rb-add { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; border-radius: 50%; background: color-mix(in srgb, var(--emerald) 20%, transparent); color: var(--emerald); font-weight: 800; font-size: 13px; line-height: 1; flex: 0 0 auto; }
 .room-bal .rb-right { display: flex; align-items: center; gap: 7px; flex: 0 0 auto; }
-.room-bal .rb-mce { padding: 7px 11px; font-size: 12px; }
-.room-bal .rb-buy { padding: 7px 11px; }
+.room-bal .rb-mce { padding: 7px 10px; font-size: 11.5px; }
 .room-broke { font-size: 13px; color: #ffb3c2; background: rgba(239,71,111,.1); border: 1px solid rgba(239,71,111,.32); border-radius: 11px; padding: 12px 14px; text-align: center; line-height: 1.4; }
 
 /* ═══════ Game ═══════ */

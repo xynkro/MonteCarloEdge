@@ -227,7 +227,7 @@ const S: AppState = {
     table: null,
     setup: {
       players: [{ name: "You", assisted: true, ai: null }, { name: "Rey", assisted: false, ai: "TAG" }],
-      tier: 0, sb: 100, bb: 200, buyIn: 20000,
+      tier: 0, sb: 10, bb: 20, buyIn: 2000,
     },
     reveal: false,
     rec: null,
@@ -3632,25 +3632,28 @@ const capWord = (s: string): string => s.charAt(0).toUpperCase() + s.slice(1);
 // Stakes tiers — 100bb max buy-in per the monetization council (chips buy ACCESS,
 // never power; a 100bb cap defuses big-stack bullying on a friends table).
 const ROOM_TIERS = [
+  { name: "10/20", sb: 10, bb: 20, max: 2000 },
+  { name: "25/50", sb: 25, bb: 50, max: 5000 },
+  { name: "50/100", sb: 50, bb: 100, max: 10000 },
   { name: "100/200", sb: 100, bb: 200, max: 20000 },
   { name: "250/500", sb: 250, bb: 500, max: 50000 },
   { name: "500/1000", sb: 500, bb: 1000, max: 100000 },
-  { name: "1000/2000", sb: 1000, bb: 2000, max: 200000 },
-  { name: "2500/5000", sb: 2500, bb: 5000, max: 500000 },
-  { name: "5000/10000", sb: 5000, bb: 10000, max: 1000000 },
 ];
+// Stake display with thousands separators (1,000). `name` (above) stays comma-less — it is the
+// tier KEY sent to the server and must match functions/src/index.ts TIERS exactly.
+const fmtStake = (sb: number, bb: number): string => `${sb.toLocaleString()}/${bb.toLocaleString()}`;
 // CS/Half-Life-server-style stake tiers: each buy-in level gets an icon + a name so the lobby reads
 // as a list of joinable "servers", not a wall of numbers. Keyed by big blind (TIERS each have a unique bb).
 // Each tier renders as a real casino chip (.ic-chip-* in styles.css) in its denomination colour —
 // grey→red→green→black→purple→gold — so the lobby reads as joinable "servers". Keyed by big blind.
 const chipIcon = (tier: string): string => `<i class="ic-chip ic-chip-${tier}"></i>`;
 const STAKE_TIERS: Record<number, { icon: string; label: string }> = {
-  200:   { icon: chipIcon("micro"), label: "Micro" },
-  500:   { icon: chipIcon("low"),   label: "Low" },
-  1000:  { icon: chipIcon("mid"),   label: "Mid" },
-  2000:  { icon: chipIcon("high"),  label: "High" },
-  5000:  { icon: chipIcon("vip"),   label: "VIP" },
-  10000: { icon: chipIcon("nose"),  label: "Nosebleed" },
+  20:   { icon: chipIcon("micro"), label: "Micro" },
+  50:   { icon: chipIcon("low"),   label: "Low" },
+  100:  { icon: chipIcon("mid"),   label: "Mid" },
+  200:  { icon: chipIcon("high"),  label: "High" },
+  500:  { icon: chipIcon("vip"),   label: "VIP" },
+  1000: { icon: chipIcon("nose"),  label: "Nosebleed" },
 };
 const stakeTier = (bb: number): { icon: string; label: string } => STAKE_TIERS[bb] ?? { icon: chipIcon("micro"), label: "Table" };
 // AI styles map to the trainer's opponent archetypes (keys of PROFILES).
@@ -3709,7 +3712,7 @@ function renderMpSetup(): void {
       <div class="doc-top"><button class="hdr-btn" id="mp-back">← Back</button><h1><i class='ic ic-online'></i> Play Online</h1>${online.length ? `<button class="online-pill ${_onlineOpen ? "open" : ""}" id="online-pill" title="Who's online">🟢 ${online.length}</button>` : `<span style="width:54px"></span>`}</div>
       ${_onlineOpen && online.length ? `<div class="online-list">${online.map((p) => `<span class="ol-chip">🟢 ${esc(p.name)}</span>`).join("")}</div>` : ""}
 
-      <div class="room-bal"><span class="rb-bal">Balance <strong><i class=ic-coin></i> ${fmtBal(S.wallet.play)}</strong>${(S.wallet.premium ?? 0) > 0 ? ` <strong><i class=ic-gem></i> ${fmtBal(S.wallet.premium)}</strong>` : ""}</span><div class="rb-right"><button class="mce-toggle rb-mce ${hasEdge() && _roomAssisted ? "on" : ""} ${!hasEdge() ? "locked" : ""}" id="lobby-mce" title="Live MCE recommendation at your seat">MCEdge ${!hasEdge() ? "<i class='ic ic-lock'></i>" : _roomAssisted ? "🧠" : "○"}</button><button class="hdr-btn rb-buy" id="room-buychips">＋ Buy</button></div></div>
+      <div class="room-bal"><button class="rb-bal" id="room-buychips" title="Tap your chips to add more">Balance <strong><i class=ic-coin></i> ${fmtBal(S.wallet.play)}</strong>${(S.wallet.premium ?? 0) > 0 ? ` <strong><i class=ic-gem></i> ${fmtBal(S.wallet.premium)}</strong>` : ""} <span class="rb-add">＋</span></button><div class="rb-right"><button class="mce-toggle rb-mce ${hasEdge() && _roomAssisted ? "on" : ""} ${!hasEdge() ? "locked" : ""}" id="lobby-mce" title="Live MonteCarloEdge recommendation at your seat">MonteCarloEdge ${!hasEdge() ? "<i class='ic ic-lock'></i>" : _roomAssisted ? "🧠" : "○"}</button></div></div>
 
       <div class="join-card">
         <label>Join a room</label>
@@ -3727,7 +3730,7 @@ function renderMpSetup(): void {
             const st = stakeTier(tr.bb);
             return `<button class="qp-tier ${afford ? "" : "locked"}" data-qp="${i}" ${afford ? "" : "disabled"}>
               <span class="qp-ic">${st.icon}</span>
-              <span class="qp-info"><span class="qp-stake">${st.label}</span><span class="qp-sub">${tr.name}</span></span>
+              <span class="qp-info"><span class="qp-stake">${st.label}</span><span class="qp-sub">${fmtStake(tr.sb, tr.bb)}</span></span>
               <span class="qp-meta">${players > 0 ? `🟢 ${players}` : afford ? "→" : "<i class='ic ic-lock'></i>"}</span>
             </button>`;
           }).join("")}
@@ -3748,7 +3751,7 @@ function renderMpSetup(): void {
             : `<div class="pr-list">${S.net.publicRooms.map((r) => {
                 const st = stakeTier(r.bb);
                 const cur = r.currency === "premium" ? "<i class=ic-gem></i>" : "<i class=ic-coin></i>";
-                return `<button class="pr-row" data-code="${r.code}"><span class="pr-ic">${st.icon}</span><span class="pr-info"><span class="pr-code">${st.label} · ${r.code}</span><span class="pr-meta">${cur} ${r.sb}/${r.bb}</span></span><span class="pr-seats">${(r.humans ?? 0) > 0 ? `🟢 ${r.humans} · ` : ""}${r.occupied}/${r.max}</span></button>`;
+                return `<button class="pr-row" data-code="${r.code}"><span class="pr-ic">${st.icon}</span><span class="pr-info"><span class="pr-code">${st.label} · ${r.code}</span><span class="pr-meta">${cur} ${fmtStake(r.sb, r.bb)}</span></span><span class="pr-seats">${(r.humans ?? 0) > 0 ? `🟢 ${r.humans} · ` : ""}${r.occupied}/${r.max}</span></button>`;
               }).join("")}</div>`)}
       </div>
 
@@ -3769,7 +3772,7 @@ function renderMpSetup(): void {
           ${noPrem ? `<div class="room-broke">You have no <i class=ic-gem></i> Premium Chips. Win them at premium tables, or buy them in the Store.</div><button class="start-btn" id="room-buyprem" style="background:var(--gold-foil);color:#2a1c05;margin:8px 0">Get Premium Chips</button>` : ""}
 
           <div class="field"><label>Stakes ${premium ? "<i class=ic-gem></i>" : "<i class=ic-coin></i>"}</label>
-            <div class="seg room-stakes" id="room-tier">${ROOM_TIERS.map((t, i) => `<button class="seg-btn ${su.tier === i ? "sel" : ""}" data-tier="${i}" ${noPrem ? "disabled" : ""}><span class="rs-name">${t.name}</span></button>`).join("")}</div>
+            <div class="seg room-stakes" id="room-tier">${ROOM_TIERS.map((t, i) => `<button class="seg-btn ${su.tier === i ? "sel" : ""}" data-tier="${i}" ${noPrem ? "disabled" : ""}><span class="rs-name">${fmtStake(t.sb, t.bb)}</span></button>`).join("")}</div>
           </div>
 
           ${canAfford && !noPrem ? `
@@ -3777,7 +3780,7 @@ function renderMpSetup(): void {
             <div class="buyin-value">${sym} ${su.buyIn.toLocaleString()}<span> · ${Math.round(su.buyIn / su.bb)}bb</span></div>
             <input class="buyin-slider" id="room-buyin" type="range" min="${minBuy}" max="${maxBuy}" step="${Math.max(1, Math.round(su.bb))}" value="${su.buyIn}"/>
             <div class="buyin-ends"><span>min ${minBuy.toLocaleString()}</span><span>you have ${sym} ${bal.toLocaleString()}</span></div>
-          </div>` : (!noPrem ? `<div class="room-broke">You need at least ${sym} ${minBuy.toLocaleString()} to sit at ${tier.name}. Lower the stakes or top up.</div>` : "")}
+          </div>` : (!noPrem ? `<div class="room-broke">You need at least ${sym} ${minBuy.toLocaleString()} to sit at ${fmtStake(tier.sb, tier.bb)}. Lower the stakes or top up.</div>` : "")}
 
           <button class="opts-toggle ${_createOptsOpen ? "open" : ""}" id="opts-toggle"><i class='ic ic-settings'></i> Table options${_createOptsOpen ? "" : ` <span class="ot-peek">· ${_roomPublic ? "Public" : "Private"} · ${hasEdge() && _roomAssisted ? "MCE on" : "MCE off"}</span>`}<span class="ct-chev">${_createOptsOpen ? "▾" : "▸"}</span></button>
           ${_createOptsOpen ? `
@@ -4943,7 +4946,7 @@ function renderNetTable(): void {
         <span class="rb-bb">${(rebuyAmt / myBb).toFixed(1)} bb · new stack ${sym} ${mpc(newStack)}</span>
       </div>
       <div class="rb-quick">
-        <button class="hdr-btn" data-rb="${minBuy}">Min ${minBuy}</button>
+        <button class="hdr-btn" data-rb="${minBuy}">Min ${minBuy.toLocaleString()}</button>
         <button class="hdr-btn" data-rb="${Math.min(tierMax - (mySeatLocal?.chips ?? 0), Math.round(tierMax / 2))}">Half cap</button>
         <button class="hdr-btn" data-rb="${tierMax - (mySeatLocal?.chips ?? 0)}">Max ${sym} ${mpc(tierMax - (mySeatLocal?.chips ?? 0))}</button>
       </div>
@@ -4958,7 +4961,7 @@ function renderNetTable(): void {
         ${myWallet < rebuyAmt ? `<button class="start-btn rb-store" id="rb-store">Need chips → Store</button>` : `<button class="start-btn rb-confirm" id="rb-confirm" ${rbValid ? "" : "disabled"}>Rebuy ${sym} ${mpc(rebuyAmt)}</button>`}
         ${busted ? `<button class="hdr-btn rb-leave" id="rb-leave">Leave table</button>` : ""}
       </div>
-      <p class="hint" style="text-align:center;margin-top:6px">Wallet ${sym} ${mpc(myWallet)} · min ${minBuy} · max stack ${tierMax}</p>
+      <p class="hint" style="text-align:center;margin-top:6px">Wallet ${sym} ${mpc(myWallet)} · min ${minBuy.toLocaleString()} · max stack ${tierMax.toLocaleString()}</p>
     </div>` : "";
 
   // ── LOBBY = a real waiting room (NOT the oval table) — distinct screen so adding a
@@ -6271,7 +6274,7 @@ function renderHistory(): void {
               <button class="hh-head" data-toggle="${esc(h.id)}">
                 <span class="hh-cards-line">${myCards}</span>
                 <span class="hh-pos">${esc(h.position)}</span>
-                <span class="hh-stakes">${h.currency === "premium" ? "<i class=ic-gem></i>" : "<i class=ic-coin></i>"} ${h.blinds.sb}/${h.blinds.bb}</span>
+                <span class="hh-stakes">${h.currency === "premium" ? "<i class=ic-gem></i>" : "<i class=ic-coin></i>"} ${fmtStake(h.blinds.sb, h.blinds.bb)}</span>
                 <span class="hh-net ${h.myNet > 0 ? "g-ok" : h.myNet < 0 ? "g-bad" : ""}">${h.myNet > 0 ? "+" : ""}${mpc(h.myNet)}</span>
                 <span class="hh-ago">${ago}</span>
               </button>
