@@ -535,11 +535,13 @@ function villainPostflopAct(
         betProb = Math.min(0.95, profile.barrelFreq * (0.7 + existing.coherence * 0.6));
         scareBarrel = true;
       } else if (phase === "brick") {
-        // Coherent players give up bricks; incoherent ones keep firing. Small
-        // floor so they're never PERFECTLY readable.
-        betProb = profile.barrelFreq * (1 - existing.coherence) * 0.5 + 0.05;
+        // Coherent players give up bricks; incoherent ones keep firing. The RIVER gets a
+        // higher floor so coherent types still bluff ~GTO density (a pot-sized river bet
+        // wants ~1/3 bluffs); the turn keeps the small floor (it's already in-band).
+        const riverFloor = state.board.length >= 5 ? 0.28 : 0.05;
+        betProb = profile.barrelFreq * (1 - existing.coherence) * 0.5 + riverFloor;
       } else {
-        betProb = 0.03; // kill: almost always check
+        betProb = state.board.length >= 5 ? 0.13 : 0.03; // kill: mostly check (a touch more on the river)
       }
     }
   }

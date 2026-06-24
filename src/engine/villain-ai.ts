@@ -135,7 +135,12 @@ export function villainDecision(
       } else {
         const phase = scoreRunout(story, board);
         if (phase !== "scare") {
-          const giveUp = phase === "kill" ? 0.55 + story.coherence * 0.45 : story.coherence * 0.7;
+          // Abandon fewer RIVER brick bluffs than turn bricks — the river was ~11pts under the
+          // GTO bluff-to-value cap (value-heavy, exploitable by over-folding); the turn was fine.
+          const onRiver = board.length >= 5;
+          const giveUp = phase === "kill"
+            ? 0.55 + story.coherence * 0.45
+            : story.coherence * (onRiver ? 0.45 : 0.7);
           if (rng() < giveUp) { type = "check"; amount = 0; } // abandon a bricked/killed bluff
         }
       }
