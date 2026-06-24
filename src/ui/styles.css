@@ -1669,8 +1669,15 @@ body::after {
 /* Home "Sharpen your game" study section */
 .mc-study { margin-top: 12px; }
 .mc-section-label { font-size: 11px; font-weight: 800; letter-spacing: 1.3px; text-transform: uppercase; color: rgba(255,255,255,.42); margin: 0 2px 8px; }
-.mc-study-grid { display: grid; grid-template-columns: 1fr; gap: 10px; }
-.mc-study-grid .mc-mode { width: 100%; }
+.mc-study-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.study-tile { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 15px 6px; border-radius: 14px; cursor: pointer; text-align: center;
+  background: linear-gradient(135deg, var(--glass), rgba(8,12,20,.62)); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
+  border: 1px solid var(--glass-edge); box-shadow: var(--shadow-2); transition: transform .1s, border-color .2s; }
+.study-tile:active { transform: scale(.97); }
+.study-tile:hover { border-color: color-mix(in srgb, var(--accent) 45%, var(--glass-edge)); }
+.st-ic { color: var(--accent); display: flex; }
+.st-ic svg { width: 23px; height: 23px; display: block; filter: drop-shadow(0 1px 5px color-mix(in srgb, var(--accent) 50%, transparent)); }
+.st-l { font: 800 13px var(--display); color: var(--text); }
 
 /* ── GTO Range Charts screen ── */
 .charts .ch-controls { display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; }
@@ -1733,6 +1740,33 @@ body::after {
 .dr-ic svg { width: 26px; height: 26px; }
 .dr-tname { font: 800 16px var(--display); color: var(--text); }
 .dr-tsub { font-size: 12px; color: var(--muted); }
+
+/* ── Lessons ── */
+.lessons-scr .lsn-cat { margin-bottom: 20px; }
+.lsn-cat-h { font: 800 16px var(--display); color: var(--text); margin: 0 2px 2px; }
+.lsn-cat-s { font-size: 12.5px; color: var(--muted); margin: 0 2px 11px; }
+.lsn-cards { display: flex; flex-direction: column; gap: 8px; }
+.lsn-card { display: flex; align-items: center; gap: 12px; padding: 13px 14px; border-radius: 13px; background: var(--glass); border: 1px solid var(--glass-edge); cursor: pointer; text-align: left; transition: background .15s, transform .1s; }
+.lsn-card:active { background: var(--elevate); transform: scale(.99); }
+.lsn-ct { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.lsn-cname { font: 800 15px var(--display); color: var(--text); }
+.lsn-csub { font-size: 12px; color: var(--muted); }
+.lsn-arrow { color: var(--muted); font-size: 18px; flex-shrink: 0; }
+.lsn-h1 { font-size: 19px !important; }
+.lsn-sub2 { font-size: 13px; color: var(--gold-2); text-align: center; margin: -2px 0 16px; }
+.lsn-body { font-size: 14.5px; color: rgba(255,255,255,.86); line-height: 1.6; }
+.lsn-body p { margin: 0 0 13px; }
+.lsn-body strong { color: var(--text); }
+.lsn-body em { color: var(--gold-2); font-style: italic; }
+.lsn-list, .lsn-rank { margin: 0 0 14px; padding-left: 4px; list-style: none; }
+.lsn-rank { counter-reset: rk; }
+.lsn-list li, .lsn-rank li { position: relative; padding: 7px 0 7px 26px; border-bottom: 1px solid var(--line); }
+.lsn-list li::before { content: "•"; position: absolute; left: 6px; color: var(--emerald); font-weight: 800; }
+.lsn-rank li { counter-increment: rk; }
+.lsn-rank li::before { content: counter(rk); position: absolute; left: 0; top: 7px; width: 18px; height: 18px; border-radius: 50%; background: color-mix(in srgb, var(--gold-2) 22%, transparent); color: var(--gold-2); font: 800 10px var(--display); display: flex; align-items: center; justify-content: center; }
+.lsn-table { display: flex; justify-content: center; margin: 4px 0 18px; }
+.lsn-table svg { width: 100%; max-width: 340px; height: auto; }
+.lsn-done { margin-top: 8px; }
 .mc-stats svg { width: 15px; height: 15px; vertical-align: -2.5px; margin-right: 3px; color: var(--gold-2); }
 .mc-stats { padding: 10px; border-radius: 14px; cursor: pointer; font-weight: 700; font-size: 13px; color: var(--muted);
   background: var(--glass); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); border: 1px solid var(--glass-edge);

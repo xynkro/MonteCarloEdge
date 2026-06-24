@@ -162,3 +162,107 @@ export const EXPLAINER_SECTIONS: Section[] = [
     <p>Install it to your home screen (it's a full offline app) and you've got <strong>the Monte Carlo Edge in your pocket</strong>. Play the player. Own the table.</p>`,
   },
 ];
+
+// ── Lessons: a browsable two-track library. "basics" is for genuine beginners (positions,
+// blinds, actions, hand rankings, the flow of a hand); "gto" is the deeper strategy track. ──
+export interface Lesson { id: string; cat: "basics" | "gto"; title: string; sub: string; body: string }
+
+const POS_TABLE = `<div class="lsn-table"><svg viewBox="0 0 320 234" role="img" aria-label="Six-max poker table with seats labelled by position">
+  <ellipse cx="160" cy="117" rx="108" ry="64" fill="#0d5e42" stroke="#c69a3f" stroke-width="3"/>
+  <ellipse cx="160" cy="117" rx="94" ry="51" fill="none" stroke="rgba(255,255,255,.1)" stroke-width="1.4"/>
+  <g font-family="inherit" font-weight="800" font-size="12.5" fill="#fff" text-anchor="middle">
+    <rect x="14" y="48" width="46" height="27" rx="7" fill="rgba(255,255,255,.08)" stroke="rgba(255,255,255,.22)"/><text x="37" y="65">UTG</text>
+    <rect x="137" y="20" width="46" height="27" rx="7" fill="rgba(255,255,255,.08)" stroke="rgba(255,255,255,.22)"/><text x="160" y="37">MP</text>
+    <rect x="260" y="48" width="46" height="27" rx="7" fill="rgba(255,255,255,.08)" stroke="rgba(255,255,255,.22)"/><text x="283" y="65">CO</text>
+    <rect x="260" y="159" width="46" height="27" rx="7" fill="rgba(34,197,94,.24)" stroke="#22c55e"/><text x="283" y="176">BTN</text>
+    <rect x="137" y="187" width="46" height="27" rx="7" fill="rgba(224,162,38,.22)" stroke="#e0a226"/><text x="160" y="204">SB</text>
+    <rect x="14" y="159" width="46" height="27" rx="7" fill="rgba(224,162,38,.22)" stroke="#e0a226"/><text x="37" y="176">BB</text>
+  </g>
+  <circle cx="244" cy="150" r="10" fill="#fff" stroke="#c69a3f" stroke-width="1.5"/><text x="244" y="154" text-anchor="middle" font-size="11" font-weight="800" fill="#1a1a1a">D</text>
+</svg></div>`;
+
+export const LESSONS: Lesson[] = [
+  { id: "positions", cat: "basics", title: "Table positions", sub: "Where you sit decides how you play",
+    body: `${POS_TABLE}
+    <p>Your <strong>position</strong> is where you sit relative to the dealer button — and it's one of the biggest edges in poker. Acting <em>later</em> means you see what everyone else does before you decide.</p>
+    <ul class="lsn-list">
+      <li><strong>UTG — Under the Gun.</strong> First to act, immediately left of the big blind. The toughest seat — everyone acts after you, so open only your strongest hands.</li>
+      <li><strong>MP — Middle Position.</strong> A seat or two later. A little more room to open.</li>
+      <li><strong>HJ — Hijack.</strong> Two seats right of the button, just before the cutoff. Late enough to start "stealing" with wider hands.</li>
+      <li><strong>CO — Cutoff.</strong> One seat right of the button. A strong, wide-opening seat.</li>
+      <li><strong>BTN — Button (Dealer).</strong> The best seat at the table. You act <em>last</em> on every street after the flop, so you open the widest range of all.</li>
+      <li><strong>SB — Small Blind.</strong> Left of the button; posts the small forced bet. Acts first after the flop — a tricky out-of-position seat.</li>
+      <li><strong>BB — Big Blind.</strong> Posts the big forced bet. Already has chips in, so it defends a wide range, but plays out of position.</li>
+    </ul>
+    <p>Rule of thumb: <strong>the later you act, the more hands you can play.</strong> The button prints money; under the gun demands discipline.</p>` },
+  { id: "blinds", cat: "basics", title: "Blinds & the button", sub: "The forced bets that make the game go",
+    body: `<p>Two players post <strong>forced bets</strong> before any cards are dealt — that's what gives everyone a reason to play.</p>
+    <ul class="lsn-list">
+      <li><strong>Small Blind (SB)</strong> — the player left of the dealer posts half a bet.</li>
+      <li><strong>Big Blind (BB)</strong> — the next player posts a full bet. Stakes are named after it: "1/2" means a 1-chip small blind and a 2-chip big blind.</li>
+    </ul>
+    <p>The <strong>dealer button</strong> — the disc marked "D" — marks who is "on the button", the last to act. After every hand it moves one seat clockwise, so the blinds rotate and everyone pays their fair share over time.</p>
+    <p>Because the blinds already have chips in the pot, <strong>stealing</strong> them is a big part of winning poker — which is exactly why the late seats open so wide.</p>` },
+  { id: "actions", cat: "basics", title: "Betting actions", sub: "Your moves on each turn",
+    body: `<p>When the action reaches you, here are your choices:</p>
+    <ul class="lsn-list">
+      <li><strong>Fold</strong> — give up the hand; you risk nothing more.</li>
+      <li><strong>Check</strong> — pass with no bet (only if nobody has bet yet).</li>
+      <li><strong>Call</strong> — match the current bet to stay in.</li>
+      <li><strong>Bet</strong> — put chips in when no one has yet.</li>
+      <li><strong>Raise</strong> — increase a bet someone already made.</li>
+      <li><strong>All-in</strong> — push your entire stack.</li>
+    </ul>
+    <p>Betting tells a story. A raise screams strength; a check can mean weakness — or a trap. Reading those stories is the whole game.</p>` },
+  { id: "rankings", cat: "basics", title: "Hand rankings", sub: "What beats what",
+    body: `<p>The best five-card hand wins. Strongest to weakest:</p>
+    <ol class="lsn-rank">
+      <li><strong>Royal flush</strong> — A-K-Q-J-T, all one suit.</li>
+      <li><strong>Straight flush</strong> — five in a row, all one suit.</li>
+      <li><strong>Four of a kind</strong> — four of the same rank.</li>
+      <li><strong>Full house</strong> — three of a kind plus a pair.</li>
+      <li><strong>Flush</strong> — five cards of one suit.</li>
+      <li><strong>Straight</strong> — five in a row, any suits.</li>
+      <li><strong>Three of a kind</strong></li>
+      <li><strong>Two pair</strong></li>
+      <li><strong>One pair</strong></li>
+      <li><strong>High card</strong> — none of the above.</li>
+    </ol>
+    <p>Ties are broken by the highest side cards — your "kickers".</p>` },
+  { id: "flow", cat: "basics", title: "How a hand plays", sub: "Preflop to showdown",
+    body: `<p>Every hand of Texas Hold'em runs through four betting rounds:</p>
+    <ul class="lsn-list">
+      <li><strong>Preflop</strong> — you get two private "hole" cards. First betting round.</li>
+      <li><strong>Flop</strong> — three shared "community" cards hit the table. Bet again.</li>
+      <li><strong>Turn</strong> — a fourth community card. Bet again.</li>
+      <li><strong>River</strong> — the fifth and final community card. Last bet.</li>
+    </ul>
+    <p>You make your best five-card hand from your two hole cards plus the five on the board. If two or more players remain after the river, it's <strong>showdown</strong> — cards up, best hand takes the pot.</p>` },
+  { id: "gto", cat: "gto", title: "What is GTO?", sub: "Unexploitable poker",
+    body: `<p><strong>GTO</strong> stands for <em>Game Theory Optimal</em> — a strategy so balanced that no opponent can exploit it. Whatever they try, you can't be beaten in the long run.</p>
+    <p>The idea comes from game theory: a "Nash equilibrium" where neither player can improve by changing strategy alone. In poker that means mixing your bets and bluffs in exactly the right proportions, so a thinking opponent can never tell when you're strong.</p>
+    <p>You don't have to play perfect GTO to win — but the GTO baseline tells you when you're leaking and gives you a rock to lean on against tough players.</p>` },
+  { id: "ranges", cat: "gto", title: "Think in ranges", sub: "Not 'what do I have' — 'what could I have'",
+    body: `<p>Beginners think about <em>their two cards</em>. Strong players think in <strong>ranges</strong> — the whole set of hands they (and their opponent) could be holding in a spot.</p>
+    <p>When you raise under the gun, a good opponent doesn't picture one hand — they picture your <em>range</em>: big pairs, strong aces, a few suited connectors. Your job is to keep that range balanced so they can't pin you down.</p>
+    <p>The <strong>Range Charts</strong> in this app show exactly which hands belong in each spot. Studying them is how you stop playing your two cards and start playing the whole range.</p>` },
+  { id: "position", cat: "gto", title: "Position is power", sub: "Why acting last wins",
+    body: `<p>Acting <strong>last</strong> is a permanent information edge. You see every opponent's action before you commit a chip — so you bluff more cheaply, value-bet more accurately, and control the size of the pot.</p>
+    <p>That's why opening ranges widen as you near the button, and why the same hand can be a fold under the gun but a clear raise on the button. The cards didn't change — your position did.</p>
+    <p>Simple takeaway: <strong>play more hands in position, fewer out of position.</strong></p>` },
+  { id: "potodds", cat: "gto", title: "Pot odds & equity", sub: "The math of a call",
+    body: `<p>Two numbers decide most calls:</p>
+    <ul class="lsn-list">
+      <li><strong>Equity</strong> — your chance of winning the hand right now (a flush draw is about 36% on the flop).</li>
+      <li><strong>Pot odds</strong> — the price you're offered. If you must call <em>B</em> to win a pot of <em>P</em>, you break even at <strong>B / (P + 2B)</strong>.</li>
+    </ul>
+    <p>Call when your equity beats the pot odds. Pot is 600 and villain bets 200? You need 200 / 1,000 = 20% — and a 36% flush draw is an easy call. The <strong>Pot Odds</strong> drill trains this until it's instant.</p>` },
+  { id: "mce", cat: "gto", title: "How MCE reads the table", sub: "Monte Carlo + the Edge",
+    body: `<p>MonteCarloEdge runs a real solver under the hood. Every hand it:</p>
+    <ul class="lsn-list">
+      <li><strong>Simulates</strong> thousands of random runouts (the "Monte Carlo") to estimate your equity against the opponent's range.</li>
+      <li><strong>Solves</strong> the spot with a CFR engine to find the GTO-balanced action.</li>
+      <li><strong>Shows</strong> you the recommended move, your equity, and the reason — so you can compare your instinct to the math.</li>
+    </ul>
+    <p>Play, read the Edge, check your Leak Report, drill the gaps. That's the loop that builds a winning player.</p>` },
+];

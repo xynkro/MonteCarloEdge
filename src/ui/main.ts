@@ -40,7 +40,7 @@ import type { AuthTable } from "../mp/mp-engine.js";
 import type { MPAction, MPUser } from "../mp/types.js";
 import * as FB from "../mp/firebase-adapter.js";
 import * as IAP from "../mp/revenuecat.js";
-import { LEGAL_INTRO, LEGAL_SECTIONS, EXPLAINER_INTRO, EXPLAINER_SECTIONS, type Section } from "./content.js";
+import { LEGAL_INTRO, LEGAL_SECTIONS, EXPLAINER_INTRO, EXPLAINER_SECTIONS, LESSONS, type Section } from "./content.js";
 import { playSound, setSoundEnabled, isSoundEnabled } from "./sound.js";
 import * as Hist from "./history.js";
 
@@ -79,7 +79,7 @@ interface UndoSnapshot {
 }
 
 interface AppState {
-  screen: "home" | "landing" | "setup" | "game" | "stats" | "leaks" | "charts" | "drills" | "mp-setup" | "mp-table" | "mp-lobby" | "mp-net" | "profile" | "settings" | "legal" | "explainer" | "store" | "signin" | "inbox" | "friends" | "dm" | "compose" | "admin" | "onboard" | "history";
+  screen: "home" | "landing" | "setup" | "game" | "stats" | "leaks" | "charts" | "drills" | "lessons" | "mp-setup" | "mp-table" | "mp-lobby" | "mp-net" | "profile" | "settings" | "legal" | "explainer" | "store" | "signin" | "inbox" | "friends" | "dm" | "compose" | "admin" | "onboard" | "history";
   // Player profile (local-first; syncs name/avatar to Firestore when signed in).
   profile: { nickname: string; avatar: string; chips: number };
   // Multiplayer / benchmark (Phase 0 hot-seat + Phase 1 online lobby).
@@ -499,6 +499,7 @@ function render(): void {
   else if (S.screen === "leaks") renderLeaks();
   else if (S.screen === "charts") renderCharts();
   else if (S.screen === "drills") renderDrills();
+  else if (S.screen === "lessons") renderLessons();
   else if (S.screen === "mp-setup") renderMpSetup();
   else if (S.screen === "mp-lobby") renderMpLobby();
   else if (S.screen === "mp-table") renderMpTable();
@@ -3708,6 +3709,36 @@ function renderDrills(): void {
   onId("dr-next", "click", () => { if (_drillMode === "rangememory") rmNext(); else poNext(); render(); });
 }
 
+// ── Lessons: a browsable two-track library (Poker Basics + GTO Strategy). Hub lists the
+// lessons; tapping one opens a reader. Content lives in content.ts (LESSONS). ──
+let _lessonId: string | null = null; // null = hub
+function renderLessons(): void {
+  cancelVillainTimer();
+  const lesson = _lessonId ? LESSONS.find((l) => l.id === _lessonId) : null;
+  if (lesson) {
+    app.innerHTML = `<div class="setup doc lessons-scr">
+      <div class="doc-top"><button class="hdr-btn" id="lsn-back">← Lessons</button><h1 class="lsn-h1">${esc(lesson.title)}</h1><span style="width:54px"></span></div>
+      <div class="lsn-sub2">${esc(lesson.sub)}</div>
+      <div class="lsn-body">${lesson.body}</div>
+      <button class="start-btn lsn-done" id="lsn-done">Done</button>
+    </div>`;
+    onId("lsn-back", "click", () => { _lessonId = null; render(); });
+    onId("lsn-done", "click", () => { _lessonId = null; render(); });
+    return;
+  }
+  const cats: [string, string, (typeof LESSONS[number])[]][] = [
+    ["Poker basics", "New to the game? Start here.", LESSONS.filter((l) => l.cat === "basics")],
+    ["GTO strategy", "Go deeper once the basics click.", LESSONS.filter((l) => l.cat === "gto")],
+  ];
+  const card = (l: typeof LESSONS[number]) => `<button class="lsn-card" data-lesson="${l.id}"><span class="lsn-ct"><span class="lsn-cname">${esc(l.title)}</span><span class="lsn-csub">${esc(l.sub)}</span></span><span class="lsn-arrow">→</span></button>`;
+  app.innerHTML = `<div class="setup doc lessons-scr">
+    <div class="doc-top"><button class="hdr-btn" id="lsn-home">← Back</button><h1>Lessons</h1><span style="width:54px"></span></div>
+    ${cats.map(([t, s, ls]) => `<div class="lsn-cat"><div class="lsn-cat-h">${esc(t)}</div><div class="lsn-cat-s">${esc(s)}</div><div class="lsn-cards">${ls.map(card).join("")}</div></div>`).join("")}
+  </div>`;
+  onId("lsn-home", "click", () => { S.screen = "home"; render(); });
+  app.querySelectorAll("[data-lesson]").forEach((b) => onEl(b, "click", () => { _lessonId = (b as HTMLElement).dataset.lesson!; render(); }));
+}
+
 // ── Leak Report: your play vs GTO, aggregated from the persisted decision log ──
 function renderLeaks(): void {
   const all = loadDecisions();
@@ -6410,9 +6441,10 @@ function renderHome(): void {
 
       <div class="mc-study">
         <div class="mc-section-label">Sharpen your game</div>
-        <div class="mc-study-grid two">
-          <button class="mc-mode charts" id="home-charts" style="--d:.3s"><span class="mc-mi">${_svg("<rect x='3.5' y='3.5' width='7' height='7' rx='1.6'/><rect x='13.5' y='3.5' width='7' height='7' rx='1.6'/><rect x='3.5' y='13.5' width='7' height='7' rx='1.6'/><rect x='13.5' y='13.5' width='7' height='7' rx='1.6'/>")}</span><span class="mc-mtext"><span class="mc-mt">Charts</span></span></button>
-          <button class="mc-mode drills" id="home-drills" style="--d:.36s"><span class="mc-mi">${ICON_TARGET}</span><span class="mc-mtext"><span class="mc-mt">Drills</span></span></button>
+        <div class="mc-study-grid">
+          <button class="study-tile" id="home-charts" style="--accent:#22d3ee"><span class="st-ic">${_svg("<rect x='3.5' y='3.5' width='7' height='7' rx='1.6'/><rect x='13.5' y='3.5' width='7' height='7' rx='1.6'/><rect x='3.5' y='13.5' width='7' height='7' rx='1.6'/><rect x='13.5' y='13.5' width='7' height='7' rx='1.6'/>")}</span><span class="st-l">Charts</span></button>
+          <button class="study-tile" id="home-drills" style="--accent:#fb923c"><span class="st-ic">${ICON_TARGET}</span><span class="st-l">Drills</span></button>
+          <button class="study-tile" id="home-lessons" style="--accent:#a78bfa"><span class="st-ic">${_svg("<path d='M4 5.2a2 2 0 0 1 2-2h6v15.6H6a2 2 0 0 0-2 2z'/><path d='M20 5.2a2 2 0 0 0-2-2h-6v15.6h6a2 2 0 0 1 2 2z'/>")}</span><span class="st-l">Lessons</span></button>
         </div>
       </div>
 
@@ -6455,6 +6487,7 @@ function renderHome(): void {
   onId("home-stats", "click", () => { S.screen = "stats"; render(); });
   onId("home-charts", "click", () => { S.screen = "charts"; render(); });
   onId("home-drills", "click", () => { _drillMode = "hub"; S.screen = "drills"; render(); });
+  onId("home-lessons", "click", () => { _lessonId = null; S.screen = "lessons"; render(); });
   // iOS WebKit won't autoplay a muted inline <video> inserted via innerHTML on the strength
   // of the `autoplay` attribute alone (esp. in a standalone PWA) — nudge it: set muted as a
   // PROPERTY + call play(); retry once on the first tap if it was blocked. (Low Power Mode
