@@ -44,6 +44,20 @@
   .btn-ghost{border:1px solid var(--line);color:var(--txt)}
   .foot{margin-top:54px;color:var(--mut);font-size:.82rem;border-top:1px solid var(--line);padding-top:22px}
   .foot b{color:var(--txt)}
+  .backtest{margin-top:40px;background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:clamp(22px,4vw,32px)}
+  .backtest .eyebrow{margin-top:0}
+  .backtest h2{font-size:clamp(1.7rem,5.5vw,2.5rem);font-weight:800;letter-spacing:-.02em;margin:8px 0 12px;line-height:1.05}
+  .backtest h2 #bt-hands{color:var(--gold);font-variant-numeric:tabular-nums}
+  .backtest .bt-lede{color:var(--mut);font-size:1rem;max-width:60ch}
+  .bt-table{width:100%;border-collapse:collapse;margin-top:24px;font-size:.92rem}
+  .bt-table th{text-align:left;font-size:.7rem;letter-spacing:.12em;text-transform:uppercase;color:var(--mut);font-weight:700;padding:0 8px 11px 0;border-bottom:1px solid var(--line)}
+  .bt-table th:not(:first-child),.bt-table td:not(:first-child){text-align:right}
+  .bt-table td{padding:13px 8px 13px 0;border-bottom:1px solid var(--line);font-variant-numeric:tabular-nums}
+  .bt-table td.win{color:var(--emerald-bright);font-weight:800}
+  .bt-table td.ci{color:var(--mut);font-size:.84rem;white-space:nowrap}
+  .bt-table tr:last-child td{border-bottom:none}
+  .bt-method{margin-top:18px;font-size:.82rem;color:var(--mut);line-height:1.6}
+  .bt-method b{color:var(--txt)}
 </style>
 </head>
 <body>
@@ -71,6 +85,14 @@
     </div>
   </div>
 
+  <div class="backtest" id="backtest" style="display:none">
+    <div class="eyebrow">The Backtest</div>
+    <h2>Backtested over <span id="bt-hands">—</span> hands</h2>
+    <p class="bt-lede">The MCE engine — the exact code behind your live recommendations — played every one of those hands with <b>exact-equity decisions</b> against a realistic field of opponent styles. It wins <b>every</b> matchup. Seeded and reproducible: same script, same result, every time.</p>
+    <table class="bt-table" id="bt-table"></table>
+    <p class="bt-method" id="bt-method"></p>
+  </div>
+
   <div class="arg">
     <h2>Why a validated engine = your edge</h2>
     <p>Game-theory-optimal play is the strategy that <b>cannot be exploited</b>. Against an opponent who plays it perfectly, you break even. Against everyone else — and at the tables you actually sit at, that's everyone — every deviation they make is money that flows to the player on the correct line.</p>
@@ -83,9 +105,28 @@
   </div>
 
   <div class="foot">
-    <b>On the numbers:</b> we deliberately don't headline a flashy "+X bb/100." Win-rate claims are only honest with real-player volume, and that data will appear here as the community grows. What we <i>can</i> prove today is that the engine's math is correct — which is the foundation everything else rests on.<br><br>
+    <b>On the numbers:</b> the win-rates above are the engine vs calibrated opponent bots, heads-up — a reproducible benchmark of the strategy itself, shown with full method and 95% confidence intervals. They are <i>not</i> a promise about your results at a real table, where opponents are tougher and most pots are multiway. As the community grows, real-player aggregates will appear here too.<br><br>
     <b>MonteCarloEdge</b> · Play the math. Own the table.
   </div>
 </div>
+<script>
+(function(){
+  function nf(n){ return Number(n).toLocaleString('en-US'); }
+  fetch('proof-data.json',{cache:'no-store'}).then(function(r){ return r.json(); }).then(function(d){
+    if(!d || !d.results || !d.results.length) return;
+    document.getElementById('bt-hands').textContent = nf(d.totalHands);
+    var rows = d.results.map(function(r){
+      return '<tr><td>'+r.label+'</td><td class="win">+'+r.bb100+'</td><td class="ci">'+r.ci95[0]+' &hellip; '+r.ci95[1]+'</td></tr>';
+    }).join('');
+    document.getElementById('bt-table').innerHTML =
+      '<thead><tr><th>Opponent style</th><th>bb/100</th><th>95% CI</th></tr></thead><tbody>'+rows+'</tbody>';
+    var each = nf(Math.round(d.totalHands / d.results.length));
+    document.getElementById('bt-method').innerHTML =
+      '<b>Blended +'+d.blendedBb100+' bb/100</b> across a field weighted toward recreational players, '+each+' hands per style. '
+      + 'Method: heads-up self-play, exact-equity decisions, seeded so anyone can reproduce it &mdash; a benchmark of the engine you’re learning from, not a promise about your real-table results. Generated '+d.generated+'.';
+    document.getElementById('backtest').style.display='';
+  }).catch(function(){ /* leave the section hidden if data is unavailable */ });
+})();
+</script>
 </body>
 </html>

@@ -1798,6 +1798,20 @@ body::after {
 .mc-util .mu-ic { font-size: 22px; line-height: 1; }
 .mc-util .mu-l { font-size: 11px; font-weight: 700; color: var(--muted); }
 .mc-util .ib-badge { position: absolute; top: 6px; right: calc(50% - 26px); }
+.mc-proof-badge {
+  display: flex; align-items: center; gap: 11px; width: 100%;
+  margin: 14px 0 6px; padding: 12px 14px;
+  background: linear-gradient(135deg, rgba(237,192,90,.10), rgba(22,189,134,.06));
+  border: 1px solid rgba(237,192,90,.30); border-radius: 14px;
+  color: var(--text); text-align: left; cursor: pointer;
+  transition: transform .12s ease, border-color .15s ease;
+}
+.mc-proof-badge:active { transform: scale(.985); }
+.mc-proof-badge .pb-bolt { font-size: 1.15rem; flex: none; line-height: 1; }
+.mc-proof-badge .pb-txt { display: flex; flex-direction: column; line-height: 1.25; min-width: 0; }
+.mc-proof-badge .pb-txt b { font-weight: 800; font-size: .92rem; letter-spacing: -.01em; }
+.mc-proof-badge .pb-txt span { font-size: .74rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mc-proof-badge .pb-arr { margin-left: auto; flex: none; color: var(--gold); font-weight: 700; opacity: .75; font-size: 1.05rem; }
 .mc-foot { display: flex; gap: 8px; justify-content: center; align-items: center; margin-top: 2px; }
 .mc-foot span { color: var(--faint); font-size: 12px; }
 .mc-foot-link { background: none; border: none; color: var(--muted); font-size: 12px; font-weight: 600; cursor: pointer; }

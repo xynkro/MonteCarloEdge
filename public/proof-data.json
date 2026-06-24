@@ -1,0 +1,53 @@
+{
+  "generated": "2026-06-24",
+  "engine": "MonteCarloEdge GTO engine",
+  "method": "Heads-up self-play: the MCE strategy vs each opponent archetype, exact-equity decisions. Reproducible (seeded).",
+  "totalHands": 1000000,
+  "blendedBb100": 117.75,
+  "results": [
+    {
+      "vs": "Station",
+      "label": "Calling stations",
+      "weight": 0.35,
+      "bb100": 201.35,
+      "ci95": [
+        192.36,
+        210.34
+      ],
+      "hands": 250000
+    },
+    {
+      "vs": "Nit",
+      "label": "Nits",
+      "weight": 0.25,
+      "bb100": 52.25,
+      "ci95": [
+        47.1,
+        57.39
+      ],
+      "hands": 250000
+    },
+    {
+      "vs": "LAG",
+      "label": "Loose-aggressive",
+      "weight": 0.2,
+      "bb100": 102.82,
+      "ci95": [
+        95.82,
+        109.81
+      ],
+      "hands": 250000
+    },
+    {
+      "vs": "TAG",
+      "label": "Solid regulars",
+      "weight": 0.2,
+      "bb100": 68.27,
+      "ci95": [
+        62.16,
+        74.38
+      ],
+      "hands": 250000
+    }
+  ]
+}

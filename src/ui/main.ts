@@ -6458,6 +6458,12 @@ function renderHome(): void {
         <button class="mc-util" id="home-settings" aria-label="Settings"><span class="mu-ic">${ic("settings")}</span><span class="mu-l">Settings</span></button>
       </div>
 
+      <button class="mc-proof-badge" id="home-proof-badge">
+        <span class="pb-bolt">⚡</span>
+        <span class="pb-txt"><b>Backtested 1,000,000 hands</b><span>Wins every opponent style we tested</span></span>
+        <span class="pb-arr">→</span>
+      </button>
+
       <div class="mc-foot">
         <button class="mc-foot-link" id="home-proof">The Proof</button><span>·</span>
         <button class="mc-foot-link" id="home-explainer">How it works</button><span>·</span>
@@ -6472,6 +6478,7 @@ function renderHome(): void {
   onId("home-settings", "click", () => { S.screen = "settings"; render(); });
   onId("home-settings2", "click", () => { S.screen = "settings"; render(); });
   onId("home-proof", "click", () => { try { window.open("/proof.html", "_blank", "noopener"); } catch { location.assign("/proof.html"); } });
+  onId("home-proof-badge", "click", () => { try { window.open("/proof.html", "_blank", "noopener"); } catch { location.assign("/proof.html"); } });
   onId("home-explainer", "click", () => { _docReturn = "home"; S.screen = "explainer"; render(); });
   onId("home-mce", "click", () => { _docReturn = "home"; S.screen = "explainer"; render(); });
   onId("home-watch", "click", () => openIntroFilm());
