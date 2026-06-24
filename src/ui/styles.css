@@ -275,6 +275,16 @@ body::after {
 .setup-footer { display: flex; gap: 8px; }
 .setup-footer .hdr-btn { flex: 1; padding: 13px; font-size: 14px; }
 .setup-footer.setup-top { margin-bottom: 12px; }
+/* Slim Training/Live setup bar: back · [ Training | Live Hand ] tabs · sound */
+.setup-bar { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+.setup-ic { flex: none; width: 40px; height: 40px; display: grid; place-items: center; border-radius: 11px; background: var(--glass); border: 1px solid var(--glass-edge); color: var(--text); cursor: pointer; font-size: 18px; line-height: 1; }
+.setup-ic:active { transform: scale(.94); }
+.setup-ic .ic { width: 19px; height: 19px; }
+.setup-tabs { flex: 1; }
+.setup-tabs .seg-btn { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 9px 6px; font-size: 13px; }
+.setup-tabs .seg-btn svg { width: 15px; height: 15px; }
+.setup-tabs .seg-btn .ic { width: 14px; height: 14px; }
+.setup-sub { text-align: center; color: var(--muted); font-size: 13px; margin: 0 0 14px; }
 .room-bal { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 9px 13px; border-radius: 12px; background: var(--glass); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); border: 1px solid var(--glass-edge); margin-bottom: 8px; font-size: 13.5px; }
 .room-bal strong { font-size: 15px; background: var(--gold-foil); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
 .room-bal .rb-bal { appearance: none; -webkit-appearance: none; border: none; background: transparent; color: inherit; font: inherit; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; padding: 0; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: transform .1s; }
@@ -1311,6 +1321,22 @@ body::after {
 }
 .hdr-btn.quiz-on { background: rgba(124,92,255,.25); color: #c9bcff; border-color: rgba(124,92,255,.5); }
 
+/* Edge Pass FOMO blur — the live-mode GTO call, blurred behind an unlock for non-entitled players */
+.rec-panel.edge-lock { position: relative; overflow: hidden; cursor: pointer; padding: 0; border-color: rgba(237,192,90,.4); }
+.rec-panel.edge-lock .edge-blur { filter: blur(7px); opacity: .45; padding: 10px 12px; pointer-events: none; user-select: none; }
+.rec-panel.edge-lock .edge-over {
+  position: absolute; inset: 0; display: flex; align-items: center; gap: 10px; padding: 0 12px;
+  background: linear-gradient(135deg, rgba(237,192,90,.16), rgba(124,92,255,.12));
+}
+.edge-over-ic { flex: none; width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center;
+  background: rgba(237,192,90,.2); border: 1px solid rgba(237,192,90,.5); color: var(--gold); }
+.edge-over-ic .ic { width: 15px; height: 15px; }
+.edge-over-txt { display: flex; flex-direction: column; line-height: 1.22; min-width: 0; }
+.edge-over-txt b { font-weight: 800; font-size: .9rem; }
+.edge-over-txt span { font-size: .74rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.edge-over-cta { margin-left: auto; flex: none; font-weight: 800; font-size: .84rem; color: var(--gold); display: inline-flex; align-items: center; gap: 3px; }
+.edge-over-cta .ic { width: 13px; height: 13px; }
+
 /* ── Training dopamine loop: streak badge, verdict flash, win glow ── */
 .streak {
   display: inline-block; font-weight: 900; font-size: 12px; padding: 1px 8px; margin-left: 4px;
@@ -1819,7 +1845,10 @@ body::after {
 
 /* ── Settings ── */
 .set-group { background: var(--glass); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); border: 1px solid var(--glass-edge); border-radius: 14px; padding: 12px 14px; margin-bottom: 12px; }
-.set-head { font-size: 11px; font-weight: 800; letter-spacing: .6px; text-transform: uppercase; color: var(--muted); margin-bottom: 4px; }
+.set-head { display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 800; letter-spacing: .6px; text-transform: uppercase; color: var(--muted); margin-bottom: 4px; }
+.set-head .ic { width: 13px; height: 13px; color: var(--gold-2); }
+.set-resets { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 4px 0 2px; }
+.set-resets .hdr-btn { width: 100%; padding: 10px; }
 .set-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 9px 0; border-top: 1px solid var(--line); }
 .set-rl { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
 .set-label { font-size: 14px; font-weight: 700; }

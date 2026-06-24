@@ -969,6 +969,7 @@ const ARCH_DESC: Record<string, string> = {
   Nit: "Nit — only plays premium hands (AA, KK, AK). Easy to steal from.",
 };
 
+let _setupTab: "training" | "live" = "training"; // Training & Live Hand share this screen via a tab
 function renderSetup(): void {
   cancelVillainTimer();
   // Returning to setup starts a fresh session: clear running stacks so they
@@ -977,18 +978,19 @@ function renderSetup(): void {
   S.seatStacks = [];
   S.seatNames = [];
   const positions = getPositions(S.tableSize);
+  const live = _setupTab === "live";
   app.innerHTML = `
     <div class="setup">
-      <div class="setup-footer setup-top">
-        <button class="hdr-btn" id="home-btn">← Leave Training Mode</button>
-        <button class="hdr-btn" id="view-stats">Session Stats</button>
-        <button class="hdr-btn" id="sound-toggle">${isSoundEnabled() ? "🔊 Sound On" : "🔇 Sound Off"}</button>
+      <div class="setup-bar">
+        <button class="setup-ic" id="home-btn" aria-label="Home">←</button>
+        <div class="seg setup-tabs">
+          <button class="seg-btn ${live ? "" : "sel"}" data-tab="training">${ICON_TARGET} Training</button>
+          <button class="seg-btn ${live ? "sel" : ""}" data-tab="live">${ic("camera")} Live Hand</button>
+        </div>
+        <button class="setup-ic" id="sound-toggle" aria-label="Sound ${isSoundEnabled() ? "on" : "off"}">${ic(isSoundEnabled() ? "soundon" : "soundoff")}</button>
       </div>
 
-      <div class="brand">
-        <img class="brand-logo" src="${import.meta.env.BASE_URL}brand/emblem.svg" alt="" onerror="this.style.display='none'" />
-        <h1 class="brand-wordmark"><span>MONTECARLO</span><b>EDGE</b><small>Play the player. Own the table.</small></h1>
-      </div>
+      <p class="setup-sub">${live ? "Track a real game — set your stakes, then log each hand live." : "Practice vs the AI — pick the spot you want to drill."}</p>
 
       <div class="field-row">
         <div class="field">
@@ -1023,6 +1025,7 @@ function renderSetup(): void {
         <div class="field"><!-- spacer: keeps Payouts at 50% column width --></div>
       </div>` : ""}
 
+      ${live ? `
       <div class="field-row">
         <div class="field">
           <label>Blinds <span class="lbl-sub">SB / BB</span></label>
@@ -1037,8 +1040,9 @@ function renderSetup(): void {
           <button class="tap-input" data-numpad="stack" aria-label="Starting chips, ${S.stackBB} big blinds — tap to edit">${S.stackBB}bb · $${fmtMoney(S.stackBB * S.bbValue)}</button>
         </div>
       </div>
-      <span class="hint">${S.sbManual ? "Small blind set manually" : "Small blind auto-tracks ½ the big blind — tap it to set your own"}</span>
+      <span class="hint">${S.sbManual ? "Small blind set manually" : "Small blind auto-tracks ½ the big blind — tap it to set your own"}</span>` : ""}
 
+      ${!live ? `
       <div class="field-row">
         <div class="field">
           <label for="herostyle">Your play style</label>
@@ -1058,7 +1062,7 @@ function renderSetup(): void {
         </div>
       </div>
       <span class="hint style-blurb"><strong>You:</strong> ${HERO_STYLES[S.heroStyle]?.blurb ?? ""}</span>
-      <span class="hint arch-desc"><strong>Opponents:</strong> ${ARCH_DESC[S.archetype] ?? ""}</span>
+      <span class="hint arch-desc"><strong>Opponents:</strong> ${ARCH_DESC[S.archetype] ?? ""}</span>` : ""}
 
       <div class="field">
         <label>Where are you sitting?</label>
@@ -1073,7 +1077,7 @@ function renderSetup(): void {
 
       <div class="field">
         <div class="per-seat-head" id="per-seat-toggle">
-          <label>Customize opponents per seat ▾</label>
+          <label>Customize ${live ? "players" : "opponents"} per seat ▾</label>
         </div>
         <div class="per-seat-body hidden" id="per-seat-body">
           ${positions.map((p, i) => {
@@ -1092,24 +1096,25 @@ function renderSetup(): void {
         </div>
       </div>
 
-      <button class="start-btn" id="start-training" style="background:linear-gradient(135deg,var(--violet),var(--violet-2));color:#fff;box-shadow:0 8px 22px rgba(124,92,255,.3)">🎯 Start Training</button>
-      <span class="hint" style="text-align:center">Practice vs the AI — it deals, plays the villains, and calls your GTO line in real time.</span>
-      <button class="hdr-btn" id="start" style="width:100%;margin-top:4px">🃏 At a real table? Use the Live Tracker</button>
-      <span class="hint" style="text-align:center">Track a physical game: tap each opponent's action and the app calls your play live.</span>
+      ${live ? `
+      <button class="start-btn" id="start" style="background:linear-gradient(135deg,var(--gold-2),var(--gold-3));color:#1a1305;box-shadow:0 8px 22px rgba(231,197,105,.28)">${ic("camera")} Start Live Tracker</button>
+      <span class="hint" style="text-align:center">${!hasEdge() ? "Track a real game free — the live GTO call unlocks with <b>Edge Pass</b>." : "Tap each opponent's action and the app calls your play live."}</span>
 
       <div class="help-banner" id="help-toggle">
-        <span class="help-icon">?</span> How does this work?
+        <span class="help-icon">?</span> How does the Live Tracker work?
       </div>
       <div class="help-body hidden" id="help-body">
-        <p>This app tells you <strong>what to do</strong> at the poker table in real time.</p>
+        <p>The Live Tracker calls your play <strong>at a real table</strong>, hand by hand.</p>
         <ol>
-          <li>Set up your table above</li>
+          <li>Set your table &amp; stakes above</li>
           <li>Pick your two hole cards when dealt</li>
           <li>Tap each opponent's action as it happens (fold / call / raise)</li>
-          <li>When it's <strong>your turn</strong>, the app shows the recommended play with the math behind it</li>
-          <li>After each betting round, tap the board to enter community cards</li>
+          <li>On <strong>your turn</strong>, it shows the GTO play with the math behind it</li>
+          <li>After each street, tap the board to enter community cards</li>
         </ol>
-      </div>
+      </div>` : `
+      <button class="start-btn" id="start-training" style="background:linear-gradient(135deg,var(--violet),var(--violet-2));color:#fff;box-shadow:0 8px 22px rgba(124,92,255,.3)">${ICON_TARGET} Start Training</button>
+      <span class="hint" style="text-align:center">Practice vs the AI — it deals, plays the villains, and calls your GTO line in real time.</span>`}
 
     </div>`;
 
@@ -1161,6 +1166,7 @@ function renderSetup(): void {
   );
   onEl($("#start"), "click", () => { endRoom(); S.mode = "live"; S.currency = "usd"; startHand(); });
   onId("start-training", "click", () => { beginTraining(); });
+  app.querySelectorAll("[data-tab]").forEach((b) => onEl(b, "click", () => { _setupTab = (b as HTMLElement).dataset.tab as "training" | "live"; render(); }));
   onId("view-stats", "click", () => {
     S.screen = "stats"; render();
   });
@@ -2000,10 +2006,22 @@ function renderGame(): void {
   // Quiz mode: on YOUR turn in training, hide the recommendation (and its size
   // hints) so you commit blind, then get graded after you act.
   const quizHide = quizMode() && S.mode === "training" && isHeroTurn && !S.handOver && !S.trainingOver;
+  // Live Tracker is the premium use case: a non-entitled player tracks the real table for free, but
+  // the actual GTO call is blurred behind an Edge Pass unlock — they feel the exact value they're missing.
+  const edgeLock = S.mode === "live" && !hasEdge() && !S.handOver && !S.trainingOver;
   const recHtml = !S.rec ? "" : quizHide
     ? `<div class="rec-panel quiz-cover">
          <div class="rec-action">🙈 Your call?</div>
          <div class="rec-reason">Quiz mode — make your decision, then I'll grade it.</div>
+       </div>`
+    : edgeLock
+    ? `<div class="rec-panel edge-lock" id="edge-unlock">
+         <div class="edge-blur" aria-hidden="true"><div class="rec-action">${S.rec.action}${S.rec.amount > 0 ? ` ${chipsBet(S.rec.amount)}` : ""}</div><div class="rec-reason">${recReason}</div></div>
+         <div class="edge-over">
+           <span class="edge-over-ic"><i class='ic ic-lock'></i></span>
+           <div class="edge-over-txt"><b>Unlock your live GTO call</b><span>Edge Pass calls every real-table spot — instantly.</span></div>
+           <span class="edge-over-cta">Unlock <i class='ic ic-bolt'></i></span>
+         </div>
        </div>`
     : `<div class="rec-panel">
       <div class="rec-head">
@@ -2025,8 +2043,8 @@ function renderGame(): void {
   // If there's a rec with amount, show it on the bet/raise button for one-tap action
   // — but NOT in quiz mode (the size would give the answer away).
   const recAmt = S.rec && S.rec.amount > 0 ? roundBet(S.rec.amount) : 0;
-  const betLabel = !quizHide && recAmt > 0 && S.rec?.action === "bet" ? `Bet ${chipsBet(recAmt)}` : "Bet";
-  const raiseLabel = !quizHide && recAmt > 0 && S.rec?.action === "raise" ? `Raise to ${chipsBet(recAmt)}` : "Raise";
+  const betLabel = !quizHide && !edgeLock && recAmt > 0 && S.rec?.action === "bet" ? `Bet ${chipsBet(recAmt)}` : "Bet";
+  const raiseLabel = !quizHide && !edgeLock && recAmt > 0 && S.rec?.action === "raise" ? `Raise to ${chipsBet(recAmt)}` : "Raise";
 
   // Multiway logging shortcuts: when it's an opponent's turn (live mode), batch
   // the obvious action for everyone up to the hero.
@@ -2169,6 +2187,7 @@ function renderGame(): void {
   onId("gloss-btn", "click", showGlossary);
   app.querySelectorAll(".tap-gloss").forEach((e) => onEl(e, "click", showGlossary));
   onId("reads-on", "click", () => { try { localStorage.setItem("mce-reads", "1"); } catch { /* */ } render(); });
+  onId("edge-unlock", "click", () => { S.screen = "store"; render(); });
   onId("undo-btn", "click", undo);
   onId("next-hand", "click", nextHand);
   onId("train-again", "click", () => {
@@ -6489,7 +6508,7 @@ function renderHome(): void {
   onId("home-signin-banner", "click", () => { S.screen = "signin"; render(); });
   onId("home-store", "click", () => { S.screen = "store"; render(); });
   onId("home-store-tile", "click", () => { S.screen = "store"; render(); });
-  onId("home-train", "click", () => { S.screen = "setup"; render(); });
+  onId("home-train", "click", () => { _setupTab = "training"; S.screen = "setup"; render(); });
   onId("home-pass", "click", () => {
     if (!loggedIn) { S.screen = "signin"; render(); return; }
     if (S.mp.setup.players[0]) S.mp.setup.players[0]!.name = S.profile.nickname;
@@ -6570,17 +6589,19 @@ function relTime(ms: number): string {
   const d = Math.floor(h / 24); return `${d}d ago`;
 }
 
+let _pfAvOpen = false; // avatar grid collapsed by default — the chosen avatar shows big up top
 function renderProfile(): void {
   cancelVillainTimer();
   const p = S.profile;
   const loggedIn = !!S.mp.auth;
   app.innerHTML = `
     <div class="setup">
-      <div class="doc-top"><button class="hdr-btn" id="pf-back">← Back</button><h1>👤 Profile</h1><span style="width:54px"></span></div>
+      <div class="doc-top"><button class="hdr-btn" id="pf-back">← Back</button><h1>${ic("profile")} Profile</h1><span style="width:54px"></span></div>
       <div style="text-align:center;margin-bottom:10px">${avatarChip(p.avatar, p.nickname, 76)}</div>
       <div class="field"><label>Nickname (shown at the tables)</label><input class="mp-num" id="pf-nick" maxlength="14" value="${esc(p.nickname)}"/></div>
-      <div class="field"><label>Avatar</label>
-        <div class="avatar-grid">
+      <div class="field">
+        <div class="per-seat-head" id="pf-av-toggle"><label>Avatar <span class="lbl-sub">— tap to change</span> ${_pfAvOpen ? "▴" : "▾"}</label></div>
+        <div class="avatar-grid ${_pfAvOpen ? "" : "hidden"}" id="pf-av-body">
           <button class="avatar-pick ${!p.avatar ? "sel" : ""}" id="pf-av-auto" title="Auto identicon">${avatarChip("", p.nickname, 38)}</button>
           ${PRESET_AVATARS.map((a) => `<button class="avatar-pick ${p.avatar === a ? "sel" : ""}" data-av="${a}">${a}</button>`).join("")}
         </div>
@@ -6590,15 +6611,17 @@ function renderProfile(): void {
         ${loggedIn ? `<div class="mp-score-row"><span><i class=ic-gem></i> Premium chips</span><span class="g-ok">${fmtBal(S.wallet.premium)}</span></div>` : ""}
         <span class="hint" style="display:block;margin-top:6px">${loggedIn ? "Free play chips every week — claim on Home / in the Store. Win <i class=ic-gem></i> at premium tables." : "Sign in (Play Online) to save your chips to your account + play online."}</span>
       </div>
-      ${loggedIn ? `<button class="hdr-btn" id="pf-store" style="width:100%;padding:12px;margin-top:10px">🛍 Store · buy chips</button>` : ""}
-      <button class="hdr-btn" id="pf-history" style="width:100%;padding:12px;margin-top:6px">📜 Hand history</button>
+      <div class="mc-iconrow" style="margin-top:12px">
+        ${loggedIn ? `<button class="mc-util" id="pf-store"><span class="mu-ic">${ic("store")}</span><span class="mu-l">Store</span></button>` : ""}
+        <button class="mc-util" id="pf-history"><span class="mu-ic">${ic("watch")}</span><span class="mu-l">History</span></button>
+      </div>
       <div class="hint" style="text-align:center;margin-top:10px">${loggedIn ? `✓ Signed in as ${esc(S.mp.auth!.name)}` : "Not signed in"}</div>
       ${loggedIn
         ? `<button class="hdr-btn" id="pf-signout" style="width:100%;padding:12px;margin-top:6px;color:var(--red)">Sign out</button>`
         : `<button class="si-btn primary" id="pf-signin" style="margin-top:6px">Sign in / Register</button>`}
-      <button class="hdr-btn" id="pf-back2" style="width:100%;padding:12px;margin-top:6px">Back to Home</button>
     </div>`;
   onId("pf-nick", "change", (e) => { S.profile.nickname = (e.target as HTMLInputElement).value.trim() || "Player"; saveProfile(); render(); });
+  onId("pf-av-toggle", "click", () => { _pfAvOpen = !_pfAvOpen; render(); });
   onId("pf-av-auto", "click", () => { S.profile.avatar = ""; saveProfile(); render(); });
   app.querySelectorAll("[data-av]").forEach((b) => onEl(b, "click", () => { S.profile.avatar = (b as HTMLElement).dataset.av!; saveProfile(); render(); }));
   onId("pf-store", "click", () => { S.screen = "store"; render(); });
@@ -6606,7 +6629,6 @@ function renderProfile(): void {
   onId("pf-signin", "click", () => { S.screen = "signin"; render(); });
   onId("pf-signout", "click", () => { if (confirm("Sign out of your account?")) void goOffline().then(() => { S.screen = "home"; render(); }); });
   onId("pf-back", "click", () => { S.screen = "home"; render(); });
-  onId("pf-back2", "click", () => { S.screen = "home"; render(); });
 }
 
 /* ═══════════════════ SETTINGS / LEGAL / EXPLAINER ═══════════════════ */
@@ -6650,31 +6672,33 @@ function renderSettings(): void {
   app.innerHTML = `
     <div class="setup doc">
       <h1><i class='ic ic-settings'></i> Settings</h1>
-      <div class="set-group"><div class="set-head">Sound &amp; feel</div>
+      <div class="set-group"><div class="set-head">${ic("soundon")} Sound &amp; feel</div>
         ${row("Sound effects", toggle("set-sound", isSoundEnabled()))}
         ${row("Reduce motion", `<div class="seg" id="set-motion">${(["auto", "on", "off"] as const).map((v) => `<button class="seg-btn ${motion === v ? "sel" : ""}" data-motion="${v}">${v[0]!.toUpperCase() + v.slice(1)}</button>`).join("")}</div>`, "Auto follows your device. On cuts chip-fly &amp; card animations.")}
       </div>
-      <div class="set-group"><div class="set-head">Gameplay</div>
+      <div class="set-group"><div class="set-head">${ic("chip")} Gameplay</div>
         ${row("Table speed", `<select class="set-select" id="set-speed">${SPEED_TIERS.map((t) => `<option value="${t}" ${speed === t ? "selected" : ""}>${SPEED_LABEL[t]}</option>`).join("")}</select>`, "Villain timing &amp; deal animations.")}
         ${row("Quiz mode", toggle("set-quiz", quizMode()), "Hide the recommendation until after you act, then grade you.")}
         ${row("Range reads", toggle("set-reads", readsOn()), "Show what beats you &amp; what's drawing on each board. Off keeps the table clean while you learn.")}
         ${row("Replay tutorial", `<button class="hdr-btn" id="set-replay-coach">Replay</button>`, "Show the first-hand walkthrough again next time you train.")}
       </div>
-      <div class="set-group"><div class="set-head">Account</div>
+      <div class="set-group"><div class="set-head">${ic("profile")} Account</div>
         ${auth
           ? row("Signed in", `<button class="hdr-btn" id="set-signout">Sign out</button>`, `${auth.name} · Google. Sign-out keeps your local data.`)
             + (_passkeyOk ? row("Face ID sign-in", `<button class="hdr-btn" id="set-passkey">${passkeyEnrolled() ? "Re-enroll" : "Set up"}</button>`, _passkeyMsg || "One Face ID tap restores online play — even after iOS signs you out. Uses your device passkey.") : "")
           : row("Online play", `<button class="hdr-btn" id="set-signin">Sign in</button>`, "Sign in to save your chips &amp; play online — Google, Apple, email, or Face ID. No ads, no data selling.")}
       </div>
-      <div class="set-group"><div class="set-head">Your data</div>
-        <div class="set-note" style="margin-bottom:9px">Everything below lives in your browser. We don't sell it or show ads. Wipe any of it, any time.</div>
-        ${row("Reset session stats", `<button class="hdr-btn danger" id="set-reset-stats">Reset</button>`)}
-        ${row("Clear hand history", `<button class="hdr-btn danger" id="set-clear-history">Clear</button>`, "Resets your leak report. Chips &amp; profile stay.")}
-        ${row("Reset profile", `<button class="hdr-btn danger" id="set-reset-profile">Reset</button>`, "Nickname &amp; avatar back to default.")}
-        ${row("Reset chip wallet", `<button class="hdr-btn danger" id="set-reset-wallet">Reset</button>`, "Play-money only — no cash value, never cashable. A local reset, not a refund.")}
+      <div class="set-group"><div class="set-head">${ic("shield")} Your data</div>
+        <div class="set-note" style="margin-bottom:9px">Everything below lives in your browser — never sold, no ads. Chips are play-money (no cash value, never cashable); resets are local, not refunds.</div>
+        <div class="set-resets">
+          <button class="hdr-btn danger" id="set-reset-stats">Reset stats</button>
+          <button class="hdr-btn danger" id="set-clear-history">Clear history</button>
+          <button class="hdr-btn danger" id="set-reset-profile">Reset profile</button>
+          <button class="hdr-btn danger" id="set-reset-wallet">Reset wallet</button>
+        </div>
         ${row("Delete all my data", `<button class="hdr-btn danger" id="set-delete-all">Delete</button>`, "Everything on this device. Cannot be undone.")}
       </div>
-      <div class="set-group"><div class="set-head">Legal &amp; how it works</div>
+      <div class="set-group"><div class="set-head">${ic("help")} Legal &amp; how it works</div>
         ${row("How it works", `<button class="hdr-btn" id="set-explainer">Open</button>`)}
         ${row("Terms &amp; legal", `<button class="hdr-btn" id="set-legal">Open</button>`, "Play-money, not gambling — the full terms.")}
       </div>
@@ -6803,6 +6827,8 @@ try {
   if (!seen && !known && !everUsed) S.screen = "landing";
 } catch { /* */ }
 render();
+// DEV-only: jump to any screen for preview verification (e.g. __go("profile")). Stripped from prod.
+if (import.meta.env.DEV) (window as unknown as { __go: (s: string) => void }).__go = (s) => { S.screen = s as typeof S.screen; render(); };
 initCardTilt();
 // Native (Capacitor) shell: status bar + hide launch splash. The native bridge injects
 // window.Capacitor before our bundle runs, so we gate on it — the web build never even fetches
