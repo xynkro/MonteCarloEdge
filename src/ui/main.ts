@@ -717,9 +717,10 @@ function liveSolverSpot(): string | null {
   // heuristic until a precomputed blueprint stage. (The manual "Solve GTO" button
   // still solves flop/turn on demand, where a longer "Solving…" wait is fine.)
   if (gs.street !== "river") return null;
-  if (gs.toCall(S.heroSeat) > 0.0001) return null; // solver models hero leading
   const eff = Math.min(gs.stacks[S.heroSeat]!, gs.stacks[activeVillains()[0]!]!);
-  return `${gs.street}|${gs.board.join(",")}|${S.heroCards[0]},${S.heroCards[1]}|p${Math.round(gs.pot)}|s${Math.round(eff)}`;
+  // `|c<toCall>` distinguishes the hero-leads (0) and hero-faces-a-bet solves in the cache.
+  const toCall = gs.toCall(S.heroSeat);
+  return `${gs.street}|${gs.board.join(",")}|${S.heroCards[0]},${S.heroCards[1]}|p${Math.round(gs.pot)}|s${Math.round(eff)}|c${Math.round(toCall)}`;
 }
 
 function ensureLiveSolve(key: string): void {
@@ -741,12 +742,14 @@ function runLiveSolve(key: string): void {
   const heroRange = heroRangeEstimate();
   const villainRange = estimateVillainRange(gs, villainSeat, profile);
   const eff = Math.min(gs.stacks[S.heroSeat]!, gs.stacks[villainSeat]!);
+  const toCall = gs.toCall(S.heroSeat); // > 0 → hero faces a bet (fold/call/raise); 0 → hero leads
   try {
     const res = solveSubgame({
       heroRange,
       villainRange: villainRange.size > 0 ? villainRange : topSlice(allCombos(), 0.4).filter([...gs.board]),
       board: gs.board,
-      pot: gs.pot,
+      pot: gs.pot - toCall,  // the pot BEFORE villain's bet; facingBet seeds the bet on top
+      facingBet: toCall,
       stack: Math.max(eff, gs.pot * 0.5),
       iterations: 15000, // river only — converges well, ~0.4s
       rng: mulberry32(0x9e3a),
@@ -767,21 +770,22 @@ function runLiveSolve(key: string): void {
 function solverToRec(res: RiverResult, base: Recommendation | null): Recommendation {
   const mix = res.strategy.filter((a) => a.freq > 0.005);
   const top = [...mix].sort((a, b) => b.freq - a.freq)[0] ?? res.strategy[0]!;
+  const sized = (act: string) => act === "bet" || act === "raise"; // carries an amount
   const summary = mix
-    .map((a) => `${a.action === "bet" ? `bet ${chipsBet(roundBet(a.amount))}` : a.action} ${(a.freq * 100).toFixed(0)}%`)
+    .map((a) => `${sized(a.action) ? `${a.action} ${chipsBet(roundBet(a.amount))}` : a.action} ${(a.freq * 100).toFixed(0)}%`)
     .join(" · ");
   return {
     action: top.action,
-    amount: top.action === "bet" ? roundBet(top.amount) : 0,
+    amount: sized(top.action) ? roundBet(top.amount) : 0,
     equity: base?.equity ?? 0,
     realizedEquity: base?.realizedEquity,
-    potOdds: 0,
+    potOdds: base?.potOdds ?? 0, // facing a bet → carry the heuristic's pot odds for display
     handLabel: base?.handLabel,
     inPosition: base?.inPosition,
     ev: { fold: 0, call: 0, raise: 0 },
     reasoning: `Solved (CFR): ${summary}`,
     source: "solver",
-    mix: mix.map((a) => ({ action: a.action as ActionType, amount: roundBet(a.amount), freq: a.freq })),
+    mix: mix.map((a) => ({ action: a.action as ActionType, amount: sized(a.action) ? roundBet(a.amount) : 0, freq: a.freq })),
   };
 }
 

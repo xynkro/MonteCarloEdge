@@ -72,4 +72,40 @@ describe("river solver (CFR subgame)", () => {
     expect(betFreq).toBeGreaterThan(0.4);
     expect(res.heroEv).toBeGreaterThan(0);
   });
+
+  it("FACING a bet: the menu is fold/call/raise and resolves NON-uniform (the nuts continues)", () => {
+    const b = board("AhKhQhJh2c");
+    const nuts = combo("ThTd"); // royal flush
+    const res = solveRiver({
+      heroRange: Range.parse("AA,KK,QQ,ThTd,7c8c"),
+      villainRange: Range.parse("AA,KK,QQ,AKo"),
+      board: b, pot: 100, stack: 200, facingBet: 75, // villain bet 75 into 100
+      iterations: 15000, rng: mulberry32(7),
+    }, nuts);
+    const acts = res.strategy.map(a => a.action);
+    expect(acts).toContain("fold");
+    expect(acts).toContain("call");
+    expect(acts.some(a => a === "raise")).toBe(true);
+    // The nuts continues (call+raise) almost always; folds ~never. If the root key didn't
+    // resolve, average() would return a uniform ~1/n mix → continueFreq ≈ 0.66, not >0.9.
+    const continueFreq = res.strategy.filter(a => a.action !== "fold").reduce((s, a) => s + a.freq, 0);
+    expect(continueFreq).toBeGreaterThan(0.9);
+  });
+
+  it("FACING a bet: the solve resolves to a sharp (non-uniform) strategy", () => {
+    // Hero's range here is nut-heavy, so the air actually bluff-RAISES (credibly repping the nuts) —
+    // the point of this test is that the facing root RESOLVED: a dominant line, not the ~1/n uniform
+    // mix that average() falls back to when the root key fails to match the traversal.
+    const b = board("AhKhQc7d2s");
+    const air = combo("3c4d");
+    const res = solveRiver({
+      heroRange: Range.parse("AA,KK,QQ,AK,3c4d"),
+      villainRange: Range.parse("AA,KK,QQ,AK,AQ"),
+      board: b, pot: 80, stack: 160, facingBet: 60,
+      iterations: 12000, rng: mulberry32(8),
+    }, air);
+    const maxFreq = Math.max(...res.strategy.map(a => a.freq));
+    expect(maxFreq).toBeGreaterThan(0.6); // a clear dominant action, not a uniform ~0.33 each
+    expect(res.strategy.map(a => a.action)).toContain("fold"); // the facing menu exists
+  });
 });

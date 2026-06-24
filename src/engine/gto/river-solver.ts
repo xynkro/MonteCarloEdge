@@ -20,6 +20,10 @@ export interface RiverSpot {
   maxRaises?: number;
   iterations?: number;
   rng?: Rng;
+  // When > 0, hero is FACING a bet of this many chips at the root (villain has already
+  // bet), so hero's root menu is fold / call / raise instead of check / bet. `pot` must be
+  // the pot BEFORE this bet. 0 / undefined = hero leads (the original behaviour).
+  facingBet?: number;
   // Force equity-leaf mode (single betting street, then award by all-in equity
   // over the runout). Default: flop only. Set true to make turn solves fast
   // enough for live use (approximates a check-down after this street).
@@ -316,8 +320,12 @@ export function solveSubgame(spot: RiverSpot, heroHand: Combo): RiverResult {
     return { strategy: [], heroEv: 0, iterations: 0 };
   }
 
+  // Facing a bet: seed villain's bet into the pot so hero's root menu is fold/call/raise.
+  // The bet counts as the first raise (so maxRaises caps re-raises consistently). The root
+  // info-set key is combo|board|hist("") regardless, so it still matches `rootKey` below.
+  const facing = spot.facingBet && spot.facingBet > 0.0001 ? round1(spot.facingBet) : 0;
   const root = (hero: Combo, vill: Combo): St => ({
-    toAct: 0, inv: [0, 0], raises: 0, checks: 0, done: null, folder: -1,
+    toAct: 0, inv: [0, facing], raises: facing ? 1 : 0, checks: 0, done: null, folder: -1,
     hist: "", board: [...spot.board], hero, vill,
   });
 
@@ -338,6 +346,9 @@ export function solveSubgame(spot: RiverSpot, heroHand: Combo): RiverResult {
   const strategy: ActionFreq[] = acts.map((a, i) => {
     const freq = avg[i]!;
     if (a === "x") return { action: "check" as const, amount: 0, freq };
+    if (a === "f") return { action: "fold" as const, amount: 0, freq };
+    if (a === "c") return { action: "call" as const, amount: 0, freq };
+    if (a[0] === "r") return { action: "raise" as const, amount: parseFloat(a.slice(1)), freq };
     return { action: "bet" as const, amount: parseFloat(a.slice(1)), freq };
   });
 
