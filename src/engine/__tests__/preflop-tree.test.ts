@@ -57,11 +57,34 @@ describe("preflop tree — 4-bet / 5-bet / squeeze", () => {
     expect(rec.reasoning.toLowerCase()).toContain("squeeze");
   });
 
-  it("source is the preflop chart for these spots (not solver)", () => {
-    const gs = sixMax([parseCard("Ac"), parseCard("Ad")], 2);
+  it("opener facing a non-BB 3-bet is the percentile heuristic (not solver, not mislabeled chart)", () => {
+    const gs = sixMax([parseCard("Ac"), parseCard("Ad")], 2); // hero CO opens
     gs.applyAction({ seat: 2, type: "raise", amount: 5 });
-    gs.applyAction({ seat: 3, type: "raise", amount: 16 });
+    gs.applyAction({ seat: 3, type: "raise", amount: 16 }); // BTN (not BB) 3-bets → off-chart
     const rec = recommend(gs);
+    expect(rec.source).toBe("heuristic");
+  });
+
+  it("BB 3-bets a premium vs an open, sourced from the chart", () => {
+    const gs = sixMax([parseCard("Ac"), parseCard("Ad")], 5); // hero is BB
+    gs.applyAction({ seat: 2, type: "raise", amount: 5 }); // CO opens
+    gs.applyAction({ seat: 3, type: "fold", amount: 0 }); // BTN folds
+    gs.applyAction({ seat: 4, type: "fold", amount: 0 }); // SB folds
+    const rec = recommend(gs); // action to BB (hero)
+    expect(rec.action).toBe("raise");
     expect(rec.source).toBe("chart");
+    expect(rec.reasoning.toLowerCase()).toContain("3-bet");
+  });
+
+  it("opener facing a BB 3-bet 4-bets a premium, sourced from the chart", () => {
+    const gs = sixMax([parseCard("Ac"), parseCard("Ad")], 2); // hero CO opens
+    gs.applyAction({ seat: 2, type: "raise", amount: 5 });
+    gs.applyAction({ seat: 3, type: "fold", amount: 0 });
+    gs.applyAction({ seat: 4, type: "fold", amount: 0 });
+    gs.applyAction({ seat: 5, type: "raise", amount: 16 }); // BB 3-bets → hero faces a BB 3-bet
+    const rec = recommend(gs);
+    expect(rec.action).toBe("raise");
+    expect(rec.source).toBe("chart");
+    expect(rec.reasoning.toLowerCase()).toContain("4-bet");
   });
 });

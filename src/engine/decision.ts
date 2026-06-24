@@ -1,7 +1,7 @@
 import { cardToString, rankOf, suitOf } from "./cards.js";
 import { type Rng, mulberry32 } from "./rng.js";
 import { monteCarloEquityVsRange, monteCarloEquityMultiway } from "./equity.js";
-import { getRfiRange, getBbDefenseRange } from "./charts/index.js";
+import { getRfiRange, getBbDefenseRange, getThreeBetRange, getFourBetRange, getCallVs3BetRange } from "./charts/index.js";
 import { comboScore, sortedCombos } from "./hand-strength.js";
 import { analyzeBoard, heroConnection, drawOuts, drawHitProb } from "./board-texture.js";
 import { describeHand } from "./made-hand.js";
@@ -226,37 +226,64 @@ function reRaiseDecision(
   const odds = state.potOdds(seat);
   const aggr = style.aggression, loose = style.looseness;
 
+  // Charted blind battle: we opened and the BIG BLIND 3-bet us (a single 3-bet, no
+  // significant ICM). Use the authored POLAR 4-bet / call / fold range rather than the
+  // linear-percentile proxy — a percentile cut can't represent value + low-equity blocker
+  // bluffs. The getters return null for spots the chart doesn't cover, so everything else
+  // (4-bet+ chains, non-BB 3-bettors) falls cleanly through to the heuristic below.
+  if (raiseCount === 2 && heroRaisedPre && bf <= 1.03) {
+    const preR = state.actions.filter((a) => a.street === "preflop" && (a.type === "raise" || a.type === "bet"));
+    const threeBettor = preR[1]?.seat;
+    if (threeBettor != null && state.positions[threeBettor] === "BB") {
+      const heroPos = state.positions[seat]!;
+      const fb = getFourBetRange(heroPos), cl = getCallVs3BetRange(heroPos);
+      if (fb && cl) {
+        if (fb.has([hero[0], hero[1]])) {
+          return { action: "raise", amount: Math.min(fourBetSize(state.currentBet), heroTotal), equity: 0.58, potOdds: odds, source: "chart",
+            ev: { fold: 0, call: 0.5, raise: 1.8 }, reasoning: `4-bet — ${label} in the ${heroPos} 4-bet range vs a BB 3-bet` };
+        }
+        if (cl.has([hero[0], hero[1]])) {
+          return { action: "call", amount: 0, equity: 0.45, potOdds: odds, source: "chart",
+            ev: { fold: 0, call: 0.3, raise: 0 }, reasoning: `Call the 3-bet — ${label} in the ${heroPos} flat range vs a BB 3-bet` };
+        }
+        return { action: "fold", amount: 0, equity: 0, potOdds: odds, source: "chart",
+          ev: { fold: 0, call: -0.4, raise: -1 }, reasoning: `Fold — ${label} outside the ${heroPos} range vs a BB 3-bet` };
+      }
+    }
+  }
+
   if (raiseCount >= 3) {
     // Facing a 4-bet: 5-bet jam premiums; flat QQ/AKo only when deep; else fold.
     if (p < (0.013 / bf) * aggr) {
-      return { action: "raise", amount: heroTotal, equity: 0.6, potOdds: odds,
+      return { action: "raise", amount: heroTotal, equity: 0.6, potOdds: odds, source: "heuristic",
         ev: { fold: 0, call: 0.5, raise: 2 }, reasoning: `5-bet jam — ${label}, premium vs 4-bet` };
     }
     if (p < 0.022 / bf && heroTotal / state.bb > 40) {
-      return { action: "call", amount: 0, equity: 0.45, potOdds: odds,
+      return { action: "call", amount: 0, equity: 0.45, potOdds: odds, source: "heuristic",
         ev: { fold: 0, call: 0.2, raise: 0 }, reasoning: `Call the 4-bet — ${label} (deep)` };
     }
-    return { action: "fold", amount: 0, equity: 0, potOdds: odds,
+    return { action: "fold", amount: 0, equity: 0, potOdds: odds, source: "heuristic",
       ev: { fold: 0, call: -1, raise: -1 }, reasoning: `Fold — ${label} vs 4-bet` };
   }
 
-  // Facing a 3-bet. (Blocker 4-bet bluffs are dropped near a bubble — bf>1.)
+  // Facing a 3-bet, off-chart (non-BB 3-bettor, or near a bubble): polar percentile
+  // proxy. (Blocker 4-bet bluffs are dropped near a bubble — bf>1.)
   const fourBetCut = (0.026 / bf) * aggr;
   const blockerBluff = isWheelAceSuited(hero) && heroRaisedPre && ip && bf <= 1.03;
   if (p < fourBetCut || blockerBluff) {
     const amt = Math.min(fourBetSize(state.currentBet), heroTotal);
     const kind = p < fourBetCut ? "value" : "blocker bluff";
-    return { action: "raise", amount: amt, equity: 0.58, potOdds: odds,
+    return { action: "raise", amount: amt, equity: 0.58, potOdds: odds, source: "heuristic",
       ev: { fold: 0, call: 0.5, raise: 1.8 }, reasoning: `4-bet — ${label} (${kind})` };
   }
   const flatCut = (ip ? 0.075 : 0.045) * loose / bf; // JJ-99/AQ/suited broadways IP, tighter OOP
   // Deep IP, also set-mine / draw to the nuts vs a 3-bet (implied odds).
   const deepSpec = ip && heroTotal / state.bb > 40 && speculativeContinue(hero, state, seat, loose, 1.6);
   if (p < flatCut || deepSpec) {
-    return { action: "call", amount: 0, equity: 0.45, potOdds: odds,
+    return { action: "call", amount: 0, equity: 0.45, potOdds: odds, source: "heuristic",
       ev: { fold: 0, call: 0.3, raise: 0 }, reasoning: `Call the 3-bet — ${label}${deepSpec && p >= flatCut ? " (implied odds)" : ""}` };
   }
-  return { action: "fold", amount: 0, equity: 0, potOdds: odds,
+  return { action: "fold", amount: 0, equity: 0, potOdds: odds, source: "heuristic",
     ev: { fold: 0, call: -0.4, raise: -1 }, reasoning: `Fold — ${label} vs 3-bet` };
 }
 
@@ -405,37 +432,46 @@ function preflopRecommend(
       try {
         const defRange = getBbDefenseRange(state.tableSize, openerPos);
         const inDef = defRange.has([hero[0], hero[1]]);
+        // The authored POLAR BB 3-bet range (value + suited bluffs) when covered & no big
+        // ICM; checked independently of the defense gate so a 3-bet bluff that isn't a flat
+        // still 3-bets. Falls back to the top-of-defense proxy when no chart is available.
+        const tbRange = bf <= 1.03 ? getThreeBetRange(openerPos) : null;
         // Short-handed / loose styles defend wider than the 6-max chart; the
         // widened hands flat (the 3-bet branch stays reserved for top-of-chart).
         const widen = style.looseness * shortHandedMult(state.tableSize);
         const defWidened = !inDef && widen > 1.0
           && comboPercentile([hero[0], hero[1]]) <= Math.min(0.92, (defRange.percentage / 100) * widen);
+        const amt3bet = () => Math.min(threeBetSize(state.currentBet, false), state.stacks[seat]! + state.streetInvested[seat]!);
+        if (tbRange && tbRange.has([hero[0], hero[1]])) {
+          return {
+            action: "raise", amount: amt3bet(), equity: 0.58, potOdds: state.potOdds(seat), source: "chart",
+            ev: { fold: 0, call: 0.5, raise: 1.5 },
+            reasoning: `3-bet — ${label} in the BB 3-bet range vs ${openerPos}`,
+          };
+        }
         if (inDef) {
-          const sorted = sortedCombos(defRange);
-          const idx = sorted.findIndex(
-            (c) =>
-              (c[0] === hero[0] && c[1] === hero[1]) ||
-              (c[0] === hero[1] && c[1] === hero[0]),
-          );
-          if (idx >= 0 && idx < sorted.length * 0.2) {
-            const amt = Math.min(
-              threeBetSize(state.currentBet, false),
-              state.stacks[seat]! + state.streetInvested[seat]!,
+          // No chart → top-of-defense 3-bets as a proxy; otherwise flat the defend range.
+          if (!tbRange) {
+            const sorted = sortedCombos(defRange);
+            const idx = sorted.findIndex(
+              (c) =>
+                (c[0] === hero[0] && c[1] === hero[1]) ||
+                (c[0] === hero[1] && c[1] === hero[0]),
             );
-            return {
-              action: "raise",
-              amount: amt,
-              equity: 0.58,
-              potOdds: state.potOdds(seat),
-              ev: { fold: 0, call: 0.5, raise: 1.5 },
-              reasoning: `3-bet — ${label} top of BB defense vs ${openerPos}`,
-            };
+            if (idx >= 0 && idx < sorted.length * 0.2) {
+              return {
+                action: "raise", amount: amt3bet(), equity: 0.58, potOdds: state.potOdds(seat),
+                ev: { fold: 0, call: 0.5, raise: 1.5 },
+                reasoning: `3-bet — ${label} top of BB defense vs ${openerPos}`,
+              };
+            }
           }
           return {
             action: "call",
             amount: 0,
             equity: 0.45,
             potOdds: state.potOdds(seat),
+            source: "chart",
             ev: { fold: 0, call: 0.3, raise: 0 },
             reasoning: `Call — ${label} in BB defense vs ${openerPos}`,
           };
