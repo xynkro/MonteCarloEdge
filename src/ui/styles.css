@@ -1699,6 +1699,40 @@ body::after {
 .ch-readout { font-size: 13px; color: var(--text); }
 .ch-readout strong { color: var(--gold-2); }
 .ch-note { font-size: 11px; color: var(--faint); margin-top: 11px; line-height: 1.45; }
+
+/* ── Study grid (2-up) + Drills ── */
+.mc-study-grid.two { grid-template-columns: 1fr 1fr; }
+.mc-mode.drills { --accent: #fb923c; }
+.drills-scr .dr-stat { display: flex; justify-content: space-between; font-size: 13px; color: var(--muted); margin: 4px 2px 14px; }
+.dr-streak { color: var(--gold-2); font-weight: 800; }
+.dr-prompt { font-size: 16px; color: var(--text); text-align: center; margin: 10px 0 4px; line-height: 1.4; }
+.dr-prompt strong { color: var(--gold-2); }
+.dr-sub { font-size: 13px; color: var(--muted); text-align: center; margin-bottom: 12px; }
+.dr-hand { display: flex; justify-content: center; gap: 10px; margin: 22px 0 26px; }
+.dr-card { width: 58px; height: 82px; border-radius: 9px; background: #fff; color: #1a1a1a; display: flex; align-items: center; justify-content: center; gap: 1px; font: 800 27px var(--display); box-shadow: 0 4px 14px rgba(0,0,0,.4); }
+.dr-card.red { color: #d8443c; }
+.dr-card i { font-style: normal; font-size: 23px; }
+.dr-actions { display: flex; gap: 12px; }
+.dr-btn { flex: 1; padding: 18px; border-radius: 14px; border: 1.5px solid var(--glass-edge); background: var(--glass); color: var(--text); font: 800 17px var(--display); cursor: pointer; transition: transform .1s; }
+.dr-btn:active { transform: scale(.97); }
+.dr-btn.raise { background: color-mix(in srgb, var(--emerald) 22%, transparent); border-color: var(--emerald); color: var(--emerald); }
+.dr-btn.fold { background: color-mix(in srgb, #d34a42 18%, transparent); border-color: #d34a42; color: #e98980; }
+.dr-verdict { text-align: center; font: 800 18px var(--display); margin: 6px 0; }
+.dr-verdict.ok { color: var(--emerald); }
+.dr-verdict.no { color: #e98980; }
+.dr-note { text-align: center; font-size: 13px; color: var(--muted); margin-bottom: 16px; line-height: 1.45; }
+.dr-note strong { color: var(--text); }
+.dr-optrow { display: flex; gap: 10px; margin: 4px 0 14px; }
+.dr-opt { flex: 1; padding: 16px 6px; border-radius: 13px; border: 1.5px solid var(--glass-edge); background: var(--glass); color: var(--text); font: 800 18px var(--display); text-align: center; cursor: pointer; }
+.dr-opt.right { background: color-mix(in srgb, var(--emerald) 24%, transparent); border-color: var(--emerald); color: var(--emerald); }
+.dr-opt.wrong { background: color-mix(in srgb, #d34a42 20%, transparent); border-color: #d34a42; color: #e98980; }
+.dr-hubgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 6px; }
+.dr-tile { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; padding: 18px 16px; border-radius: 16px; background: linear-gradient(135deg, var(--glass), rgba(8,12,20,.62)); border: 1px solid var(--glass-edge); cursor: pointer; text-align: left; transition: transform .1s; }
+.dr-tile:active { transform: scale(.98); }
+.dr-ic { color: #fb923c; display: block; }
+.dr-ic svg { width: 26px; height: 26px; }
+.dr-tname { font: 800 16px var(--display); color: var(--text); }
+.dr-tsub { font-size: 12px; color: var(--muted); }
 .mc-stats svg { width: 15px; height: 15px; vertical-align: -2.5px; margin-right: 3px; color: var(--gold-2); }
 .mc-stats { padding: 10px; border-radius: 14px; cursor: pointer; font-weight: 700; font-size: 13px; color: var(--muted);
   background: var(--glass); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); border: 1px solid var(--glass-edge);

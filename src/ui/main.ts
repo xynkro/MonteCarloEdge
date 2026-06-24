@@ -79,7 +79,7 @@ interface UndoSnapshot {
 }
 
 interface AppState {
-  screen: "home" | "landing" | "setup" | "game" | "stats" | "leaks" | "charts" | "mp-setup" | "mp-table" | "mp-lobby" | "mp-net" | "profile" | "settings" | "legal" | "explainer" | "store" | "signin" | "inbox" | "friends" | "dm" | "compose" | "admin" | "onboard" | "history";
+  screen: "home" | "landing" | "setup" | "game" | "stats" | "leaks" | "charts" | "drills" | "mp-setup" | "mp-table" | "mp-lobby" | "mp-net" | "profile" | "settings" | "legal" | "explainer" | "store" | "signin" | "inbox" | "friends" | "dm" | "compose" | "admin" | "onboard" | "history";
   // Player profile (local-first; syncs name/avatar to Firestore when signed in).
   profile: { nickname: string; avatar: string; chips: number };
   // Multiplayer / benchmark (Phase 0 hot-seat + Phase 1 online lobby).
@@ -498,6 +498,7 @@ function render(): void {
   else if (S.screen === "stats") renderStats();
   else if (S.screen === "leaks") renderLeaks();
   else if (S.screen === "charts") renderCharts();
+  else if (S.screen === "drills") renderDrills();
   else if (S.screen === "mp-setup") renderMpSetup();
   else if (S.screen === "mp-lobby") renderMpLobby();
   else if (S.screen === "mp-table") renderMpTable();
@@ -3610,6 +3611,103 @@ function renderCharts(): void {
   app.querySelectorAll("[data-chpos]").forEach((b) => onEl(b, "click", () => { _chartCfg.pos = (b as HTMLElement).dataset.chpos!; render(); }));
 }
 
+// ── Drills: bite-size scored reps. "Range Memory" reuses the chart data (is this hand a
+// GTO open?); "Pot Odds" is a self-contained break-even-equity quiz. Streak + accuracy
+// build within the session. One render path — a sub-mode of S.screen === "drills". ──
+let _drillMode: "hub" | "rangememory" | "potodds" = "hub";
+type RmQ = { pos: string; combo: Combo; label: string; correct: "raise" | "fold" };
+let _rmQ: RmQ | null = null;
+let _rmAns: { pick: "raise" | "fold"; ok: boolean } | null = null;
+let _rmStreak = 0, _rmBest = 0, _rmTotal = 0, _rmRight = 0;
+type PoQ = { pot: number; bet: number; need: number; options: number[] };
+let _poQ: PoQ | null = null;
+let _poAns: { pick: number; ok: boolean } | null = null;
+let _poStreak = 0, _poBest = 0, _poTotal = 0, _poRight = 0;
+const RM_OPENERS = ["UTG", "MP", "CO", "BTN", "SB"];
+
+function rmNext(): void {
+  const pos = RM_OPENERS[Math.floor(Math.random() * RM_OPENERS.length)]!;
+  const cell = CHART_CELLS[Math.floor(Math.random() * CHART_CELLS.length)]!;
+  _rmQ = { pos, combo: cell.combo, label: cell.label, correct: getRfiRange(6, pos).has(cell.combo) ? "raise" : "fold" };
+  _rmAns = null;
+}
+function rmAnswer(pick: "raise" | "fold"): void {
+  if (!_rmQ || _rmAns) return;
+  const ok = pick === _rmQ.correct;
+  _rmAns = { pick, ok };
+  _rmTotal++; if (ok) { _rmRight++; _rmStreak++; _rmBest = Math.max(_rmBest, _rmStreak); } else _rmStreak = 0;
+  render();
+}
+function poNext(): void {
+  const pot = [200, 300, 400, 500, 600, 800, 1000, 1200][Math.floor(Math.random() * 8)]!;
+  const frac = [0.33, 0.5, 0.66, 0.75, 1][Math.floor(Math.random() * 5)]!;
+  const bet = Math.max(50, Math.round(pot * frac / 50) * 50);
+  const need = Math.round(bet / (pot + 2 * bet) * 100);
+  const opts = new Set<number>([need]);
+  for (const d of [5, -5, 10, -10, 15, -8]) { if (opts.size >= 3) break; const v = need + d; if (v > 2 && v < 60) opts.add(v); }
+  _poQ = { pot, bet, need, options: [...opts].sort((a, b) => a - b) };
+  _poAns = null;
+}
+function poAnswer(pick: number): void {
+  if (!_poQ || _poAns) return;
+  const ok = pick === _poQ.need;
+  _poAns = { pick, ok };
+  _poTotal++; if (ok) { _poRight++; _poStreak++; _poBest = Math.max(_poBest, _poStreak); } else _poStreak = 0;
+  render();
+}
+function drillCard(c: Card): string {
+  const red = SUIT_RED[suitOf(c)];
+  return `<span class="dr-card${red ? " red" : ""}">${RANK_CHARS[rankOf(c)]}<i>${SUITS[suitOf(c)]}</i></span>`;
+}
+
+function renderDrills(): void {
+  cancelVillainTimer();
+  const stat = (streak: number, right: number, total: number) =>
+    `<div class="dr-stat"><span class="dr-streak">🔥 ${streak}</span><span>${right}/${total}${total ? ` · ${Math.round(right / total * 100)}%` : ""}</span></div>`;
+  let body = "", title = "Drills", backToHub = false;
+
+  if (_drillMode === "rangememory") {
+    title = "Range Memory"; backToHub = true;
+    if (!_rmQ) rmNext();
+    const q = _rmQ!, a = _rmAns;
+    body = `${stat(_rmStreak, _rmRight, _rmTotal)}
+      <div class="dr-prompt">First to act from <strong>${q.pos}</strong> — open or fold?</div>
+      <div class="dr-hand">${(rankOf(q.combo[0]) >= rankOf(q.combo[1]) ? [q.combo[0], q.combo[1]] : [q.combo[1], q.combo[0]]).map(drillCard).join("")}</div>
+      ${a ? `<div class="dr-verdict ${a.ok ? "ok" : "no"}">${a.ok ? "✓ Correct" : `✗ It's a ${q.correct === "raise" ? "raise" : "fold"}`}</div>
+          <div class="dr-note"><strong>${q.label}</strong> is a <strong>${q.correct === "raise" ? "raise" : "fold"}</strong> from ${q.pos}.</div>
+          <button class="start-btn dr-next" id="dr-next">Next hand →</button>`
+        : `<div class="dr-actions"><button class="dr-btn fold" data-rm="fold">Fold</button><button class="dr-btn raise" data-rm="raise">Raise</button></div>`}`;
+  } else if (_drillMode === "potodds") {
+    title = "Pot Odds"; backToHub = true;
+    if (!_poQ) poNext();
+    const q = _poQ!, a = _poAns;
+    body = `${stat(_poStreak, _poRight, _poTotal)}
+      <div class="dr-prompt">Pot is <strong><i class=ic-coin></i> ${q.pot.toLocaleString()}</strong>. Villain bets <strong><i class=ic-coin></i> ${q.bet.toLocaleString()}</strong>.</div>
+      <div class="dr-sub">What equity do you need to call?</div>
+      ${a ? `<div class="dr-optrow">${q.options.map((o) => `<div class="dr-opt ${o === q.need ? "right" : o === a.pick ? "wrong" : ""}">${o}%</div>`).join("")}</div>
+          <div class="dr-verdict ${a.ok ? "ok" : "no"}">${a.ok ? "✓ Correct" : `✗ You need ${q.need}%`}</div>
+          <div class="dr-note">Call ${q.bet.toLocaleString()} to win ${(q.pot + q.bet).toLocaleString()} → ${q.bet.toLocaleString()} / ${(q.pot + 2 * q.bet).toLocaleString()} = <strong>${q.need}%</strong>.</div>
+          <button class="start-btn dr-next" id="dr-next">Next →</button>`
+        : `<div class="dr-optrow">${q.options.map((o) => `<button class="dr-opt" data-po="${o}">${o}%</button>`).join("")}</div>`}`;
+  } else {
+    body = `<div class="dr-hubgrid">
+      <button class="dr-tile" data-drill="rangememory"><span class="dr-ic">${ICON_TARGET}</span><span class="dr-tname">Range Memory</span><span class="dr-tsub">Is this hand a GTO open?</span></button>
+      <button class="dr-tile" data-drill="potodds"><span class="dr-ic">${_svg("<circle cx='7' cy='7' r='2.4'/><circle cx='17' cy='17' r='2.4'/><path d='M5 19 19 5'/>")}</span><span class="dr-tname">Pot Odds</span><span class="dr-tsub">What equity do you need?</span></button>
+    </div>
+    <div class="ch-note">More drills coming — preflop push/fold, hand reading, board texture.</div>`;
+  }
+
+  app.innerHTML = `<div class="setup doc charts drills-scr">
+      <div class="doc-top"><button class="hdr-btn" id="dr-back">← Back</button><h1>${esc(title)}</h1><span style="width:54px"></span></div>
+      ${body}
+    </div>`;
+  onId("dr-back", "click", () => { if (backToHub) { _drillMode = "hub"; render(); } else { S.screen = "home"; render(); } });
+  app.querySelectorAll("[data-drill]").forEach((b) => onEl(b, "click", () => { _drillMode = (b as HTMLElement).dataset.drill as "rangememory" | "potodds"; if (_drillMode === "rangememory") { _rmQ = null; } else { _poQ = null; } render(); }));
+  app.querySelectorAll("[data-rm]").forEach((b) => onEl(b, "click", () => rmAnswer((b as HTMLElement).dataset.rm as "raise" | "fold")));
+  app.querySelectorAll("[data-po]").forEach((b) => onEl(b, "click", () => poAnswer(parseInt((b as HTMLElement).dataset.po!, 10))));
+  onId("dr-next", "click", () => { if (_drillMode === "rangememory") rmNext(); else poNext(); render(); });
+}
+
 // ── Leak Report: your play vs GTO, aggregated from the persisted decision log ──
 function renderLeaks(): void {
   const all = loadDecisions();
@@ -6312,8 +6410,9 @@ function renderHome(): void {
 
       <div class="mc-study">
         <div class="mc-section-label">Sharpen your game</div>
-        <div class="mc-study-grid">
-          <button class="mc-mode charts" id="home-charts" style="--d:.3s"><span class="mc-mi">${_svg("<rect x='3.5' y='3.5' width='7' height='7' rx='1.6'/><rect x='13.5' y='3.5' width='7' height='7' rx='1.6'/><rect x='3.5' y='13.5' width='7' height='7' rx='1.6'/><rect x='13.5' y='13.5' width='7' height='7' rx='1.6'/>")}</span><span class="mc-mtext"><span class="mc-mt">GTO Range Charts</span></span></button>
+        <div class="mc-study-grid two">
+          <button class="mc-mode charts" id="home-charts" style="--d:.3s"><span class="mc-mi">${_svg("<rect x='3.5' y='3.5' width='7' height='7' rx='1.6'/><rect x='13.5' y='3.5' width='7' height='7' rx='1.6'/><rect x='3.5' y='13.5' width='7' height='7' rx='1.6'/><rect x='13.5' y='13.5' width='7' height='7' rx='1.6'/>")}</span><span class="mc-mtext"><span class="mc-mt">Charts</span></span></button>
+          <button class="mc-mode drills" id="home-drills" style="--d:.36s"><span class="mc-mi">${ICON_TARGET}</span><span class="mc-mtext"><span class="mc-mt">Drills</span></span></button>
         </div>
       </div>
 
@@ -6355,6 +6454,7 @@ function renderHome(): void {
   });
   onId("home-stats", "click", () => { S.screen = "stats"; render(); });
   onId("home-charts", "click", () => { S.screen = "charts"; render(); });
+  onId("home-drills", "click", () => { _drillMode = "hub"; S.screen = "drills"; render(); });
   // iOS WebKit won't autoplay a muted inline <video> inserted via innerHTML on the strength
   // of the `autoplay` attribute alone (esp. in a standalone PWA) — nudge it: set muted as a
   // PROPERTY + call play(); retry once on the first tap if it was blocked. (Low Power Mode
