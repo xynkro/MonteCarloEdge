@@ -5417,7 +5417,7 @@ async function startEconomySubs(uid: string): Promise<void> {
   // No-op on web / placeholder keys (the bridge guards internally).
   void IAP.rcConfigure(uid);
   try {
-    _walletUnsub = await FB.subscribeWallet(uid, (w) => { S.wallet = { play: w.play, premium: w.premium }; S.edgePass = w.edgePass; S.lastWeekly = w.lastWeekly; S.weeklyStreak = w.weeklyStreak; S.collectibles = w.collectibles; _walletLoaded = true; renderIfEcon(); renderMpSetupLive(); maybeShowWeekly(); });
+    _walletUnsub = await FB.subscribeWallet(uid, (w) => { S.wallet = { play: w.play, premium: w.premium }; S.edgePass = w.edgePass; S.lastWeekly = w.lastWeekly; S.weeklyStreak = w.weeklyStreak; S.collectibles = w.collectibles; _walletLoaded = true; try { localStorage.setItem("mce-bal", JSON.stringify({ play: w.play, premium: w.premium })); } catch { /* */ } renderIfEcon(); renderMpSetupLive(); maybeShowWeekly(); });
     _inboxUnsub = await FB.subscribeInbox(uid, (msgs) => { S.inbox = msgs; renderIfEcon(); });
     _onlineUnsub = await FB.subscribeOnline((list) => { S.mp.online = list.filter((p) => p.uid !== uid); renderIfEcon(); });
     _friendsUnsub = await FB.subscribeFriends(uid, (fs) => { S.mp.friends = fs; renderIfEcon(); });
@@ -6229,11 +6229,26 @@ function renderLanding(): void {
   onId("lp-skip", "click", () => { markIntroSeen(); S.screen = "home"; render(); });
 }
 
+// "Was/becoming signed in" — a returning user whose async auth will land in a few seconds.
+// We render the logged-in SHELL (profile chip, friends/inbox icons, no sign-in banner) from this
+// so the home layout doesn't JUMP when auth resolves — only the content (real name/chips/badges)
+// fills in. Cleared on sign-out, so genuine logged-out users still get the sign-in layout.
+function authKnown(): boolean {
+  try { return localStorage.getItem("mce-signed-in") === "1" || localStorage.getItem("mce-auth-pending") != null; } catch { return false; }
+}
+function cachedBal(): { play: number; premium: number } | null {
+  try { const r = localStorage.getItem("mce-bal"); return r ? (JSON.parse(r) as { play: number; premium: number }) : null; } catch { return null; }
+}
+
 function renderHome(): void {
   cancelVillainTimer();
   bustRescue(); // never broke at the hub
   const p = S.profile;
   const loggedIn = !!S.mp.auth;
+  const shellIn = loggedIn || authKnown();      // drives LAYOUT (stable across the auth transition)
+  const cb = shellIn && !loggedIn ? cachedBal() : null;
+  const wp = S.wallet.play ?? cb?.play ?? null; // shown balance: live → cached → —
+  const wprem = S.wallet.premium ?? cb?.premium ?? 0;
   // Progress strip: surface the leak report's headline (GTO accuracy + hands trained) right on Home,
   // so the differentiated value loop (train → see your leaks → improve) is visible and pulls returns.
   const _decs = loadDecisions();
@@ -6255,11 +6270,11 @@ function renderHome(): void {
 
       <header class="mc-topbar">
         <button class="mc-profile" id="home-profile">
-          <span class="mc-ring">${avatarChip(p.avatar, loggedIn ? p.nickname : "?", 36)}</span>
-          ${loggedIn ? `<span class="mc-pmeta2"><span class="mc-pname">${esc(S.mp.auth!.name)}</span><span class="mc-bal2"><i class=ic-coin></i> ${fmtBal(S.wallet.play)}${(S.wallet.premium ?? 0) > 0 ? ` · <i class=ic-gem></i> ${fmtBal(S.wallet.premium)}` : ""}</span></span>` : `<span class="mc-pchips-big locked"><i class='ic ic-lock'></i> Sign in</span>`}
+          <span class="mc-ring">${avatarChip(p.avatar, shellIn ? p.nickname : "?", 36)}</span>
+          ${shellIn ? `<span class="mc-pmeta2"><span class="mc-pname">${esc(loggedIn ? S.mp.auth!.name : (p.nickname || "Player"))}</span><span class="mc-bal2"><i class=ic-coin></i> ${fmtBal(wp)}${(wprem ?? 0) > 0 ? ` · <i class=ic-gem></i> ${fmtBal(wprem)}` : ""}</span></span>` : `<span class="mc-pchips-big locked"><i class='ic ic-lock'></i> Sign in</span>`}
         </button>
         <div class="mc-top-right">
-          ${loggedIn ? `<button class="mc-store" id="home-store">＋ Chips</button>` : `<button class="mc-store" id="home-signin2">Sign in</button>`}
+          ${shellIn ? `<button class="mc-store" id="home-store">＋ Chips</button>` : `<button class="mc-store" id="home-signin2">Sign in</button>`}
         </div>
       </header>
 
@@ -6274,7 +6289,7 @@ function renderHome(): void {
         <button class="mc-watch" id="home-watch">▶ Watch the film</button>
       </div>
 
-      ${loggedIn ? "" : `<button class="mc-login-banner" id="home-signin-banner"><i class='ic ic-lock'></i> <strong>Not logged in</strong> — sign in to save your chips &amp; play online. <span>Train is free →</span></button>`}
+      ${shellIn ? "" : `<button class="mc-login-banner" id="home-signin-banner"><i class='ic ic-lock'></i> <strong>Not logged in</strong> — sign in to save your chips &amp; play online. <span>Train is free →</span></button>`}
       ${S.isAdmin && _viewAsPlayer ? `<button class="mc-login-banner preview" id="home-exit-preview"><i class='ic ic-watch'></i> <strong>Player preview</strong> — you're seeing the app as a normal player. <span>Exit →</span></button>` : ""}
 
       <button class="mce-card compact" id="home-mce">
@@ -6303,8 +6318,8 @@ function renderHome(): void {
       </div>
 
       <div class="mc-iconrow">
-        ${loggedIn ? `<button class="mc-util" id="home-friends" aria-label="Friends">${friendReqs ? `<span class="ib-badge">${friendReqs}</span>` : ""}<span class="mu-ic">${ic("friends")}</span><span class="mu-l">Friends</span></button>` : ""}
-        ${loggedIn ? `<button class="mc-util" id="home-inbox" aria-label="Inbox">${unreadCount() ? `<span class="ib-badge">${unreadCount()}</span>` : ""}<span class="mu-ic">${ic("inbox")}</span><span class="mu-l">Inbox</span></button>` : ""}
+        ${shellIn ? `<button class="mc-util" id="home-friends" aria-label="Friends">${friendReqs ? `<span class="ib-badge">${friendReqs}</span>` : ""}<span class="mu-ic">${ic("friends")}</span><span class="mu-l">Friends</span></button>` : ""}
+        ${shellIn ? `<button class="mc-util" id="home-inbox" aria-label="Inbox">${unreadCount() ? `<span class="ib-badge">${unreadCount()}</span>` : ""}<span class="mu-ic">${ic("inbox")}</span><span class="mu-l">Inbox</span></button>` : ""}
         <button class="mc-util" id="home-settings" aria-label="Settings"><span class="mu-ic">${ic("settings")}</span><span class="mu-l">Settings</span></button>
       </div>
 
