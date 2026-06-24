@@ -1,8 +1,8 @@
-import { type Card, rankOf, suitOf, makeCard, NUM_CARDS } from "../engine/cards.js";
-import { type Combo, Range } from "../engine/range.js";
+import { type Card, rankOf, suitOf, makeCard, NUM_CARDS, RANK_CHARS } from "../engine/cards.js";
+import { type Combo, Range, pairCombos, suitedCombos, offsuitCombos, TOTAL_COMBOS } from "../engine/range.js";
 import { mulberry32 } from "../engine/rng.js";
 import { GameState, type ActionType } from "../engine/game-state.js";
-import { getPositions, positionsForButton, getRfiRange, getBbDefenseRange } from "../engine/charts/index.js";
+import { getPositions, positionsForButton, getRfiRange, getBbDefenseRange, getThreeBetRange, getFourBetRange, getCallVs3BetRange } from "../engine/charts/index.js";
 import { estimateVillainRange, credibleRep, repIsPolar, scoreRunout, sizeClass, repsCapped } from "../engine/opponent.js";
 import { shareWin, buildWinCanvas } from "./share-card.js";
 import { solveSubgame, type RiverResult, type ActionFreq } from "../engine/gto/river-solver.js";
@@ -79,7 +79,7 @@ interface UndoSnapshot {
 }
 
 interface AppState {
-  screen: "home" | "landing" | "setup" | "game" | "stats" | "leaks" | "mp-setup" | "mp-table" | "mp-lobby" | "mp-net" | "profile" | "settings" | "legal" | "explainer" | "store" | "signin" | "inbox" | "friends" | "dm" | "compose" | "admin" | "onboard" | "history";
+  screen: "home" | "landing" | "setup" | "game" | "stats" | "leaks" | "charts" | "mp-setup" | "mp-table" | "mp-lobby" | "mp-net" | "profile" | "settings" | "legal" | "explainer" | "store" | "signin" | "inbox" | "friends" | "dm" | "compose" | "admin" | "onboard" | "history";
   // Player profile (local-first; syncs name/avatar to Firestore when signed in).
   profile: { nickname: string; avatar: string; chips: number };
   // Multiplayer / benchmark (Phase 0 hot-seat + Phase 1 online lobby).
@@ -497,6 +497,7 @@ function render(): void {
   else if (S.screen === "setup") renderSetup();
   else if (S.screen === "stats") renderStats();
   else if (S.screen === "leaks") renderLeaks();
+  else if (S.screen === "charts") renderCharts();
   else if (S.screen === "mp-setup") renderMpSetup();
   else if (S.screen === "mp-lobby") renderMpLobby();
   else if (S.screen === "mp-table") renderMpTable();
@@ -3509,6 +3510,106 @@ async function renderStats(): Promise<void> {
   });
 }
 
+// ── GTO Preflop Range Charts: the 13×13 hand matrix, coloured by the action for each
+// hand class in the selected spot. Data comes from src/engine/charts (RFI + BB-defense +
+// the authored 3-bet/4-bet ranges) — this is purely a viewer, no engine maths. ──
+type ChartScenario = "rfi" | "vsopen" | "vs3bet";
+const _chartCfg: { size: number; scenario: ChartScenario; pos: string } = { size: 6, scenario: "rfi", pos: "BTN" };
+
+// The 169 hand classes, precomputed once. Display order is A (idx 0) → 2 (idx 12) on
+// both axes; upper-right triangle = suited, lower-left = offsuit, diagonal = pairs.
+const CHART_CELLS: { dr: number; dc: number; label: string; combo: Combo; w: number }[] = (() => {
+  const out: { dr: number; dc: number; label: string; combo: Combo; w: number }[] = [];
+  for (let dr = 0; dr < 13; dr++) for (let dc = 0; dc < 13; dc++) {
+    const rowRank = 12 - dr, colRank = 12 - dc;
+    const hi = Math.max(rowRank, colRank), lo = Math.min(rowRank, colRank);
+    let combo: Combo, suffix: string, w: number;
+    if (dr === dc) { combo = pairCombos(hi)[0]!; suffix = ""; w = 6; }
+    else if (dr < dc) { combo = suitedCombos(hi, lo)[0]!; suffix = "s"; w = 4; }
+    else { combo = offsuitCombos(hi, lo)[0]!; suffix = "o"; w = 12; }
+    out.push({ dr, dc, label: `${RANK_CHARS[hi]}${RANK_CHARS[lo]}${suffix}`, combo, w });
+  }
+  return out;
+})();
+
+function chartOpeners(size: number): string[] {
+  if (size === 2) return ["BTN"];
+  if (size >= 7) return ["UTG", "MP", "HJ", "CO", "BTN", "SB"];
+  return ["UTG", "MP", "CO", "BTN", "SB"];
+}
+
+type ChartAction = "raise" | "3bet" | "4bet" | "call" | "fold" | "na";
+function chartCellAction(combo: Combo, scen: ChartScenario, size: number, pos: string): ChartAction {
+  try {
+    if (scen === "rfi") return getRfiRange(size, pos).has(combo) ? "raise" : "fold";
+    if (scen === "vsopen") {
+      const tb = getThreeBetRange(pos);
+      if (tb && tb.has(combo)) return "3bet";
+      return getBbDefenseRange(size, pos).has(combo) ? "call" : "fold";
+    }
+    const fb = getFourBetRange(pos), cl = getCallVs3BetRange(pos);
+    if (fb && fb.has(combo)) return "4bet";
+    if (cl && cl.has(combo)) return "call";
+    return getRfiRange(size, pos).has(combo) ? "fold" : "na"; // opened-but-folds vs never-opened
+  } catch { return "na"; }
+}
+
+function chartLegend(items: [ChartAction, string][]): string {
+  return items.map(([k, l]) => `<span class="ch-leg"><i class="ch-sw ck-${k}"></i>${l}</span>`).join("");
+}
+
+function renderCharts(): void {
+  const cfg = _chartCfg;
+  const openers = chartOpeners(cfg.size);
+  if (!openers.includes(cfg.pos)) cfg.pos = openers.includes("BTN") ? "BTN" : openers[0]!;
+  const sizes: [string, string][] = [["6", "6-max"], ["9", "9-max"], ["2", "Heads-up"]];
+  const scens: [string, string][] = [["rfi", "Open"], ["vsopen", "vs Open"], ["vs3bet", "vs 3-Bet"]];
+
+  const counts: Record<ChartAction, number> = { raise: 0, "3bet": 0, "4bet": 0, call: 0, fold: 0, na: 0 };
+  const cellHtml = CHART_CELLS.map((c) => {
+    const act = chartCellAction(c.combo, cfg.scenario, cfg.size, cfg.pos);
+    counts[act] += c.w;
+    return `<div class="ch-cell ck-${act}${c.dr === c.dc ? " diag" : ""}" title="${c.label}"><span>${c.label}</span></div>`;
+  }).join("");
+
+  const pct = (n: number) => `${Math.round(n / TOTAL_COMBOS * 100)}%`;
+  let legend = "", readout = "", caption = "";
+  if (cfg.scenario === "rfi") {
+    legend = chartLegend([["raise", "Raise"], ["fold", "Fold"]]);
+    readout = `Opens <strong>${pct(counts.raise)}</strong>`;
+    caption = `Open-raising range from <strong>${cfg.pos}</strong>.`;
+  } else if (cfg.scenario === "vsopen") {
+    legend = chartLegend([["3bet", "3-bet"], ["call", "Call"], ["fold", "Fold"]]);
+    readout = `3-bet <strong>${pct(counts["3bet"])}</strong> · call <strong>${pct(counts.call)}</strong>`;
+    caption = `Big blind facing a <strong>${cfg.pos}</strong> open.`;
+  } else {
+    legend = chartLegend([["4bet", "4-bet"], ["call", "Call"], ["fold", "Fold"], ["na", "Not opened"]]);
+    readout = `4-bet <strong>${pct(counts["4bet"])}</strong> · call <strong>${pct(counts.call)}</strong>`;
+    caption = `<strong>${cfg.pos}</strong> open, facing a big-blind 3-bet.`;
+  }
+
+  const seg = (items: [string, string][], active: string, attr: string) =>
+    `<div class="ch-seg">${items.map(([v, l]) => `<button class="${v === active ? "sel" : ""}" ${attr}="${v}">${l}</button>`).join("")}</div>`;
+
+  app.innerHTML = `
+    <div class="setup doc charts">
+      <div class="doc-top"><button class="hdr-btn" id="ch-back">← Back</button><h1>GTO Charts</h1><span style="width:54px"></span></div>
+      <div class="ch-controls">
+        ${seg(sizes, String(cfg.size), "data-chsize")}
+        ${seg(scens, cfg.scenario, "data-chscen")}
+        <div class="ch-posrow">${openers.map((p) => `<button class="ch-pos ${p === cfg.pos ? "sel" : ""}" data-chpos="${p}">${p}</button>`).join("")}</div>
+      </div>
+      <div class="ch-caption">${caption}</div>
+      <div class="ch-grid">${cellHtml}</div>
+      <div class="ch-foot"><div class="ch-legend">${legend}</div><div class="ch-readout">${readout}</div></div>
+      <div class="ch-note">GTO-approximate study charts. 3-bet / 4-bet spots cover the big-blind battle for now — more spots coming.</div>
+    </div>`;
+  onId("ch-back", "click", () => { S.screen = "home"; render(); });
+  app.querySelectorAll("[data-chsize]").forEach((b) => onEl(b, "click", () => { _chartCfg.size = parseInt((b as HTMLElement).dataset.chsize!, 10); render(); }));
+  app.querySelectorAll("[data-chscen]").forEach((b) => onEl(b, "click", () => { _chartCfg.scenario = (b as HTMLElement).dataset.chscen as ChartScenario; render(); }));
+  app.querySelectorAll("[data-chpos]").forEach((b) => onEl(b, "click", () => { _chartCfg.pos = (b as HTMLElement).dataset.chpos!; render(); }));
+}
+
 // ── Leak Report: your play vs GTO, aggregated from the persisted decision log ──
 function renderLeaks(): void {
   const all = loadDecisions();
@@ -6194,6 +6295,13 @@ function renderHome(): void {
         <button class="mc-mode profile" id="home-profile2" style="--d:.26s"><span class="mc-mi">${ICON_USER}</span><span class="mc-mtext"><span class="mc-mt">Profile</span></span><span class="mc-arrow">→</span></button>
       </div>
 
+      <div class="mc-study">
+        <div class="mc-section-label">Sharpen your game</div>
+        <div class="mc-study-grid">
+          <button class="mc-mode charts" id="home-charts" style="--d:.3s"><span class="mc-mi">${_svg("<rect x='3.5' y='3.5' width='7' height='7' rx='1.6'/><rect x='13.5' y='3.5' width='7' height='7' rx='1.6'/><rect x='3.5' y='13.5' width='7' height='7' rx='1.6'/><rect x='13.5' y='13.5' width='7' height='7' rx='1.6'/>")}</span><span class="mc-mtext"><span class="mc-mt">GTO Range Charts</span></span></button>
+        </div>
+      </div>
+
       <div class="mc-iconrow">
         ${loggedIn ? `<button class="mc-util" id="home-friends" aria-label="Friends">${friendReqs ? `<span class="ib-badge">${friendReqs}</span>` : ""}<span class="mu-ic">${ic("friends")}</span><span class="mu-l">Friends</span></button>` : ""}
         ${loggedIn ? `<button class="mc-util" id="home-inbox" aria-label="Inbox">${unreadCount() ? `<span class="ib-badge">${unreadCount()}</span>` : ""}<span class="mu-ic">${ic("inbox")}</span><span class="mu-l">Inbox</span></button>` : ""}
@@ -6231,6 +6339,7 @@ function renderHome(): void {
     S.screen = "mp-setup"; render();
   });
   onId("home-stats", "click", () => { S.screen = "stats"; render(); });
+  onId("home-charts", "click", () => { S.screen = "charts"; render(); });
   // iOS WebKit won't autoplay a muted inline <video> inserted via innerHTML on the strength
   // of the `autoplay` attribute alone (esp. in a standalone PWA) — nudge it: set muted as a
   // PROPERTY + call play(); retry once on the first tap if it was blocked. (Low Power Mode

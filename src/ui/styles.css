@@ -1664,6 +1664,41 @@ body::after {
 .mc-mode.online { --accent: var(--azure); }
 .mc-mode.pass { --accent: var(--gold-2); }
 .mc-mode.profile { --accent: var(--violet); }
+.mc-mode.charts { --accent: #22d3ee; }
+
+/* Home "Sharpen your game" study section */
+.mc-study { margin-top: 12px; }
+.mc-section-label { font-size: 11px; font-weight: 800; letter-spacing: 1.3px; text-transform: uppercase; color: rgba(255,255,255,.42); margin: 0 2px 8px; }
+.mc-study-grid { display: grid; grid-template-columns: 1fr; gap: 10px; }
+.mc-study-grid .mc-mode { width: 100%; }
+
+/* ── GTO Range Charts screen ── */
+.charts .ch-controls { display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; }
+.ch-seg { display: flex; background: var(--glass); border: 1px solid var(--glass-edge); border-radius: 11px; overflow: hidden; }
+.ch-seg button { flex: 1; padding: 9px 4px; background: none; border: none; border-right: 1px solid var(--glass-edge); color: var(--muted); font: 700 12.5px var(--display); cursor: pointer; transition: background .12s, color .12s; }
+.ch-seg button:last-child { border-right: none; }
+.ch-seg button.sel { background: color-mix(in srgb, var(--emerald) 22%, transparent); color: var(--text); }
+.ch-posrow { display: flex; gap: 6px; flex-wrap: wrap; }
+.ch-pos { padding: 6px 12px; background: var(--glass); border: 1px solid var(--glass-edge); border-radius: 9px; color: var(--muted); font: 700 12px var(--display); cursor: pointer; transition: background .12s, color .12s, border-color .12s; }
+.ch-pos.sel { background: color-mix(in srgb, var(--gold-2) 20%, transparent); border-color: var(--gold-2); color: var(--gold-2); }
+.ch-caption { font-size: 12.5px; color: var(--muted); margin: 2px 2px 9px; }
+.ch-caption strong { color: var(--text); }
+.ch-grid { display: grid; grid-template-columns: repeat(13, 1fr); gap: 2px; }
+.ch-cell { aspect-ratio: 1; border-radius: 3px; display: flex; align-items: center; justify-content: center; font: 800 8.5px/1 var(--display); color: rgba(255,255,255,.88); overflow: hidden; }
+.ch-cell.diag { outline: 1px solid rgba(255,255,255,.22); outline-offset: -1px; }
+.ck-raise { background: #1f9d6b; }
+.ck-3bet { background: #e0a226; color: #3a2705; }
+.ck-4bet { background: #d34a42; }
+.ck-call { background: #2f6fb0; }
+.ck-fold { background: rgba(255,255,255,.06); color: rgba(255,255,255,.34); }
+.ck-na { background: rgba(255,255,255,.02); color: rgba(255,255,255,.13); }
+.ch-foot { display: flex; justify-content: space-between; align-items: center; margin-top: 11px; flex-wrap: wrap; gap: 8px; }
+.ch-legend { display: flex; gap: 11px; flex-wrap: wrap; }
+.ch-leg { display: flex; align-items: center; gap: 5px; font-size: 11.5px; color: var(--muted); }
+.ch-sw { width: 12px; height: 12px; border-radius: 3px; display: inline-block; flex-shrink: 0; }
+.ch-readout { font-size: 13px; color: var(--text); }
+.ch-readout strong { color: var(--gold-2); }
+.ch-note { font-size: 11px; color: var(--faint); margin-top: 11px; line-height: 1.45; }
 .mc-stats svg { width: 15px; height: 15px; vertical-align: -2.5px; margin-right: 3px; color: var(--gold-2); }
 .mc-stats { padding: 10px; border-radius: 14px; cursor: pointer; font-weight: 700; font-size: 13px; color: var(--muted);
   background: var(--glass); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); border: 1px solid var(--glass-edge);

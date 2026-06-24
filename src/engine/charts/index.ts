@@ -2,6 +2,7 @@ import { Range } from "../range.js";
 import { RFI as HU_RFI, BB_DEFENSE as HU_BB_DEF } from "./preflop-hu.js";
 import { RFI as SIX_RFI, BB_DEFENSE as SIX_BB_DEF } from "./preflop-6max.js";
 import { RFI as NINE_RFI, BB_DEFENSE as NINE_BB_DEF } from "./preflop-9max.js";
+import { BB_3BET, OPENER_4BET, OPENER_CALL_VS_3BET } from "./preflop-3bet.js";
 
 const POSITION_NAMES: Record<number, readonly string[]> = {
   2: ["BTN", "BB"],
@@ -86,4 +87,24 @@ export function getBbDefenseRange(
       `No BB defense range vs ${openerPosition} at ${tableSize}-max`,
     );
   return cached(`bbdef:${tableSize}:${openerPosition}`, bbDef[resolved]!);
+}
+
+// ── Blind-battle 3-bet / 4-bet ranges (shared across table sizes; keyed by the
+// OPENER's position). Return null for spots not yet authored so the UI can degrade
+// gracefully rather than throw. ──
+function sharedLookup(map: Record<string, string>, key: string, position: string): Range | null {
+  const resolved = resolvePosition(map, position);
+  return resolved ? cached(`${key}:${resolved}`, map[resolved]!) : null;
+}
+/** BB's 3-bet range facing an open from `openerPosition`. */
+export function getThreeBetRange(openerPosition: string): Range | null {
+  return sharedLookup(BB_3BET, "3bet", openerPosition);
+}
+/** The opener's 4-bet range when the BB 3-bets. */
+export function getFourBetRange(openerPosition: string): Range | null {
+  return sharedLookup(OPENER_4BET, "4bet", openerPosition);
+}
+/** The opener's flat-call range vs the BB 3-bet. */
+export function getCallVs3BetRange(openerPosition: string): Range | null {
+  return sharedLookup(OPENER_CALL_VS_3BET, "callv3", openerPosition);
 }
