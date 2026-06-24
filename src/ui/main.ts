@@ -700,23 +700,19 @@ function heroRangeEstimate(): Range {
 }
 
 // ── Live CFR solver on the recommendation path ──
-// For the spots the subgame solver actually models well — heads-up, postflop,
-// hero FIRST TO ACT (the check/bet decision) — we solve in the background and let
-// the result DRIVE the recommendation (labeled "solver"), with the MC-equity
-// heuristic as the instant fallback shown until the solve lands. Facing a bet,
-// multiway, and preflop stay on their own sources (heuristic/chart/nash).
+// For the spots the subgame solver models well — heads-up, postflop (flop/turn/river),
+// hero leading OR facing a bet — we solve in the background and let the result DRIVE the
+// recommendation, with the MC-equity heuristic as the instant fallback shown until the solve
+// lands. FLOP/TURN run in equityLeaf mode (a single betting street, then award by all-in equity
+// over the runout) so they converge as fast as the river (~0.5s); that's an approximation of
+// multi-street play, so they're badged "GTO solved" — only the river (an exact subgame) earns
+// "exact math". Multiway + preflop stay on their own sources (heuristic/chart/nash).
 function liveSolverSpot(): string | null {
   const gs = S.gs;
   if (!gs || !S.heroCards || S.handOver || S.trainingOver) return null;
   if (gs.nextToAct() !== S.heroSeat) return null;
-  if (activeVillains().length !== 1) return null;
-  // RIVER ONLY: the river is a single exact subgame that converges well at ~12k
-  // iterations in ~300ms — fast AND accurate. Flop/turn need 20k-80k iters
-  // (seconds) to converge; solving them live at low iters yields noisy near-
-  // uniform mixes that would be dishonest to label "GTO solved". They stay on the
-  // heuristic until a precomputed blueprint stage. (The manual "Solve GTO" button
-  // still solves flop/turn on demand, where a longer "Solving…" wait is fine.)
-  if (gs.street !== "river") return null;
+  if (activeVillains().length !== 1) return null; // HU only — the subgame solver is 2-player
+  if (gs.board.length < 3) return null;            // postflop only (preflop = chart/nash/heuristic)
   const eff = Math.min(gs.stacks[S.heroSeat]!, gs.stacks[activeVillains()[0]!]!);
   // `|c<toCall>` distinguishes the hero-leads (0) and hero-faces-a-bet solves in the cache.
   const toCall = gs.toCall(S.heroSeat);
@@ -751,7 +747,11 @@ function runLiveSolve(key: string): void {
       pot: gs.pot - toCall,  // the pot BEFORE villain's bet; facingBet seeds the bet on top
       facingBet: toCall,
       stack: Math.max(eff, gs.pot * 0.5),
-      iterations: 15000, // river only — converges well, ~0.4s
+      // Flop/turn: equityLeaf = single betting street + all-in-equity leaf, so they converge as
+      // fast as the river (~0.5s). The river is already a single exact street (equityLeaf is a no-op
+      // once the board is complete). Iters tuned so each lands in well under a second in the bg.
+      equityLeaf: gs.board.length < 5,
+      iterations: gs.board.length === 5 ? 15000 : 18000,
       rng: mulberry32(0x9e3a),
     }, [S.heroCards[0], S.heroCards[1]]);
     // Always cache (even an empty strategy) so a failed/degenerate solve isn't
@@ -760,6 +760,9 @@ function runLiveSolve(key: string): void {
   } catch {
     liveSolveCache.set(key, { strategy: [], heroEv: 0, iterations: 0 }); // sentinel: keep heuristic
   }
+  // Cap the cache (FIFO): flop+turn+river each cache a spot now, so a long session would otherwise
+  // grow it unbounded. Map preserves insertion order → the first key is the oldest.
+  if (liveSolveCache.size > 240) { const oldest = liveSolveCache.keys().next().value; if (oldest !== undefined) liveSolveCache.delete(oldest); }
   if (liveSolveInFlight === key) liveSolveInFlight = null;
   if (liveSolverSpot() === key) render(); // refresh to show the solved advice
 }
@@ -1983,7 +1986,12 @@ function renderGame(): void {
   };
   const _solveSpot = liveSolverSpot();
   const solvingNow = !!_solveSpot && !liveSolveCache.has(_solveSpot);
-  const srcMeta = S.rec?.source ? SRC[S.rec.source] : undefined;
+  let srcMeta = S.rec?.source ? SRC[S.rec.source] : undefined;
+  // Flop/turn live solves run in equityLeaf mode (approximate the future streets as a check-down),
+  // so they're "GTO solved" — only the river is a fully exact subgame ("exact math").
+  if (srcMeta && S.rec?.source === "solver" && !!S.gs && S.gs.board.length < 5) {
+    srcMeta = { txt: "🧠 GTO solved", cls: "src-solver" };
+  }
   const srcBadge = S.rec
     ? `<span class="rec-src ${solvingNow ? "src-solving" : srcMeta?.cls ?? ""}">${
         solvingNow ? "solving…" : srcMeta?.txt ?? ""
