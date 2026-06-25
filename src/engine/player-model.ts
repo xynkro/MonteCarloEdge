@@ -1,4 +1,4 @@
-import { type GameState } from "./game-state.js";
+import { type Action, type GameState } from "./game-state.js";
 import { type OpponentProfile } from "./opponent.js";
 
 // Observed action counters for one player across a session.
@@ -14,6 +14,11 @@ export interface PlayerStats {
   foldTo3BetActs: number; foldTo3BetOpps: number; // opened, faced a 3-bet, folded
   betWhenCheckedToActs: number; betWhenCheckedToOpps: number; // checked to, bet
   calldownActs: number; calldownOpps: number; // faced a postflop bet, called
+  // Barrel — led a postflop street, then (checked to again next street) fired a
+  // 2nd/3rd barrel vs gave up. Observable from the action log alone (no cards),
+  // and it un-freezes OpponentProfile.barrelFreq, which the multi-street
+  // bluff-catch read in decision.ts keys on.
+  barrelActs: number; barrelOpps: number;
 }
 
 export function emptyStats(): PlayerStats {
@@ -28,6 +33,7 @@ export function emptyStats(): PlayerStats {
     foldTo3BetActs: 0, foldTo3BetOpps: 0,
     betWhenCheckedToActs: 0, betWhenCheckedToOpps: 0,
     calldownActs: 0, calldownOpps: 0,
+    barrelActs: 0, barrelOpps: 0,
   };
 }
 
@@ -154,6 +160,30 @@ export function observeHand(stats: PlayerStats, gs: GameState, seat: number): Pl
     }
   }
 
+  // Barrel — multi-street continuation aggression. `ledPrev` = "I led (bet first-in)
+  // last postflop street"; if it's checked to me again the next street, that's a
+  // barrel opportunity, and betting it is a barrel act. Conditioning on having led
+  // the previous street is what distinguishes a barrel from a fresh stab and is
+  // exactly the signal the streetsBet>=2 bluff-catch branch reads off barrelFreq.
+  {
+    let ledPrev = false;
+    for (const st of ["flop", "turn", "river"] as const) {
+      const sa = gs.actions.filter((a) => a.street === st);
+      let betInFront = false;
+      let myAct: Action | undefined;
+      for (const a of sa) {
+        if (a.seat === seat) { myAct = a; break; }
+        if (a.type === "bet" || a.type === "raise") betInFront = true;
+      }
+      const checkedToMe = !!myAct && !betInFront; // I was first to act with no bet in front
+      if (ledPrev && checkedToMe) {
+        s.barrelOpps++;
+        if (myAct!.type === "bet") s.barrelActs++;
+      }
+      ledPrev = checkedToMe && myAct!.type === "bet";
+    }
+  }
+
   return s;
 }
 
@@ -178,6 +208,10 @@ export function blendProfile(prior: OpponentProfile, stats: PlayerStats): Oppone
     foldTo3Bet: blend(prior.foldTo3Bet, stats.foldTo3BetActs, stats.foldTo3BetOpps),
     betWhenCheckedTo: blend(prior.betWhenCheckedTo, stats.betWhenCheckedToActs, stats.betWhenCheckedToOpps),
     calldownPct: blend(prior.calldownPct, stats.calldownActs, stats.calldownOpps),
+    // Un-frozen: barrelFreq now learns from observed multi-street barreling instead
+    // of staying pinned at the archetype prior. Shrinkage (PRIOR_WEIGHT) keeps small
+    // samples anchored, so the bluff-catch read can't swing on a handful of hands.
+    barrelFreq: blend(prior.barrelFreq, stats.barrelActs, stats.barrelOpps),
   };
 }
 
