@@ -329,7 +329,11 @@ function settle(t: AuthTable): void {
   if (t.seatStats) {
     for (let i = 0; i < n; i++) {
       const ts = gsToTable(t, i);
-      t.seatStats.set(ts, observeHand(t.seatStats.get(ts) ?? emptyStats(), t.gs!, i));
+      // Only pass shown cards when this seat reached a CONTESTED showdown (≥2 live, not
+      // folded) — the one honest moment to learn their single-street bluff frequency.
+      const cards = (contenders.length >= 2 && !folded[i]) ? t.holes.get(ts) : undefined;
+      const shown = cards ? { cards, board } : undefined;
+      t.seatStats.set(ts, observeHand(t.seatStats.get(ts) ?? emptyStats(), t.gs!, i, shown));
     }
   }
   t.status = "hand_over";

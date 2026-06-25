@@ -150,6 +150,39 @@ describe("blendProfile — barrelFreq", () => {
   });
 });
 
+describe("observeHand — bluff classification (showdown)", () => {
+  const board = [makeCard(10, 0), makeCard(7, 1), makeCard(2, 2), makeCard(3, 3), makeCard(11, 0)]; // Q 9 4 5 K, dry
+  function aggressorHand(): GameState {
+    const gs = huState();
+    gs.board = board;
+    gs.actions = [
+      { seat: 0, type: "raise", amount: 6, street: "preflop" },
+      { seat: 1, type: "call", amount: 0, street: "preflop" },
+      { seat: 0, type: "bet", amount: 4, street: "flop" }, // seat 0 is the aggressor
+      { seat: 1, type: "call", amount: 0, street: "flop" },
+    ];
+    return gs;
+  }
+  it("a shown air bet counts as a bluff", () => {
+    const s = observeHand(emptyStats(), aggressorHand(), 0, { cards: [makeCard(5, 3), makeCard(0, 2)], board }); // 7c2d = air
+    expect(s.bluffOpps).toBe(1);
+    expect(s.bluffActs).toBe(1);
+  });
+  it("a shown made hand is not a bluff", () => {
+    const s = observeHand(emptyStats(), aggressorHand(), 0, { cards: [makeCard(10, 1), makeCard(10, 3)], board }); // trip Q
+    expect(s.bluffOpps).toBe(1);
+    expect(s.bluffActs).toBe(0);
+  });
+  it("no shown cards → no bluff data (never peeks at un-shown hands)", () => {
+    expect(observeHand(emptyStats(), aggressorHand(), 0).bluffOpps).toBe(0);
+  });
+  it("blendProfile un-freezes bluffFreq toward observed bluffing", () => {
+    const stats = emptyStats();
+    stats.bluffActs = 40; stats.bluffOpps = 50; // 80% bluff vs TAG prior 0.45
+    expect(blendProfile(TAG, stats).bluffFreq).toBeGreaterThan(TAG.bluffFreq);
+  });
+});
+
 describe("applySessionTilt (break-even effect)", () => {
   it("even P&L leaves the profile unchanged", () => {
     expect(applySessionTilt(TAG, 0)).toBe(TAG);

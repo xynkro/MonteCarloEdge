@@ -1,5 +1,7 @@
 import { type Action, type GameState } from "./game-state.js";
 import { type OpponentProfile } from "./opponent.js";
+import { type Card } from "./cards.js";
+import { evaluate, categoryOf, CATEGORY } from "./evaluator.js";
 
 // Observed action counters for one player across a session.
 // Each stat tracks "acts" (times they did X) over "opps" (times they could).
@@ -19,6 +21,10 @@ export interface PlayerStats {
   // and it un-freezes OpponentProfile.barrelFreq, which the multi-street
   // bluff-catch read in decision.ts keys on.
   barrelActs: number; barrelOpps: number;
+  // Bluff — observable ONLY at a contested showdown: a postflop aggressor who turned
+  // over pure air was bluffing. Un-freezes OpponentProfile.bluffFreq. We never peek at
+  // un-shown cards, so this only accrues when the player actually showed down.
+  bluffActs: number; bluffOpps: number;
 }
 
 export function emptyStats(): PlayerStats {
@@ -34,11 +40,19 @@ export function emptyStats(): PlayerStats {
     betWhenCheckedToActs: 0, betWhenCheckedToOpps: 0,
     calldownActs: 0, calldownOpps: 0,
     barrelActs: 0, barrelOpps: 0,
+    bluffActs: 0, bluffOpps: 0,
   };
 }
 
 // Update a player's stats from a completed hand's action log.
-export function observeHand(stats: PlayerStats, gs: GameState, seat: number): PlayerStats {
+export function observeHand(
+  stats: PlayerStats,
+  gs: GameState,
+  seat: number,
+  // Present ONLY when this seat showed down (contested showdown). Carries the revealed
+  // hole cards + the full 5-card board so we can classify a shown bet as bluff vs value.
+  shown?: { cards: readonly [Card, Card]; board: readonly Card[] },
+): PlayerStats {
   const s = { ...stats };
   s.hands++;
 
@@ -184,6 +198,20 @@ export function observeHand(stats: PlayerStats, gs: GameState, seat: number): Pl
     }
   }
 
+  // Bluff frequency — learnable ONLY at a contested showdown the player reached. If they
+  // were a postflop aggressor and turned over pure air (high card), that bet was a bluff;
+  // any made hand was value. Shrinkage in blendProfile keeps a thin sample near the prior.
+  if (shown && shown.board.length >= 5) {
+    const wasAggressor = gs.actions.some(
+      (a) => a.seat === seat && a.street !== "preflop" && (a.type === "bet" || a.type === "raise"),
+    );
+    if (wasAggressor) {
+      s.bluffOpps++;
+      const cat = categoryOf(evaluate([shown.cards[0], shown.cards[1], ...shown.board]));
+      if (cat === CATEGORY.HIGH_CARD) s.bluffActs++;
+    }
+  }
+
   return s;
 }
 
@@ -212,6 +240,9 @@ export function blendProfile(prior: OpponentProfile, stats: PlayerStats): Oppone
     // of staying pinned at the archetype prior. Shrinkage (PRIOR_WEIGHT) keeps small
     // samples anchored, so the bluff-catch read can't swing on a handful of hands.
     barrelFreq: blend(prior.barrelFreq, stats.barrelActs, stats.barrelOpps),
+    // Un-frozen: bluffFreq learns from shown-down air (single-street bluffs). Accrues
+    // slowly (only at showdowns), so shrinkage keeps it near the prior until enough.
+    bluffFreq: blend(prior.bluffFreq, stats.bluffActs, stats.bluffOpps),
   };
 }
 
