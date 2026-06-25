@@ -722,6 +722,7 @@ function postflopRecommend(
   const clamp01 = (lo: number, hi: number, x: number) => Math.max(lo, Math.min(hi, x));
   let bluffCatchAdj = 0;        // +need more to call (fold more) · −call lighter
   let bluffCatchNote = "";
+  let readTag = ""; // named villain-action read (donk / passive-raise) — surfaced on every hero action
   // Carrier so the counter-bluff branch reuses this context (no recompute).
   let cb: { ap: OpponentProfile; cls: ReturnType<typeof sizeClass>; phase: "scare" | "brick" | "kill"; repLabel: string; baseBluff: number } | null = null;
   if (tc > 0 && state.board.length >= 3) {
@@ -742,6 +743,18 @@ function postflopRecommend(
       const baseBluff = streetsBet >= 2 ? ap.barrelFreq : ap.bluffFreq;
       const valueType = ap.coherence >= 0.6; // honest / under-bluffed (TAG, Nit)
       cb = { ap, cls, phase, repLabel: rep.label, baseBluff };
+      // Named population reads — already priced into the range/equity above; this just
+      // makes them VISIBLE in the reasoning (donk lead = the preflop caller leads out,
+      // usually weak in rec pools; a raise from a passive/coherent type is value-heavy,
+      // a small/min one especially).
+      let pfAgg = -1;
+      for (const a of state.actions) if (a.street === "preflop" && (a.type === "raise" || a.type === "bet")) pfAgg = a.seat;
+      const aggrRaised = state.actions.some((a) => a.seat === aggrSeat && a.street !== "preflop" && a.type === "raise");
+      const isDonk = !aggrRaised && pfAgg >= 0 && aggrSeat !== pfAgg;
+      const passiveRaise = aggrRaised && ap.coherence >= 0.6 && ap.betWhenCheckedTo < 0.5;
+      readTag = isDonk ? " · donk lead — usually weak"
+        : passiveRaise ? ` · ${cls === "min" || cls === "small" ? "min-" : ""}raise from a passive player, value-heavy`
+        : "";
       // The SIZE shapes the read (one nudge, never two summed):
       if (cls === "small" || cls === "min") {
         // CAPPED size — rarely the nuts, so the floor is "don't fold a made hand."
@@ -779,6 +792,7 @@ function postflopRecommend(
         bluffCatchAdj = Math.min(0.08, ap.coherence * 0.12);
         if (bluffCatchAdj >= 0.01) bluffCatchNote = ` — ${rep.label} got there (~${pct(bluffPct)} bluffs), respect it`;
       }
+      bluffCatchNote += readTag; // surface the named read alongside the size/runout note
     }
   }
   const callBar = odds + callCushion + bluffCatchAdj;
@@ -801,7 +815,7 @@ function postflopRecommend(
       return fin({
         action: "raise", amount: amt, equity: eq, potOdds: odds,
         ev: { fold: 0, call: evCall, raise: evCall * 1.3 },
-        reasoning: `Raise — ${handLabel} (${posTag}), ${pct(eq)} equity vs ${pct(odds)} pot odds${protect ? " · protect vs draws" : ""}${wayTag}`,
+        reasoning: `Raise — ${handLabel} (${posTag}), ${pct(eq)} equity vs ${pct(odds)} pot odds${protect ? " · protect vs draws" : ""}${readTag}${wayTag}`,
       });
     }
 

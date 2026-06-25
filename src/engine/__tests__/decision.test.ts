@@ -4,6 +4,7 @@ import { GameState } from "../game-state.js";
 import { recommend } from "../decision.js";
 import { TAG, STATION, NIT, comboPercentile } from "../opponent.js";
 import { type Combo } from "../range.js";
+import { mulberry32 } from "../rng.js";
 
 function huState(
   heroCards: readonly [number, number],
@@ -186,5 +187,18 @@ describe("recommendation has valid fields", () => {
     const rec = recommend(gs, TAG);
     expect(rec.equity).toBeGreaterThanOrEqual(0);
     expect(rec.equity).toBeLessThanOrEqual(1);
+  });
+});
+
+describe("named-read surfacing (heuristics-audit G1/G2)", () => {
+  it("a donk lead surfaces 'donk lead' in the reasoning", () => {
+    const gs = huState([parseCard("8c"), parseCard("8d")]); // 2nd pair — a bluff-catcher
+    gs.applyAction({ seat: 0, type: "raise", amount: 6 });   // hero (BTN) raises
+    gs.applyAction({ seat: 1, type: "call", amount: 0 });    // villain (BB) calls
+    gs.advanceStreet([parseCard("Qs"), parseCard("7d"), parseCard("2c")]);
+    gs.applyAction({ seat: 1, type: "bet", amount: 8 });     // BB caller donk-leads (~⅔ pot)
+    // The named read is surfaced whether hero calls, folds, or attacks the weak donk.
+    const rec = recommend(gs, STATION, mulberry32(7));
+    expect(rec.reasoning).toContain("donk lead");
   });
 });
