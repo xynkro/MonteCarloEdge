@@ -915,7 +915,11 @@ function postflopRecommend(
   // free card instead of bloating the pot as the worse hand.
   const drawBetThresh = inPos ? 0.28 : 0.34;
   if (semiBluffOK && (conn.hasFlushDraw || conn.hasStraightDraw) && dq > drawBetThresh && eq < 0.62) {
-    const frac = Math.min(0.65, 0.50 * texAdj);
+    // G6 — size to fold equity: vs a hyper-folder a smaller semi-bluff wins the fold
+    // just as often (risk less), so shrink it; lean a touch bigger vs a stickier-but-
+    // still-foldable type for pressure. Bounded so it stays a sane bet.
+    const feSizeAdj = clamp01(0.82, 1.12, 1 + (0.50 - foldy) * 0.5);
+    const frac = Math.min(0.70, 0.50 * texAdj * feSizeAdj);
     const size = Math.min(pot * frac, betCap);
     const drawType = conn.hasFlushDraw ? "flush draw" : "straight draw";
     return fin({
@@ -1013,9 +1017,14 @@ function postflopRecommend(
     // a medium bet is consistent. This keeps the bet and the read in sync.
     const rep = credibleRep(state.board);
     const polar = repIsPolar(rep.rep);
-    const frac = polar
+    // G6 — size the bluff to the villain's fold equity: vs a hyper-folder a smaller
+    // bet wins the pot just as often (cheap FE, risk less) and its lower break-even
+    // even lets the bluff fire a touch more; vs a stickier-but-foldable type lean
+    // bigger for pressure. Bounded so the rep stays credible.
+    const feSizeAdj = clamp01(0.78, 1.15, 1 + (0.55 - foldy) * 0.6);
+    const frac = (polar
       ? (state.board.length >= 5 ? 1.05 : state.board.length >= 4 ? 0.9 : 0.8) // pot-ish → overbet by the river
-      : (tex.wet ? 0.66 : 0.55);
+      : (tex.wet ? 0.66 : 0.55)) * feSizeAdj;
     const breakeven = frac / (1 + frac); // fold% needed to break even
     const hiCard = Math.max(rankOf(hero[0]), rankOf(hero[1]));
     const blockerCredit = hiCard >= 12 ? 0.05 : hiCard >= 10 ? 0.02 : 0; // A/K… blocks value
