@@ -215,6 +215,37 @@ export function blendProfile(prior: OpponentProfile, stats: PlayerStats): Oppone
   };
 }
 
+// Session-P&L "break-even" tilt (prospect theory; Eil & Lien 2014; Smith, Levere &
+// Kurtzman 2009 — see docs/research/poker-psychology-and-betting.md). A villain STUCK
+// below their session reference (negative P&L) is in the loss domain and turns risk-
+// SEEKING: looser, stickier, chases draws, spews more. A villain AHEAD locks up
+// (tighter, folds more to protect the win). The asymmetry is real and well-evidenced —
+// the break-even effect is STRONG, the house-money effect WEAK — so the stuck shifts
+// are larger than the ahead shifts. We don't add new decision logic: we just shift the
+// profile, and the existing sticky-caller exploits (value thinner + bigger, suppress
+// bluffs/semi-bluffs vs a chaser) fire automatically. `pnlBb` = session P&L in big
+// blinds (current stack − buy-in); `refBb` scales how much P&L registers as fully tilted.
+export function applySessionTilt(prior: OpponentProfile, pnlBb: number, refBb = 100): OpponentProfile {
+  if (!Number.isFinite(pnlBb) || pnlBb === 0) return prior;
+  const ref = Math.max(40, refBb); // a buy-in-ish reference so small swings barely register
+  const c01 = (x: number) => Math.max(0, Math.min(1, x));
+  const stuck = c01(-pnlBb / (ref * 0.8)); // down ~0.8 buy-ins → fully stuck
+  const ahead = c01(pnlBb / (ref * 1.2));   // up ~1.2 buy-ins → fully locked up (weaker)
+  if (stuck === 0 && ahead === 0) return prior;
+  const adj = (v: number, dStuck: number, dAhead: number) => c01(v + dStuck * stuck + dAhead * ahead);
+  const tag = stuck > 0.25 ? " (stuck)" : ahead > 0.3 ? " (ahead)" : "";
+  return {
+    ...prior,
+    name: `${prior.name}${tag}`,
+    vpip: adj(prior.vpip, +0.10, -0.06),
+    calldownPct: adj(prior.calldownPct, +0.18, -0.10),
+    foldToCbet: adj(prior.foldToCbet, -0.12, +0.08),
+    foldToRaise: adj(prior.foldToRaise, -0.10, +0.06),
+    bluffFreq: adj(prior.bluffFreq, +0.10, -0.05),
+    stickiness: adj(prior.stickiness, +0.15, -0.08),
+  };
+}
+
 // Human-readable read on a player once enough hands are in.
 export function playerRead(stats: PlayerStats): string | null {
   if (stats.hands < 8) return null;

@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { makeCard } from "../cards.js";
 import { GameState, type Action } from "../game-state.js";
-import { emptyStats, observeHand, blendProfile, playerRead } from "../player-model.js";
+import { emptyStats, observeHand, blendProfile, playerRead, applySessionTilt } from "../player-model.js";
 import { TAG } from "../opponent.js";
 
 function huState() {
@@ -147,6 +147,36 @@ describe("blendProfile — barrelFreq", () => {
     stats.barrelActs = 2; stats.barrelOpps = 2;
     const p = blendProfile(TAG, stats);
     expect(p.barrelFreq).toBeLessThan(0.62); // 2 obs shouldn't swing 0.50 much
+  });
+});
+
+describe("applySessionTilt (break-even effect)", () => {
+  it("even P&L leaves the profile unchanged", () => {
+    expect(applySessionTilt(TAG, 0)).toBe(TAG);
+  });
+
+  it("a stuck villain turns stickier, looser and folds less (loss domain)", () => {
+    const t = applySessionTilt(TAG, -90); // down ~a buy-in
+    expect(t.calldownPct).toBeGreaterThan(TAG.calldownPct);
+    expect(t.vpip).toBeGreaterThan(TAG.vpip);
+    expect(t.foldToCbet).toBeLessThan(TAG.foldToCbet);
+    expect(t.name).toContain("stuck");
+  });
+
+  it("a villain ahead tightens up (gain domain), weaker than the stuck shift", () => {
+    const ahead = applySessionTilt(TAG, +90);
+    expect(ahead.calldownPct).toBeLessThan(TAG.calldownPct);
+    expect(ahead.foldToCbet).toBeGreaterThan(TAG.foldToCbet);
+    // Asymmetry: the stuck shift is larger than the symmetric ahead shift.
+    const stuckDelta = applySessionTilt(TAG, -90).calldownPct - TAG.calldownPct;
+    const aheadDelta = TAG.calldownPct - ahead.calldownPct;
+    expect(stuckDelta).toBeGreaterThan(aheadDelta);
+  });
+
+  it("keeps all frequencies in [0,1]", () => {
+    const t = applySessionTilt({ ...TAG, calldownPct: 0.95 }, -300);
+    expect(t.calldownPct).toBeLessThanOrEqual(1);
+    expect(t.foldToCbet).toBeGreaterThanOrEqual(0);
   });
 });
 
