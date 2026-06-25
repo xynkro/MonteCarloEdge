@@ -17,6 +17,11 @@ import { GameState, type ActionType } from "../engine/game-state.js";
 import { positionsForButton } from "../engine/charts/index.js";
 import { handClassKey } from "../engine/gto/pushfold.js";
 import { classJams } from "../engine/gto/pushfold-chart.js";
+import { AUTO, TAG, LAG, STATION, NIT, MANIAC, type OpponentProfile } from "../engine/opponent.js";
+import { applySessionTilt } from "../engine/player-model.js";
+
+// Archetype → prior profile, for modelling each villain seat by its kind.
+const SEAT_PROFILES: Record<string, OpponentProfile> = { Auto: AUTO, TAG, LAG, Station: STATION, Nit: NIT, Maniac: MANIAC };
 import type {
   PublicTableState, PrivateHand, MPSeat, MPAction, CreateTableOpts,
 } from "./types.js";
@@ -432,7 +437,22 @@ export function recommendForSeat(
   // Apply the seat owner's chosen play style (Bluff Lab). Defaults to Balanced/GTO.
   const heroKey = t.seats[tableSeat]?.heroStyle ?? "gto";
   const heroStyle = HERO_STYLE_MAP[heroKey] ?? HERO_STYLE_MAP.gto;
-  return recommend(gs, profile, undefined, undefined, undefined, heroStyle, equityIters);
+  // Per-villain profiles: model each opponent seat by its archetype prior (humans
+  // default to the passed profile), then shift by its SESSION P&L — a villain stuck
+  // below the buy-in plays the loss domain (looser/stickier/chases), which the engine
+  // exploits (value thinner+bigger, fewer bluffs). This also makes the donk / min-raise
+  // / small-bet reads per-SEAT online instead of one generic profile for everyone.
+  const profiles = new Map<number, OpponentProfile>();
+  const refBb = t.blinds.bb > 0 ? t.startingStack / t.blinds.bb : 100;
+  for (let j = 0; j < t.liveSeats.length; j++) {
+    if (j === g) continue;
+    const seat = t.seats[t.liveSeats[j]!];
+    if (!seat) continue;
+    const base = (seat.ai && SEAT_PROFILES[seat.ai]) ? SEAT_PROFILES[seat.ai]! : profile;
+    const pnlBb = t.blinds.bb > 0 ? (seat.chips - t.startingStack) / t.blinds.bb : 0;
+    profiles.set(j, applySessionTilt(base, pnlBb, refBb));
+  }
+  return recommend(gs, profile, undefined, profiles, undefined, heroStyle, equityIters);
 }
 
 /** A single player's own hole cards — the ONLY secret a client ever receives. */
