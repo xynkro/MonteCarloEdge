@@ -744,9 +744,17 @@ function postflopRecommend(
       cb = { ap, cls, phase, repLabel: rep.label, baseBluff };
       // The SIZE shapes the read (one nudge, never two summed):
       if (cls === "small" || cls === "min") {
-        // CAPPED — rarely the nuts; never hero-FOLD a made hand to a cheap bet.
-        bluffCatchAdj = -0.04;
-        bluffCatchNote = ` — his ${cls} bet is capped, don't fold a made hand`;
+        // CAPPED size — rarely the nuts, so the floor is "don't fold a made hand."
+        // But WHO bet decides HOW light to call: an incoherent/bluffy type's small
+        // stab is mostly air or curiosity (call much lighter), while a coherent
+        // under-bluffer's (Nit/TAG) small bet is rare and credible (respect it, near-
+        // zero nudge). This mirrors the type-awareness the overbet branch already uses,
+        // instead of one flat number for every villain type (heuristics-audit G10).
+        const bluffPct = clamp01(0.05, 0.9, baseBluff * (1.25 - ap.coherence));
+        bluffCatchAdj = -clamp01(0, 0.10, 0.02 + Math.max(0, bluffPct - 0.30) * 0.30);
+        bluffCatchNote = ap.coherence >= 0.6
+          ? ` — his ${cls} bet is capped but he rarely bluffs small — just don't overfold`
+          : ` — his ${cls} bet is capped & mostly air (~${pct(bluffPct)}), call light`;
       } else if (cls === "merged") {
         // Half-pot merged = the least exploitable size; no nudge.
       } else if (cls === "overbet") {

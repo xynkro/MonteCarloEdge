@@ -181,9 +181,32 @@ function narrowPostflop(
   const slice = (lo: number, hi: number): Combo[] =>
     scored.slice(Math.floor(lo * n), Math.max(Math.floor(lo * n) + 1, Math.ceil(hi * n))).map((s) => s[0]);
 
+  // Preflop aggressor (last preflop raiser) — used to flag a donk lead.
+  let pfAggressor = -1;
+  for (const a of state.actions) if (a.street === "preflop" && (a.type === "raise" || a.type === "bet")) pfAggressor = a.seat;
+  const donkLead = !raised && aggressed && pfAggressor >= 0 && villainSeat !== pfAggressor;
+
   let combos: Combo[];
   if (raised) {
-    combos = slice(0, 0.30); // raises are strong
+    // A raise's strength is read off villain TYPE first, size second (heuristics-audit
+    // G2). Passive/coherent players (TAG, Nit) don't balance raises — they're value-
+    // heavy, and a small/min raise from them is the effective nuts, so tighten hard.
+    // Incoherent/aggressive types (Maniac, LAG) raise light, so widen + add an air
+    // tail. Everyone else keeps the old strong top-30%.
+    const small = sizeClass(betFrac) === "small" || sizeClass(betFrac) === "min";
+    if (profile.coherence >= 0.6 && profile.betWhenCheckedTo < 0.5) {
+      combos = slice(0, small ? 0.10 : 0.18); // passive value-raiser; min-raise ≈ nuts
+    } else if (profile.coherence < 0.3) {
+      combos = [...slice(0, small ? 0.40 : 0.34), ...scored.slice(Math.floor(0.88 * n)).map((s) => s[0])];
+    } else {
+      combos = slice(0, 0.30); // strong
+    }
+  } else if (donkLead) {
+    // DONK/LEAD from the preflop CALLER (not the c-bettor): protection / weak-made /
+    // missed-draw stab in rec pools — weaker than a c-bet. Drop the top value, keep a
+    // medium band + air tail so hero over-respects it less and can raise it thinner
+    // for value or as a bluff (heuristics-audit G1).
+    combos = [...slice(0.08, 0.60), ...scored.slice(Math.floor(0.86 * n)).map((s) => s[0])];
   } else if (aggressed) {
     // Range SHAPE follows the bet SIZE (sizing tell):
     const cls = sizeClass(betFrac);
