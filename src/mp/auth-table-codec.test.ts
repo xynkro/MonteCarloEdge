@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { mulberry32 } from "../engine/rng.js";
 import {
-  createAuthTable, sit, startHand, act, publicState, privateHandFor, toActTableSeat,
+  createAuthTable, sit, leave, startHand, act, publicState, privateHandFor, toActTableSeat,
   type AuthTable,
 } from "./mp-engine.js";
 import { serializeAuthTable, deserializeAuthTable } from "./auth-table-codec.js";
@@ -25,6 +25,20 @@ describe("auth-table codec", () => {
     expect(publicState(r)).toEqual(publicState(t));
     expect(privateHandFor(r, "u_owner")).toEqual(privateHandFor(t, "u_owner"));
     expect(privateHandFor(r, "u_bob")).toEqual(privateHandFor(t, "u_bob"));
+  });
+
+  it("preserves accumulated seatStats across the JSON round-trip", () => {
+    const t = table2();
+    // play a hand to showdown so observeHand accumulates stats
+    startHand(t, mulberry32(11));
+    let guard = 0;
+    while (t.status === "in_hand" && guard++ < 40) {
+      const ts = toActTableSeat(t); if (ts < 0) break;
+      act(t, t.seats[ts]!.uid!, { type: publicState(t).currentBet - publicState(t).seats[ts]!.bet > 0 ? "call" : "check" });
+    }
+    expect(t.seatStats!.get(1)!.hands).toBeGreaterThanOrEqual(1);
+    const r = roundTrip(t);
+    expect(r.seatStats!.get(1)).toEqual(t.seatStats!.get(1)); // stats survive Firestore persistence
   });
 
   it("a deserialized table plays a full hand IDENTICALLY to the in-memory one", () => {

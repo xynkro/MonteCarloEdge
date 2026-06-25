@@ -18,7 +18,7 @@ import { positionsForButton } from "../engine/charts/index.js";
 import { handClassKey } from "../engine/gto/pushfold.js";
 import { classJams } from "../engine/gto/pushfold-chart.js";
 import { AUTO, TAG, LAG, STATION, NIT, MANIAC, type OpponentProfile } from "../engine/opponent.js";
-import { applySessionTilt } from "../engine/player-model.js";
+import { applySessionTilt, observeHand, blendProfile, emptyStats, type PlayerStats } from "../engine/player-model.js";
 
 // Archetype → prior profile, for modelling each villain seat by its kind.
 const SEAT_PROFILES: Record<string, OpponentProfile> = { Auto: AUTO, TAG, LAG, Station: STATION, Nit: NIT, Maniac: MANIAC };
@@ -66,6 +66,10 @@ export interface AuthTable {
   boughtIn?: number;
   bankedOut?: number;
   spectators?: Array<{ uid: string; name: string }>; // watching, not seated
+  // Adaptive opponent reads: per-table-seat accumulated action stats, observed at
+  // showdown across the session and blended into each villain's profile for the live
+  // MCE rec. Reset when a seat's occupant changes (a new player ≠ the old one).
+  seatStats?: Map<number, PlayerStats>;
   lastAction?: { seat: number; type: ActionType; amount: number } | null; // last seat that acted (cleared on street advance)
   // Ordered trace of bot actions resolved in the LAST server tick — lets the client
   // stagger SFX + callouts so a chain of bots feels like they "took turns" instead of
@@ -99,7 +103,7 @@ export function createAuthTable(id: string, owner: { uid: string; name: string }
     buttonSeat: 0, status: "waiting", handId: null, handCount: 0, lastResult: "",
     isPublic: opts.isPublic !== false, spectators: [],
     boughtIn: opts.startingStack, bankedOut: 0, // host's buy-in is the first wallet contribution
-    gs: null, liveSeats: [], holes: new Map(), fullBoard: [],
+    gs: null, liveSeats: [], holes: new Map(), fullBoard: [], seatStats: new Map(),
   };
 }
 
@@ -109,6 +113,7 @@ export function sit(t: AuthTable, uid: string, name: string, seatIdx: number): b
   const s = t.seats[seatIdx]!;
   if (s.uid || s.ai) return false; // taken
   s.uid = uid; s.name = name; s.chips = t.startingStack; s.assisted = false; s.sittingOut = false; s.ai = null;
+  t.seatStats?.delete(seatIdx); // fresh occupant → fresh reads
   return true;
 }
 
@@ -118,12 +123,13 @@ export function seatAi(t: AuthTable, seatIdx: number, name: string, archetype: s
   const s = t.seats[seatIdx]!;
   if (s.uid || s.ai) return false; // taken
   s.uid = null; s.name = name; s.chips = t.startingStack; s.assisted = false; s.sittingOut = false; s.ai = archetype;
+  t.seatStats?.delete(seatIdx); // fresh occupant → fresh reads
   return true;
 }
 
 export function leave(t: AuthTable, uid: string): void {
   const i = t.seats.findIndex((s) => s.uid === uid);
-  if (i >= 0) t.seats[i] = { uid: null, name: "", chips: 0, assisted: false, sittingOut: false, ai: null };
+  if (i >= 0) { t.seats[i] = { uid: null, name: "", chips: 0, assisted: false, sittingOut: false, ai: null }; t.seatStats?.delete(i); }
 }
 
 export function setAssisted(t: AuthTable, requesterUid: string, seatIdx: number, assisted: boolean): boolean {
@@ -317,6 +323,15 @@ function settle(t: AuthTable): void {
   const lw: Record<number, number> = {};
   for (let i = 0; i < n; i++) if (won[i]! > 0) lw[gsToTable(t, i)] = won[i]!;
   t.lastWon = lw;
+  // Adaptive reads: fold this completed hand into each seat's accumulated stats so the
+  // live MCE rec learns real tendencies (barrelFreq, vpip, calldown, fold-to-cbet …) on
+  // top of the archetype prior. Observation-only — no chip or secret-state effect.
+  if (t.seatStats) {
+    for (let i = 0; i < n; i++) {
+      const ts = gsToTable(t, i);
+      t.seatStats.set(ts, observeHand(t.seatStats.get(ts) ?? emptyStats(), t.gs!, i));
+    }
+  }
   t.status = "hand_over";
 }
 
@@ -448,7 +463,9 @@ export function recommendForSeat(
     if (j === g) continue;
     const seat = t.seats[t.liveSeats[j]!];
     if (!seat) continue;
-    const base = (seat.ai && SEAT_PROFILES[seat.ai]) ? SEAT_PROFILES[seat.ai]! : profile;
+    const prior = (seat.ai && SEAT_PROFILES[seat.ai]) ? SEAT_PROFILES[seat.ai]! : profile;
+    const stats = t.seatStats?.get(t.liveSeats[j]!);
+    const base = stats ? blendProfile(prior, stats) : prior; // learned reads shrink-blended onto the prior
     const pnlBb = t.blinds.bb > 0 ? (seat.chips - t.startingStack) / t.blinds.bb : 0;
     profiles.set(j, applySessionTilt(base, pnlBb, refBb));
   }

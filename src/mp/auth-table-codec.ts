@@ -9,6 +9,7 @@
 import type { Card } from "../engine/cards.js";
 import { GameState, type GameStateSnapshot } from "../engine/game-state.js";
 import type { AuthTable, AuthSeat } from "./mp-engine.js";
+import type { PlayerStats } from "../engine/player-model.js";
 
 export interface AuthTableSnapshot {
   id: string;
@@ -36,6 +37,7 @@ export interface AuthTableSnapshot {
   liveSeats: number[];
   holes: Record<number, [Card, Card]>; // table-seat idx → hole cards (SECRET)
   fullBoard: Card[];
+  seatStats?: Record<number, PlayerStats>; // table-seat → accumulated observed stats
 }
 
 export function serializeAuthTable(t: AuthTable): AuthTableSnapshot {
@@ -65,6 +67,7 @@ export function serializeAuthTable(t: AuthTable): AuthTableSnapshot {
     liveSeats: [...t.liveSeats],
     holes: Object.fromEntries(t.holes) as Record<number, [Card, Card]>,
     fullBoard: [...t.fullBoard],
+    seatStats: t.seatStats ? Object.fromEntries(t.seatStats) as Record<number, PlayerStats> : {},
   };
 }
 
@@ -96,5 +99,6 @@ export function deserializeAuthTable(s: AuthTableSnapshot): AuthTable {
     liveSeats: [...s.liveSeats],
     holes: new Map(Object.entries(s.holes).map(([k, v]) => [Number(k), v] as [number, [Card, Card]])),
     fullBoard: [...s.fullBoard],
+    seatStats: new Map(Object.entries(s.seatStats ?? {}).map(([k, v]) => [Number(k), v] as [number, PlayerStats])),
   };
 }

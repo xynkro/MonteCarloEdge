@@ -1,9 +1,20 @@
 import { describe, it, expect } from "vitest";
 import { mulberry32 } from "../engine/rng.js";
 import {
-  createAuthTable, sit, startHand, act, publicState, privateHandFor, toActTableSeat,
+  createAuthTable, sit, leave, startHand, act, publicState, privateHandFor, toActTableSeat,
   type AuthTable,
 } from "./mp-engine.js";
+
+function playToShowdown(t: AuthTable, seed: number) {
+  startHand(t, mulberry32(seed));
+  let guard = 0;
+  while (t.status === "in_hand" && guard++ < 40) {
+    const ts = toActTableSeat(t);
+    if (ts < 0) break;
+    const ps = publicState(t);
+    act(t, t.seats[ts]!.uid!, { type: ps.currentBet - ps.seats[ts]!.bet > 0 ? "call" : "check" });
+  }
+}
 
 function tableWith2(): AuthTable {
   const t = createAuthTable("t1", { uid: "u_owner", name: "Owner" }, {
@@ -50,6 +61,22 @@ describe("mp-engine authority", () => {
     }
     expect(t.status).toBe("hand_over");
     expect(totalChips(t)).toBe(before); // chips conserved across the whole hand
+  });
+
+  it("accumulates per-seat opponent stats at showdown (adaptive reads)", () => {
+    const t = tableWith2();
+    for (let h = 0; h < 3; h++) playToShowdown(t, h + 1);
+    // Both seated players have observed stats accumulated across the hands played.
+    expect(t.seatStats!.get(0)!.hands).toBeGreaterThanOrEqual(1);
+    expect(t.seatStats!.get(1)!.hands).toBeGreaterThanOrEqual(1);
+  });
+
+  it("resets a seat's stats when the occupant leaves", () => {
+    const t = tableWith2();
+    playToShowdown(t, 2);
+    expect(t.seatStats!.get(1)!.hands).toBeGreaterThanOrEqual(1);
+    leave(t, "u_bob");
+    expect(t.seatStats!.has(1)).toBe(false); // a fresh occupant starts clean
   });
 
   it("rejects out-of-turn and non-seated actions", () => {
