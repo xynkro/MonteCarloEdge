@@ -6218,17 +6218,17 @@ function renderAgeGate(): void {
 // `id` is the store product id (App Store Connect / Play Console / RevenueCat). Must match
 // CHIP_PACKS / EDGE_PRODUCTS in functions/src/revenuecat-grants.ts.
 const PLAY_PACKS = [
-  { id: "chips_5000", chips: "5,000", price: "$4.99" },
-  { id: "chips_10000", chips: "10,000", price: "$9.90", badge: "Anchor" },
-  { id: "chips_24000", chips: "24,000", price: "$19.90", bonus: "+20%" },
-  { id: "chips_70000", chips: "70,000", price: "$49", bonus: "Best for Mid" },
-  { id: "chips_160000", chips: "160,000", price: "$99" },
-  { id: "chips_400000", chips: "400,000", price: "$199", badge: "Best value" },
+  { id: "chips_500", chips: "500", price: "$4.99" },
+  { id: "chips_1000", chips: "1,000", price: "$9.90", badge: "Anchor" },
+  { id: "chips_2400", chips: "2,400", price: "$19.90", bonus: "+20%" },
+  { id: "chips_7000", chips: "7,000", price: "$49", bonus: "Best for Mid" },
+  { id: "chips_16000", chips: "16,000", price: "$99" },
+  { id: "chips_40000", chips: "40,000", price: "$199", badge: "Best value" },
 ];
 const EDGE_TIERS = [
   { id: "edge_1mo", label: "1 month · online", price: "$9.99", sub: "one-time · does not renew" },
   { id: "edge_monthly", label: "Monthly", price: "$6.99/mo", sub: "Most flexible" },
-  { id: "edge_annual", label: "Annual", price: "$49.99/yr", sub: "$4.17/mo · save 40%", best: true },
+  { id: "edge_annual", label: "Annual", price: "$69.99/yr", sub: "$5.83/mo · save 17%", best: true },
 ];
 function renderStore(): void {
   cancelVillainTimer();

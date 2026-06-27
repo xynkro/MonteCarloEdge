@@ -34,12 +34,12 @@ type ProdType = "consumable" | "non_consumable" | "subscription";
 interface ProdDef { id: string; type: ProdType; name: string; duration?: string; }
 // IDs MUST match revenuecat-grants.ts (CHIP_PACKS + EDGE_PRODUCTS) and the store IAP product ids.
 const PRODUCTS: ProdDef[] = [
-  { id: "chips_5000", type: "consumable", name: "5,000 Chips" },
-  { id: "chips_10000", type: "consumable", name: "10,000 Chips" },
-  { id: "chips_24000", type: "consumable", name: "24,000 Chips" },
-  { id: "chips_70000", type: "consumable", name: "70,000 Chips" },
-  { id: "chips_160000", type: "consumable", name: "160,000 Chips" },
-  { id: "chips_400000", type: "consumable", name: "400,000 Chips" },
+  { id: "chips_500", type: "consumable", name: "500 Chips" },
+  { id: "chips_1000", type: "consumable", name: "1,000 Chips" },
+  { id: "chips_2400", type: "consumable", name: "2,400 Chips" },
+  { id: "chips_7000", type: "consumable", name: "7,000 Chips" },
+  { id: "chips_16000", type: "consumable", name: "16,000 Chips" },
+  { id: "chips_40000", type: "consumable", name: "40,000 Chips" },
   { id: "edge_monthly", type: "subscription", name: "Edge Pass — Monthly", duration: "P1M" },
   { id: "edge_annual", type: "subscription", name: "Edge Pass — Annual", duration: "P1Y" },
   { id: "edge_1mo", type: "non_consumable", name: "Edge Pass — 1 Month (non-renewing)" }, // one-time pass
