@@ -5136,7 +5136,12 @@ function renderNetTable(): void {
   // chips=0 and inHand=false (sat out of this deal → hide it). Between hands nobody is
   // inHand, so this reduces to the simple chips>0 check.
   const allOccupied = seats.map((s, ti) => ({ s, ti })).filter((x) => x.s.uid || x.s.ai);
-  const isSidelined = (x: { s: { chips: number; inHand?: boolean } }): boolean => x.s.chips === 0 && !x.s.inHand;
+  // During the hand_over SHOWDOWN, keep busted seats on the felt: the hero must stay at
+  // the bottom (their seat, their result) — never sidelined to 0, which would make the
+  // seat-rotation anchor (myOrder) fall through to a villain and show the villain's cards
+  // at the hero's bottom seat. Busted contenders also need to show their losing cards here.
+  // They get hidden once the NEXT hand deals (in_hand) and someone takes the bottom seat.
+  const isSidelined = (x: { s: { chips: number; inHand?: boolean } }): boolean => x.s.chips === 0 && !x.s.inHand && status !== "hand_over";
   const sidelined = allOccupied.filter(isSidelined);
   const occupied = allOccupied.filter((x) => !isSidelined(x));
   // Lobby display order: humans above bots (does NOT affect table-seat indices ti).
@@ -5419,7 +5424,11 @@ function renderNetTable(): void {
       // — silently dropping the showdown reveal. That's the human-vs-human "opponent cards never
       // show" bug; me-vs-bot was immune because the lone human is always the sole dealer. Everyone
       // keeps a manual NEXT HAND button as the fallback if the driver lags or leaves.
-      const iAutoDeal = mySeated && seats.find((s) => s.uid)?.uid === uid;
+      // The lowest-seat human drives the auto-deal — EVEN IF they busted. Nobody pauses
+      // the game for a busted hero: the next hand deals (without them) while their rebuy
+      // sheet is open, and a fast rebuy just slots them back in. (Was gated on mySeated,
+      // which is false when busted → the table would freeze until they rebought.)
+      const iAutoDeal = !!uid && seats.find((s) => s.uid)?.uid === uid;
       if (iAutoDeal) startAutoDeal(code); else if (mySeated) stopAutoDeal();
       const secs = _autoDealAt ? Math.max(0, Math.ceil((_autoDealAt - Date.now()) / 1000)) : 5;
       const dealLabel = S.net.busy ? '<span class="spin dark"></span>' : iAutoDeal ? `▶ NEXT HAND · ${secs}s` : "▶ NEXT HAND";
