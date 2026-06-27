@@ -9,9 +9,10 @@
 // stateVersion optimistic lock and a chip-conservation tripwire.
 
 import { onCall, HttpsError, type CallableRequest } from "firebase-functions/v2/https";
+import { onSchedule } from "firebase-functions/v2/scheduler";
 import { setGlobalOptions } from "firebase-functions/v2";
 import { initializeApp } from "firebase-admin/app";
-import { getFirestore, FieldValue, type Transaction } from "firebase-admin/firestore";
+import { getFirestore, FieldValue, Timestamp, type Transaction } from "firebase-admin/firestore";
 import { getAuth } from "firebase-admin/auth";
 
 import {
@@ -610,7 +611,7 @@ export const leaveTable = onCall(async (req) => {
   }).then(async (res) => {
     if ((res as { kill?: boolean }).kill) {
       // Wipes tables/{code} + its private/state, hands/*, chat/* subcollections in one BulkWriter pass.
-      await db.recursiveDelete(tableRef(code)).catch(() => { /* best-effort; listPublicRooms also hides it */ });
+      await db.recursiveDelete(tableRef(code)).catch((e) => { console.error(`leaveTable: zombie-room delete failed for ${code}:`, e); });
     }
     return res;
   });
@@ -886,6 +887,11 @@ export const adminSetEdgePass = onCall(async (req) => {
   return db.runTransaction(async (tx) => {
     const snap = await tx.get(userRef(toUid)); // read before write
     if (!snap.exists) throw new HttpsError("not-found", "Recipient not found.");
+    // Idempotent: if the entitlement is already at the target, do nothing — no re-write, no
+    // ledger entry, no inbox note. The admin auto-grant fires on every page load (it races
+    // the async wallet snapshot, so `!S.edgePass` can be true repeatedly), which was spamming
+    // the inbox with duplicate "Edge Pass unlocked" messages.
+    if ((snap.data()?.edgePass ?? false) === !!on) return { ok: true, edgePass: !!on };
     tx.set(userRef(toUid), { edgePass: !!on }, { merge: true });
     tx.set(ledgerRef().doc(), { type: "edgepass", from: "admin", fromName: (req.auth?.token?.email as string) ?? "admin", to: toUid, on: !!on, at: FieldValue.serverTimestamp() });
     tx.set(inboxRef(toUid).doc(), { kind: "admin", from: "admin", fromName: "MonteCarloEdge", text: on ? "Edge Pass unlocked for you 🎉" : "Edge Pass removed", createdAt: FieldValue.serverTimestamp(), read: false });
@@ -958,6 +964,26 @@ export const adminPurgeStaleRooms = onCall(async (req) => {
   if (!dryRun) for (const code of doomed) await db.recursiveDelete(tableRef(code)).catch(() => { /* */ });
   return { ok: true, dryRun, count: doomed.length, codes: doomed.slice(0, 100) };
 });
+
+/** Scheduled reaper for ABANDONED rooms. A clean leave already deletes a humanless room
+ *  (leaveTable `kill`), but if the last human closes the app / disconnects WITHOUT a clean
+ *  leave, leaveTable never runs and the room lingers forever (its seat still "occupied").
+ *  Such a room stops being persisted, so its `updatedAt` goes stale — we delete any table
+ *  idle for >6h. Safe for play-money: the abandoned buy-in was already debited from the
+ *  wallet on join and is topped up by the weekly free-chips ladder; nothing is minted. */
+export const reapAbandonedRooms = onSchedule(
+  { schedule: "every 3 hours", region: "asia-southeast1", timeZone: "Etc/UTC" },
+  async () => {
+    const cutoff = Timestamp.fromMillis(Date.now() - 6 * 60 * 60 * 1000); // idle > 6h = abandoned
+    const snap = await db.collection("tables").where("updatedAt", "<", cutoff).limit(500).get();
+    let killed = 0;
+    for (const doc of snap.docs) {
+      await db.recursiveDelete(tableRef(doc.id)).catch((e) => console.error(`reap ${doc.id} failed:`, e));
+      killed++;
+    }
+    if (killed) console.log(`reapAbandonedRooms: deleted ${killed} idle table(s) (updatedAt > 6h old)`);
+  },
+);
 
 /** Claim the weekly free PLAY chips on a DETERMINISTIC streak ladder (no RNG / no loot
  *  box). Server-timed (anti-cheat). Streak grows if you return within 2 weeks. */
